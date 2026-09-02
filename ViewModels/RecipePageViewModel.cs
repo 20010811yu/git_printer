@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
+using UiTopMachine.Common;
 using UiTopMachine.Common.Commands;
 using UiTopMachine.Services.Interfaces;
 
@@ -94,6 +95,14 @@ namespace UiTopMachine.ViewModels
         /// <summary>"配方编号"列名（编号唯一性校验依据；文件无此列时校验自动跳过）</summary>
         private const string RecipeIdColumn = "配方编号";
 
+        // ══════════════ 事件 ══════════════
+
+        /// <summary>
+        /// 列名输入请求事件：VM 需要用户输入列名时触发（参数为纯数据，不接触任何 UI 控件），
+        /// View 订阅此事件弹出输入弹框，并把用户选择（是否确认 + 输入内容）回填到事件参数
+        /// </summary>
+        public event EventHandler<InputRequestEventArgs>? ColumnNamingRequested;
+
         // ══════════════ 命令 ══════════════
 
         /// <summary>刷新命令：重新从当前 Excel 文件加载数据（异步，IsLoading 防重复）</summary>
@@ -105,7 +114,7 @@ namespace UiTopMachine.ViewModels
         /// <summary>新增行命令：表格末尾追加一行（自动生成唯一配方编号）</summary>
         public RelayCommand AddRowCommand { get; }
 
-        /// <summary>新增列命令：表格末尾追加一列（列名自动避免重复）</summary>
+        /// <summary>新增列命令：弹出列名输入弹框，列名校验通过后表格末尾追加一列</summary>
         public RelayCommand AddColumnCommand { get; }
 
         /// <summary>
@@ -297,23 +306,47 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 新增列：末尾追加"新列N"（N 自增避免与现有列名冲突）
+        /// 新增列：向 View 发起列名输入请求（弹框由 View 弹出，业务校验全部在 VM）——
+        /// 用户取消 → 静默放弃；列名为空 → 新增列失败（记错误日志）；
+        /// 列名重复 → 拒绝；校验通过 → 末尾追加列并自动保存
         /// </summary>
         private void AddColumn()
         {
             try
             {
-                string name;
-                int n = RecipeTable.Columns.Count + 1;
-                do
+                // ① 向 View 发起列名输入请求（View 弹模态框后同步回填结果，流程在此等待）
+                var request = new InputRequestEventArgs
                 {
-                    name = $"新列{n}";
-                    n++;
-                } while (RecipeTable.Columns.Contains(name));
+                    Title = "新增列",
+                    Prompt = "请输入新列的列名："
+                };
+                ColumnNamingRequested?.Invoke(this, request);
 
-                RecipeTable.Columns.Add(name);
-                TableVersion++; // 通知 View 重建表格以显示新列
-                _logService.Success($"已新增列「{name}」");
+                // ② 用户取消/关闭弹框：放弃本次新增（非失败场景，静默返回）
+                if (!request.Confirmed)
+                {
+                    return;
+                }
+
+                // ③ 校验一：列名为空（含纯空白）→ 新增列失败
+                var columnName = request.InputText?.Trim() ?? string.Empty;
+                if (string.IsNullOrEmpty(columnName))
+                {
+                    _logService.Error("新增列失败：列名不能为空，请重新操作并输入列名");
+                    return;
+                }
+
+                // ④ 校验二：列名与现有列重复 → 拒绝（DataTable 不允许重复列名）
+                if (RecipeTable.Columns.Contains(columnName))
+                {
+                    _logService.Error($"新增列失败：列名「{columnName}」已存在（列名不可重复）");
+                    return;
+                }
+
+                // ⑤ 校验通过：末尾追加列并通知 View 重建表格显示新列
+                RecipeTable.Columns.Add(columnName);
+                TableVersion++;
+                _logService.Success($"已新增列「{columnName}」");
 
                 _ = AutoSaveAsync();
             }

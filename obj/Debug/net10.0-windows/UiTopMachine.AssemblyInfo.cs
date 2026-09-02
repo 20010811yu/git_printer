@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("工业上位机 - 进料抽屉监控系统（WinForms + MVVM）")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+154b6c7df910278adf6a8aea485a706237dd4f21")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+988c8c416fbe477128147b8e2162f1c25e68d265")]
 [assembly: System.Reflection.AssemblyProductAttribute("UiTopMachine")]
 [assembly: System.Reflection.AssemblyTitleAttribute("UiTopMachine")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

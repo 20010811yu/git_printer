@@ -6,6 +6,12 @@
   
 ## 最近变更（2026-09-02）
 
+1.3 ✅ **新增列弹框交互 + 列名空校验**（用户需求：新增列按钮弹出输入弹框，列名为空则新增失败）：
+    - **新增 `Views/Dialogs/InputDialog.cs`**：通用输入弹框（纯 View）——说明 Label + TextBox 输入框 + AntdUI 确定（Primary）/取消按钮，FixedDialog 模态居中，回车=确定/Esc=取消，仅收集输入零业务逻辑
+    - **新增 `Common/InputRequestEventArgs.cs`**：VM↔View 输入请求事件参数（纯数据载体：Title/Prompt 由 VM 设置，Confirmed/InputText 由 View 回填）
+    - **改造 `RecipePageViewModel.AddColumn()`**：不再自动生成"新列N"，改为触发 `ColumnNamingRequested` 事件向 View 请求列名（VM 不接触 UI 控件）；校验链——用户取消→静默放弃；**列名空/纯空白→新增列失败（记 Error 日志）**；列名重复→拒绝（DataTable 不允许重复列名）；通过→追加列 + TableVersion++ + 自动保存
+    - **`RecipePage` 订阅事件**：`ShowInputDialog(request)` 弹模态框，`ShowDialog(FindForm())` 结果回填 Confirmed/InputText（纯 UI 转发）
+    - 构建通过（0 错误）；编译期曾因程序运行锁定 exe（MSB3027）失败，taskkill 后重试成功
 1.2 ✅ **构建失败修复（CS0535 接口实现缺失）**（用户需求：检查项目生成失败原因并修复）：
     - **错误现象**：`dotnet build` 报 3 个 CS0535——`RecipeFileService` 未实现 `IRecipeFileService.LoadAsync(string)` / `SaveAsync(DataTable, string)` / `CreateBlankAsync(string, string)`
     - **根因**：接口已升级为多配方管理（带路径重载 + CreateBlankAsync 带配方名/编号参数），但实现类仍是旧版（只有无参 LoadAsync、单参 SaveAsync、接口上不存在的 CreateBlankFileAsync）；ViewModel 也还在调用已被删除的 `CreateBlankFileAsync()`

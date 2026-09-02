@@ -2,8 +2,10 @@ using System;
 using System.Data;
 using System.Drawing;
 using System.Windows.Forms;
+using UiTopMachine.Common;
 using UiTopMachine.Common.Commands;
 using UiTopMachine.ViewModels;
+using UiTopMachine.Views.Dialogs;
 
 namespace UiTopMachine.Views.Pages
 {
@@ -160,6 +162,10 @@ namespace UiTopMachine.Views.Pages
             CommandManagerHelper.Bind(_createBlankButton, _viewModel.CreateBlankCommand);
             CommandManagerHelper.Bind(_openFolderButton, _viewModel.OpenFolderCommand);
 
+            // VM 请求列名输入 → 弹出输入弹框（纯 UI 转发：弹框展示与输入收集，
+            // 结果回填事件参数交由 VM 校验与处理，本页零业务逻辑）
+            _viewModel.ColumnNamingRequested += (_, request) => ShowInputDialog(request);
+
             // VM 数据/结构变化 → 重建 AntdUI Table（新增行/列/加载/新建配方均触发）
             _viewModel.PropertyChanged += (_, e) =>
             {
@@ -180,6 +186,18 @@ namespace UiTopMachine.Views.Pages
 
             // 初始绑定（空表占位，加载完成后自动刷新）
             BindTable(_viewModel.RecipeTable);
+        }
+
+        /// <summary>
+        /// 弹出输入弹框（模态）：展示标题/说明，收集用户输入并回填事件参数；
+        /// 确定 → Confirmed=true + InputText；取消/关闭 → Confirmed=false（由 VM 判定后续流程）
+        /// </summary>
+        /// <param name="request">输入请求参数（VM 创建，本方法仅回填结果）</param>
+        private void ShowInputDialog(InputRequestEventArgs request)
+        {
+            using var dialog = new InputDialog(request.Title, request.Prompt);
+            request.Confirmed = dialog.ShowDialog(FindForm()) == DialogResult.OK;
+            request.InputText = dialog.InputText;
         }
 
         /// <summary>
