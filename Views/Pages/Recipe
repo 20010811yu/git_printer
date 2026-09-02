@@ -1,0 +1,233 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+using UiTopMachine.Common.Commands;
+using UiTopMachine.ViewModels;
+
+namespace UiTopMachine.Views.Pages
+{
+    /// <summary>
+    /// 配方管理页（纯 View）：工具栏（保存/增删行列/新建空白配方/打开文件夹）+ DataGridView 表格
+    /// 表格绑定 VM 的 DataTable（双向自动回写），删除行列经动态参数提供器实时回传当前单元格
+    /// </summary>
+    public class RecipePage : UserControl
+    {
+        private readonly RecipePageViewModel _viewModel;
+
+        // ══════════════ 布局控件 ══════════════
+        private Label _titleLabel = null!;
+        private Label _descriptionLabel = null!;
+        private DataGridView _grid = null!;
+
+        /// <summary>
+        /// 构造：注入 ViewModel，初始化 UI 与绑定
+        /// </summary>
+        public RecipePage(RecipePageViewModel viewModel)
+        {
+            _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+            InitializeUi();
+            BindViewModel();
+            Load += async (_, _) => await _viewModel.InitializeAsync();
+        }
+
+        /// <summary>
+        /// 构建页面布局（标题 + 工具栏 + 表格）
+        /// </summary>
+        private void InitializeUi()
+        {
+            Dock = DockStyle.Fill;
+            BackColor = Color.FromArgb(244, 247, 250);
+            Padding = new Padding(20, 8, 20, 16);
+
+            var card = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
+            card.Paint += (s, e) =>
+            {
+                var rect = new Rectangle(0, 0, card.Width - 1, card.Height - 1);
+                using var pen = new Pen(Color.FromArgb(224, 230, 238));
+                e.Graphics.DrawRectangle(pen, rect);
+            };
+
+            // ── 标题区 ──
+            _titleLabel = new Label
+            {
+                Location = new Point(24, 14),
+                AutoSize = true,
+                Font = new Font("Microsoft YaHei UI", 16f, FontStyle.Bold, GraphicsUnit.Point),
+                ForeColor = Color.FromArgb(38, 50, 66)
+            };
+
+            _descriptionLabel = new Label
+            {
+                Location = new Point(26, 52),
+                AutoSize = true,
+                Font = new Font("Microsoft YaHei UI", 10f, FontStyle.Regular, GraphicsUnit.Point),
+                ForeColor = Color.FromArgb(120, 132, 148)
+            };
+
+            // ── 工具栏（Flow 布局，AntdUI 圆角按钮）──
+            var toolBar = new FlowLayoutPanel
+            {
+                Location = new Point(24, 84),
+                Size = new Size(1200, 56),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = Color.White,
+                Padding = new Padding(0, 6, 0, 0)
+            };
+            toolBar.Controls.Add(MakeToolButton("保存", AntdUI.TTypeMini.Primary, () => _viewModel.SaveCommand));
+            toolBar.Controls.Add(MakeToolButton("新增行", AntdUI.TTypeMini.Default, () => _viewModel.AddRowCommand));
+            toolBar.Controls.Add(MakeToolButton("新增列", AntdUI.TTypeMini.Default, () => _viewModel.AddColumnCommand));
+            toolBar.Controls.Add(MakeToolButton("删除行", AntdUI.TTypeMini.Error,
+                () => _viewModel.DeleteRowCommand, () => TupleParameter()));
+            toolBar.Controls.Add(MakeToolButton("删除列", AntdUI.TTypeMini.Error,
+                () => _viewModel.DeleteColumnCommand, () => TupleParameter()));
+            toolBar.Controls.Add(MakeToolButton("新建空白配方", AntdUI.TTypeMini.Default, () => _viewModel.CreateBlankCommand));
+            toolBar.Controls.Add(MakeToolButton("打开配方文件夹", AntdUI.TTypeMini.Default, () => _viewModel.OpenFolderCommand));
+            toolBar.Controls.Add(MakeToolButton("重新加载", AntdUI.TTypeMini.Default, () => _viewModel.ReloadCommand));
+
+            // ── 表格（DataGridView 绑定 DataTable，全行选择便于删除行列）──
+            _grid = new DataGridView
+            {
+                Location = new Point(24, 150),
+                Size = new Size(1200, 480),
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.FixedSingle,
+                AllowUserToAddRows = false,       // 增行走工具栏命令（保证 VM 记日志）
+                AllowUserToDeleteRows = false,
+                AllowUserToOrderColumns = false,
+                RowHeadersVisible = true,
+                MultiSelect = false,
+                SelectionMode = DataGridViewSelectionMode.CellSelect,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells,
+                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Point)
+            };
+            _grid.CurrentCellChanged += (_, _) =>
+            {
+                // 实时回传当前单元格 → VM（删除行列的动态参数来源）
+                var cell = _grid.CurrentCell;
+                _viewModel.CurrentCell = cell is null
+                    ? null
+                    : (cell.RowIndex, cell.ColumnIndex);
+            };
+            _grid.DataBindingComplete += (_, _) => StyleGrid();
+
+            card.Controls.AddRange(new Control[] { _titleLabel, _descriptionLabel, toolBar, _grid });
+            Controls.Add(card);
+        }
+
+        /// <summary>
+        /// 创建工具按钮：命令提供器返回 ICommand；参数提供器可选（动态参数）
+        /// </summary>
+        private AntdUI.Button MakeToolButton(
+            string text,
+            AntdUI.TTypeMini type,
+            Func<ICommand> commandProvider,
+            Func<object?>? parameterProvider = null)
+        {
+            var button = new AntdUI.Button
+            {
+                Text = text,
+                Type = type,
+                Size = new Size(126, 40),
+                Radius = 8,
+                Margin = new Padding(0, 0, 10, 0)
+            };
+            // 绑定时经命令提供器取命令（避免按钮创建时序问题），参数提供器透传
+            CommandManagerHelper.Bind(button, new ProxyCommand(commandProvider, parameterProvider));
+            return button;
+        }
+
+        /// <summary>
+        /// 当前单元格 → (row, col) 元组（删除行列的动态参数）
+        /// </summary>
+        private object? TupleParameter()
+        {
+            var cell = _viewModel.CurrentCell;
+            return cell is null ? null : (cell.Value.Row, cell.Value.Column);
+        }
+
+        /// <summary>
+        /// 表格样式（浅色表头 + 斑马纹）
+        /// </summary>
+        private void StyleGrid()
+        {
+            _grid.EnableHeadersVisualStyles = false;
+            _grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(232, 240, 254);
+            _grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(38, 50, 66);
+            _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(210, 225, 250);
+            _grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold, GraphicsUnit.Point);
+            _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+            _grid.ColumnHeadersHeight = 40;
+            _grid.RowHeadersWidth = 44;
+            _grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 253);
+            _grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(210, 228, 250);
+            _grid.DefaultCellStyle.SelectionForeColor = Color.FromArgb(30, 40, 54);
+        }
+
+        // ══════════════ 数据绑定 ══════════════
+
+        /// <summary>
+        /// 绑定 ViewModel（View ↔ VM）
+        /// </summary>
+        private void BindViewModel()
+        {
+            _titleLabel.DataBindings.Add(nameof(Label.Text), _viewModel, nameof(RecipePageViewModel.Title),
+                false, DataSourceUpdateMode.Never);
+            _descriptionLabel.DataBindings.Add(nameof(Label.Text), _viewModel, nameof(RecipePageViewModel.Description),
+                false, DataSourceUpdateMode.Never);
+
+            // 表格绑定（DataTable 变化时重建列；单元格编辑自动回写 DataTable）
+            BindGrid();
+            _viewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(RecipePageViewModel.RecipeTable))
+                {
+                    BindGrid();
+                }
+            };
+        }
+
+        /// <summary>
+        /// 绑定/重绑表格数据源（先提交并清旧绑定防串数据）
+        /// </summary>
+        private void BindGrid()
+        {
+            _grid.EndEdit();
+            _grid.DataSource = null;
+            _grid.DataSource = _viewModel.RecipeTable;
+        }
+
+        /// <summary>
+        /// 代理命令：延迟解析命令实例 + 透传动态参数（View 局部类，仅做绑定转发）
+        /// </summary>
+        private sealed class ProxyCommand : ICommand
+        {
+            private readonly Func<ICommand> _provider;
+            private readonly Func<object?>? _parameterProvider;
+
+            public ProxyCommand(Func<ICommand> provider, Func<object?>? parameterProvider)
+            {
+                _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+                _parameterProvider = parameterProvider;
+            }
+
+            public bool CanExecute(object? parameter)
+            {
+                var parameterValue = _parameterProvider?.Invoke() ?? parameter;
+                return _provider().CanExecute(parameterValue);
+            }
+
+            public void Execute(object? parameter)
+            {
+                var parameterValue = _parameterProvider?.Invoke() ?? parameter;
+                _provider().Execute(parameterValue);
+            }
+
+            public event EventHandler? CanExecuteChanged
+            {
+                add { }
+                remove { }
+            }
+        }
+    }
+}

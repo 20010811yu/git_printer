@@ -1,0 +1,112 @@
+# 系统模式 (System Patterns)
+
+## 系统架构
+
+采用 **MVVM（Model-View-ViewModel）分层架构**，结合工业上位机场景扩展通信层与数据访问层：
+
+```
+d:\GitRepo\
+├── Program.cs             # 入口：DI 组装 + 全局异常捕获
+├── UiTopMachine.csproj    # net10.0-windows + WinForms + 高 DPI
+├── Models\                # 数据模型层
+│   ├── DrawerStatus.cs    # 抽屉三态枚举（Idle/Ready/Warning）
+│   ├── DrawerModel.cs     # 抽屉实体（编号/有料/配方）
+│   └── LogEntryModel.cs   # 日志实体 + LogLevel 枚举
+├── ViewModels\            # 视图模型层
+│   ├── MainViewModel.cs   # 抽屉集合/发送退出命令/日志/统计（单例，跨页共享）
+│   ├── NavigationViewModel.cs  # 导航状态 CurrentPage + NavigateCommand（参数化）
+│   ├── PrintPageViewModel.cs   # 打印页 VM（占位：模拟打印 + 计数）
+│   ├── ImagePageViewModel.cs   # 图像页 VM（占位：模拟采集 + 计数）
+│   ├── RecipePageViewModel.cs  # 配方页 VM（AntdUI Table 编辑 + 编号唯一校验 + 新建空白配方）
+│   ├── DrawerItemViewModel.cs  # 单抽屉三态判定 + 配方双向绑定
+│   └── LogEntryViewModel.cs    # 日志行（级别着色）
+├── Views\                 # 视图层
+│   ├── MainForm.cs        # 导航壳窗体（顶栏+底部Tab+页面容器+全局日志，零业务逻辑）
+│   ├── Controls\
+│   │   ├── DrawerIndicatorControl.cs  # 圆形状态灯（自绘）
+│   │   ├── TabItemControl.cs          # 底部导航 Tab（文本+选中下划线，自绘）
+│   │   ├── FlatButton.cs              # 圆角扁平按钮（Primary/Danger/Neutral）
+│   │   └── LogPanelControl.cs         # 日志面板（级别着色）
+│   └── Pages\
+│       ├── FeedDrawersPage.cs  # 进料抽屉监控页（18 抽屉网格）
+│       ├── PrintPage.cs        # 打印管理页（占位）
+│       ├── ImagePage.cs        # 图像管理页（占位）
+│       └── RecipePage.cs       # 配方管理页（列表+编辑+单抽屉下发）
+├── Services\              # 业务服务层
+│   ├── Interfaces\IDrawerService.cs   # 含统一 Result<T> 定义
+│   ├── Interfaces\ILogService.cs
+│   ├── Interfaces\IRecipeFileService.cs  # 配方文件接口（多配方：带路径加载/保存 + CreateBlankAsync(recipeName, recipeId)）
+│   ├── MockDrawerService.cs           # 模拟实现（2 秒随机推送状态变化）
+│   ├── LogService.cs                  # 事件推送 + 文件落盘
+│   └── RecipeFileService.cs           # ClosedXML 封装（xlsx 读写全 async，SDK 对象不外泄）
+├── Communications\        # 通信层（⏳ 待接入真实 PLC 实现）
+├── Common\Commands\       # MVVM 基础设施（已实现）
+│   ├── ObservableObject.cs
+│   ├── RelayCommand.cs    # ICommand + RelayCommand + AsyncRelayCommand
+│   └── CommandManagerHelper.cs  # 命令↔控件绑定注册与刷新
+├── DataAccess\ / Configs\ / Resources\ / docs\ / tests\   # ⏳ 待开发
+└── memory-bank\           # 项目记忆文档
+```
+
+## 关键技术决策（已落地）
+
+| 决策 | 说明 |
+|------|------|
+| MVVM on WinForms | 手写基础设施（ObservableObject/RelayCommand），零冗余依赖 |
+| 分层解耦 | View 只做布局与绑定；业务在 VM；硬件交互在 Service；统一 `Result<T>` 返回 |
+| 通信独立成层 | Services 面向 `IDrawerService` 接口，真实 PLC 实现可无侵入替换 Mock |
+| DI 组装 | Program.cs 中 ServiceCollection 注册：Service 单例、VM/View 瞬态 |
+
+## 设计模式（使用中）
+
+- **观察者模式** ✅：INPC 属性通知 + 服务事件推送（DrawerChanged / LogEmitted）
+- **命令模式** ✅：ICommand + CommandManagerHelper（WinForms 无原生 CommandManager，自建绑定注册表；命令 RaiseCanExecuteChanged 触发事件 → 管理器刷新控件 Enabled；**支持参数化绑定**：Bind(control, command, parameter) 存储参数元组，刷新用原参数调 CanExecute）
+- **依赖注入** ✅：Microsoft.Extensions.DependencyInjection 构造注入
+- **Result 模式** ✅：`Result<T>` 统一成功/失败返回，Service 不抛 UI 异常
+- **Service 带路径重载数据源切换** ✅：`LoadAsync(path)/SaveAsync(table, path)` 成功后内部更新 `FilePath`（private set），无参重载始终作用于"当前工作文件"，ViewModel 无感切换
+- **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
+- **工厂/策略模式** ⏳：预留（真实多协议通信接入时启用）
+
+## 核心业务规则：抽屉三态判定
+
+```
+HasMaterial && HasRecipe   → Ready   (绿 #4CAF50)
+!HasMaterial && !HasRecipe → Idle    (灰 #BDC3C7)
+其余                        → Warning (黄 #FFC107)
+```
+实现位置：`DrawerItemViewModel.RefreshStatus()`；配方输入框双向绑定（DataSourceUpdateMode.OnPropertyChanged）即时联动状态灯。
+
+## 组件关系（数据流）
+
+```
+TabItemControl 点击 ──NavigateCommand(PageType)──▶ NavigationViewModel.CurrentPage ──PropertyChanged──▶ MainForm.ShowPage
+                                                        │
+                                                        ▼
+MockDrawerService ──DrawerChanged事件──▶ MainViewModel ──ObservableCollection──▶ FeedDrawersPage 绑定
+     (后台线程)       SynchronizationContext.Post 调度至 UI 线程      │
+                                                                     ▼
+用户输入配方 ▶ TextBox 双向绑定 ▶ DrawerItemViewModel.Recipe ▶ RefreshStatus() ▶ Status 变更
+                                                                     │
+DrawerIndicatorControl.Status 属性绑定 ◀─────────────────────────────┘ → Invalidate 重绘变色
+
+按钮点击 ▶ CommandManagerHelper.Bind ▶ command.Execute ▶ VM 业务 ▶ 日志/状态更新 ▶ 界面刷新
+```
+
+## ⚠️ 重要踩坑记录
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| `ArgumentException: 控件不支持透明的背景色` | 普通 Control 未启用 `SupportsTransparentBackColor` 样式时设置 `BackColor = Color.Transparent` | 自绘控件背景色用与父容器一致的具体色（白色）；半透明效果用 GDI+ `FromArgb` 画刷实现（不受背景色影响） |
+| `Timer` 引用歧义 CS0104 | ImplicitUsings + UseWindowsForms 同时引入 Forms 与 Threading 命名空间 | Service 层用 `System.Threading.Timer` 完全限定 |
+| CS0067 事件未使用警告 | 编译器看不到事件触发点 | RaiseCanExecuteChanged 中实际 `Invoke` 事件 |
+
+## 关键实现路径（✅ 已完成 / ⏳ 待做）
+
+1. ✅ `Common\Commands`：MVVM 基础设施（含参数化命令绑定）
+2. ✅ 18 抽屉网格 + 三态指示灯 + 配方绑定 + Status 日志
+3. ✅ 底部 Tab 页面导航（NavigationViewModel + 页面懒创建切换）
+4. ✅ 配方单抽屉下发（RecipePageViewModel 共享主页面数据源，已被 0.9 配方 Table 化覆盖）
+5. ✅ 配方文件服务多配方接口（IRecipeFileService 带路径重载 + CreateBlankAsync(recipeName, recipeId)，2026-09-02 构建修复同步补齐）
+6. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
+7. ⏳ 打印/图像真实服务接入（IPrintService / VisionCameraService）
+8. ⏳ DataAccess：数据库历史存储

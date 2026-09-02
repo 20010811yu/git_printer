@@ -1,0 +1,306 @@
+using System;
+using System.Data;
+using System.Threading.Tasks;
+using UiTopMachine.Common.Commands;
+using UiTopMachine.Services.Interfaces;
+
+namespace UiTopMachine.ViewModels
+{
+    /// <summary>
+    /// 配方管理页视图模型（Excel 表格版）：
+    /// 数据源 D:\Printer\Data\Recipe.xlsx，支持编辑/删除/新增行列/新建空白配方/打开文件夹
+    /// DataTable 直接绑定 DataGridView（双向），业务全部在本 VM + RecipeFileService
+    /// </summary>
+    public class RecipePageViewModel : ObservableObject
+    {
+        // ══════════════ 依赖 ══════════════
+        private readonly IRecipeFileService _recipeFileService;
+        private readonly ILogService _logService;
+
+        // ══════════════ 属性 ══════════════
+        private DataTable _recipeTable = new();
+        private bool _isBusy;
+        private (int Row, int Column)? _currentCell;
+
+        /// <summary>页面标题</summary>
+        public string Title => "配方管理";
+
+        /// <summary>页面说明（含数据源路径）</summary>
+        public string Description => $"数据源：{_recipeFileService.FilePath}（编辑后点击「保存」写入文件）";
+
+        /// <summary>
+        /// 配方表格（DataTable 直接绑定 DataGridView，单元格编辑自动回写）
+        /// </summary>
+        public DataTable RecipeTable
+        {
+            get => _recipeTable;
+            private set => SetProperty(ref _recipeTable, value);
+        }
+
+        /// <summary>是否忙碌（保存/加载中防重复操作）</summary>
+        public bool IsBusy
+        {
+            get => _isBusy;
+            private set
+            {
+                if (SetProperty(ref _isBusy, value))
+                {
+                    SaveCommand.RaiseCanExecuteChanged();
+                    DeleteRowCommand.RaiseCanExecuteChanged();
+                    DeleteColumnCommand.RaiseCanExecuteChanged();
+                    CreateBlankCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 当前选中单元格（行/列索引，由 View 的 DataGridView.CurrentCell 实时回传）
+        /// </summary>
+        public (int Row, int Column)? CurrentCell
+        {
+            get => _currentCell;
+            set
+            {
+                if (SetProperty(ref _currentCell, value))
+                {
+                    DeleteRowCommand.RaiseCanExecuteChanged();
+                    DeleteColumnCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        // ══════════════ 命令 ══════════════
+
+        /// <summary>保存表格到 xlsx（异步）</summary>
+        public AsyncRelayCommand SaveCommand { get; }
+
+        /// <summary>新增行</summary>
+        public RelayCommand AddRowCommand { get; }
+
+        /// <summary>新增列（参数 = 新列名，View 提供默认名）</summary>
+        public RelayCommand AddColumnCommand { get; }
+
+        /// <summary>删除当前行（参数 = (row, col) 元组，取 CurrentCell）</summary>
+        public RelayCommand DeleteRowCommand { get; }
+
+        /// <summary>删除当前列（参数 = (row, col) 元组，取 CurrentCell）</summary>
+        public RelayCommand DeleteColumnCommand { get; }
+
+        /// <summary>新建空白配方（覆盖文件，异步）</summary>
+        public AsyncRelayCommand CreateBlankCommand { get; }
+
+        /// <summary>打开配方所在文件夹</summary>
+        public RelayCommand OpenFolderCommand { get; }
+
+        /// <summary>重新加载配方文件</summary>
+        public AsyncRelayCommand ReloadCommand { get; }
+
+        // ══════════════ 构造 / 业务方法 ══════════════
+
+        /// <summary>
+        /// 构造：注入配方文件服务与日志服务
+        /// </summary>
+        public RecipePageViewModel(IRecipeFileService recipeFileService, ILogService logService)
+        {
+            _recipeFileService = recipeFileService ?? throw new ArgumentNullException(nameof(recipeFileService));
+            _logService = logService ?? throw new ArgumentNullException(nameof(logService));
+
+            // 表格变化时刷新说明文本（路径展示固定，此处保底通知）
+            RecipeTable = new DataTable("配方");
+
+            SaveCommand = new AsyncRelayCommand(_ => SaveAsync(), _ => !IsBusy);
+            AddRowCommand = new RelayCommand(_ => AddRow());
+            AddColumnCommand = new RelayCommand(p => AddColumn(p?.ToString()), _ => RecipeTable is not null);
+            DeleteRowCommand = new RelayCommand(p => DeleteRow(p), _ => CanDeleteCell());
+            DeleteColumnCommand = new RelayCommand(p => DeleteColumn(p), _ => CanDeleteCell());
+            CreateBlankCommand = new AsyncRelayCommand(_ => CreateBlankAsync(), _ => !IsBusy);
+            OpenFolderCommand = new RelayCommand(_ => OpenFolder());
+            ReloadCommand = new AsyncRelayCommand(_ => LoadAsync(), _ => !IsBusy);
+        }
+
+        /// <summary>
+        /// 初始化：加载配方文件（由 View 的 Load 事件调用）
+        /// </summary>
+        public async Task InitializeAsync()
+        {
+            await LoadAsync();
+        }
+
+        /// <summary>
+        /// 加载配方文件 → RecipeTable
+        /// </summary>
+        private async Task LoadAsync()
+        {
+            IsBusy = true;
+            try
+            {
+                var result = await _recipeFileService.LoadAsync();
+                if (result.Success && result.Data is not null)
+                {
+                    RecipeTable = result.Data;
+                    _logService.Success($"配方已加载：{result.Data.Rows.Count} 行 × {result.Data.Columns.Count} 列");
+                }
+                else
+                {
+                    _logService.Error(result.ErrorMessage ?? "加载配方失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"加载配方异常：{ex.Message}");
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        /// <summary>
+        /// 保存表格到 xlsx
+        /// </summary>
+        private async Task SaveAsync()
+        {
+            IsBusy = true;
+            try
+            {
+                // 提交 DataGridView 编辑中的单元格（由 View 在调用前完成 EndEdit 亦可）
+                var result = await _recipeFileService.SaveAsync(RecipeTable);
+                if (result.Success)
+                {
+                    _logService.Success($"配方已保存：{_recipeFileService.FilePath}");
+                }
+                else
+                {
+                    _logService.Error(result.ErrorMessage ?? "保存配方失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"保存配方异常：{ex.Message}");
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        /// <summary>
+        /// 新增一行（全空，单元格可编辑）
+        /// </summary>
+        private void AddRow()
+        {
+            RecipeTable.Rows.Add(RecipeTable.NewRow());
+            _logService.Info($"新增配方行（当前 {RecipeTable.Rows.Count} 行）");
+        }
+
+        /// <summary>
+        /// 新增列（参数为列名，空则默认"新列N"）
+        /// </summary>
+        private void AddColumn(string? columnName)
+        {
+            string name = string.IsNullOrWhiteSpace(columnName)
+                ? $"新列{RecipeTable.Columns.Count + 1}"
+                : columnName!;
+            RecipeTable.Columns.Add(name);
+            _logService.Info($"新增配方列：{name}（当前 {RecipeTable.Columns.Count} 列）");
+        }
+
+        /// <summary>
+        /// 删除参数指定的行：parameter = (row, col) 元组或行索引
+        /// </summary>
+        private void DeleteRow(object? parameter)
+        {
+            int rowIndex = ExtractIndex(parameter, 0);
+            if (rowIndex < 0 || rowIndex >= RecipeTable.Rows.Count)
+            {
+                _logService.Warn("未选中有效行，无法删除");
+                return;
+            }
+
+            RecipeTable.Rows.RemoveAt(rowIndex);
+            CurrentCell = null;
+            _logService.Info($"删除配方行（第 {rowIndex + 1} 行，剩余 {RecipeTable.Rows.Count} 行）");
+        }
+
+        /// <summary>
+        /// 删除参数指定的列：parameter = (row, col) 元组或列索引
+        /// </summary>
+        private void DeleteColumn(object? parameter)
+        {
+            int colIndex = ExtractIndex(parameter, 1);
+            if (colIndex < 0 || colIndex >= RecipeTable.Columns.Count)
+            {
+                _logService.Warn("未选中有效列，无法删除");
+                return;
+            }
+
+            string colName = RecipeTable.Columns[colIndex].ColumnName;
+            RecipeTable.Columns.RemoveAt(colIndex);
+            CurrentCell = null;
+            _logService.Info($"删除配方列：{colName}（剩余 {RecipeTable.Columns.Count} 列）");
+        }
+
+        /// <summary>
+        /// 新建空白配方：覆盖 xlsx（默认表头）并重新加载
+        /// </summary>
+        private async Task CreateBlankAsync()
+        {
+            IsBusy = true;
+            try
+            {
+                var result = await _recipeFileService.CreateBlankAsync();
+                if (result.Success)
+                {
+                    _logService.Success("已新建空白配方（含默认表头）");
+                    await LoadAsync(); // 重新加载空表
+                }
+                else
+                {
+                    _logService.Error(result.ErrorMessage ?? "新建空白配方失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"新建空白配方异常：{ex.Message}");
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        /// <summary>
+        /// 打开配方所在文件夹（资源管理器）
+        /// </summary>
+        private void OpenFolder()
+        {
+            var result = _recipeFileService.OpenFolder();
+            if (result.Success)
+            {
+                _logService.Info($"已打开配方文件夹：{_recipeFileService.FolderPath}");
+            }
+            else
+            {
+                _logService.Error(result.ErrorMessage ?? "打开文件夹失败");
+            }
+        }
+
+        /// <summary>
+        /// 删除行列需有选中单元格
+        /// </summary>
+        private bool CanDeleteCell() => !IsBusy && CurrentCell is not null;
+
+        /// <summary>
+        /// 从命令参数提取索引：支持 (row,col) 元组或 int
+        /// </summary>
+        private static int ExtractIndex(object? parameter, int slot)
+        {
+            return parameter switch
+            {
+                ValueTuple<int, int> t => slot == 0 ? t.Item1 : t.Item2,
+                int i => i,
+                _ => -1
+            };
+        }
+    }
+}
