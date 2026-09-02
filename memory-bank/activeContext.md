@@ -2,7 +2,7 @@
 
 ## 当前工作焦点
 
-**配方页删除行/列 + 确认弹框（v1.4）** —— 删除行/删除列按钮上线，删除前经 ConfirmDialog 二次确认；焦点跟踪（CellClick + CellFocused 双订阅，详 ERR-012）驱动删除命令可用态。构建 0 警告 0 错误，运行验证通过（PID 25012）。
+**配方页新增行空行蒸发修复（v1.4c，ERR-014）** —— 修复「新增行/清空的行在刷新后消失」：ClosedXML 空字符串单元格不落盘 + `RowsUsed()` 跳过空行导致往返后行蒸发；`RecipeFileService` 双端修复（写端空行首列空格占位、读端末行行号逐行装载），VM `AddRow` 无编号列时补提示日志。构建 0 警告 0 错误，往返验证 8 PASS / 0 FAIL。
 
 ## 当前处理中的错误
 
@@ -14,10 +14,16 @@
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 
-> 其余历史错误（ERR-001~007、ERR-010）均已 🟢 解决，详见 errorlog.md
+> 其余历史错误（ERR-001~007、ERR-010~014）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-02）
 
+1.4c ✅ **修复新增行刷新后消失（空行蒸发）**（用户反馈：「新增行不能添加数据，在刷新之后不显示」）：
+    - **根因（ERR-014）**：用户配方表无「配方编号」列 → 新增行为全空行；ClosedXML 对空字符串单元格不落盘（整行在 xlsx XML 层面不存在）+ `LoadCoreAsync` 用 `RowsUsed().Skip(1)` 枚举（空行被跳过）→「新增空行→自动保存成功→刷新」后行凭空消失（日志铁证：14:44~14:51 四次「已新增第 19 行」→ 刷新均回到 18 行）
+    - **修复一（写端）**：`RecipeFileService.SaveCoreAsync` 逐行检测整行全空时向首列写入单个空格 `" "` 占位，保证空行在文件中真实存在
+    - **修复二（读端）**：`LoadCoreAsync` 弃用 `RowsUsed()` 枚举，改 `ws.LastRowUsed().RowNumber()` 定末行 + for 循环逐行装载（空行/中间空行全保留），空格占位经 `Trim` 还原为空
+    - **附带修复**：中间行被清空后刷新不再消失；`ws.LastRowUsed()` 空引用防护（CS8602）；VM `AddRow` 无编号列时记 Info 日志提示
+    - **验证**：构建 0 警告 0 错误；临时控制台往返验证 8 PASS / 0 FAIL（空行保留/中间空行位置不变/有数据行完整/真实 Recipe.xlsx 可加载）
 1.4b ✅ **修复新增行按钮永久禁用**（用户反馈：「新增行按钮依旧是灰色不可点击状态」）：
     - **根因（ERR-013）**：`AddRowCommand.CanExecute = !IsLoading && RecipeTable.Columns.Count > 0`，初始空表绑定为禁用；但数据加载后 **`AddRowCommand.RaiseCanExecuteChanged()` 从未被任何 setter 触发**，按钮永远停留在禁用态——属性 setter 逐个手动列举刷新命令的维护方式天然易漏
     - **修复**：VM 提取 `RefreshAllCommandStates()` 统一刷新全部 8 个命令；`RecipeTable`/`IsLoading`/`IsSaving` 三个 setter 全部接入，属性变化即全量刷新，杜绝遗漏
@@ -137,7 +143,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-013 命令刷新漏刷
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发
 
 ### API 知识与技巧（保留本体）
 
@@ -148,6 +154,7 @@ ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数
 - ClosedXML 写 xlsx：`ws.Columns().AdjustToContents()` 自适应列宽；表头样式用 `XLColor.FromHtml`；目录不存在时 `Directory.CreateDirectory` 兜底
 - **AntdUI 2.4.7 Table**：动态列用 `AntList<AntItem[]>`，行 = `AntItem(key, value)[]`，key 匹配 `Column(key, title).key`（详 ERR-010）；单元格编辑 `EditMode = TEditMode.DoubleClick` + `EditLostFocus = true`，`CellEndEdit` 委托 `bool Handler(object, TableEndEditEventArgs)` 返回 false 自动还原显示（适合校验拒绝场景）；AntItem 是 class（key/value 属性）
 - **反射检查第三方 API 套路**：临时控制台项目 LoadFrom DLL 反射导出类型与方法签名（需 UseWindowsForms=true 解析 WinForms 依赖），或直接引用包写编译用例实证，用完即删
+- ⚠️ **ClosedXML 空行语义（ERR-014）**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端空行占位 + 读端自己维护行号循环」，不要依赖 RowsUsed 枚举
 - **VM↔View 输入请求模式（1.3 落地）**：VM 触发事件（携带 Title/Prompt）→ View 弹模态 InputDialog → 结果回填事件参数（Confirmed/InputText）→ VM 按结果继续业务；VM 全程不接触 UI 控件，适合弹框收集输入类交互
 - **VM↔View 确认请求模式（1.4 落地）**：同输入请求模式，ConfirmRequestEventArgs（Title/Message/Confirmed）→ View 弹 ConfirmDialog；适合删除等危险操作二次确认
 - ⚠️ **AntdUI 2.4.7 Table 焦点/点击 API（反射实证）**：`CellFocused` 事件鼠标单击**不触发**（偏向键盘焦点导航），跟踪鼠标选中必须订阅 `CellClick`（`TableClickEventArgs` 含 `RowIndex/ColumnIndex/Button/Clicks`，继承 MouseEventArgs）；两者签名一致可共用处理逻辑双订阅；`FocusedCell` 是嵌套类型 `Table+CELL`（外部不可直接用）；`SelectedIndex`/`SelectedIndexs` 为行选中（int/int[]），删除单格所在列需用 ColumnIndex；点击表头时 RowIndex/ColumnIndex 为 -1（可作取消选中依据）

@@ -114,6 +114,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 | PowerShell 环境 `&&` / `mkdir` 多参数不可用 | 单命令或 `;` 分隔；`New-Item -ItemType Directory` | ERR-008/011 |
 | AntdUI Table 不接受 DataTable | View 层 `BindTable` 适配为 `AntList<AntItem[]>` | ERR-010 |
 | AntdUI `CellFocused` 鼠标单击不触发 | 跟踪鼠标选中订阅 `CellClick`（双订阅共用处理） | ERR-012 |
+| ClosedXML `RowsUsed()` 跳过空行致保存的空行蒸发 | 写端整行全空时首列写空格占位；读端 `LastRowUsed().RowNumber()` + for 循环逐行装载 | ERR-014 |
 
 ## 关键实现路径（✅ 已完成 / ⏳ 待做）
 

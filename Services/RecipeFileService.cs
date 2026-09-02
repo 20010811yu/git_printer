@@ -223,13 +223,25 @@ namespace UiTopMachine.Services
                         }
                     }
 
-                    // 读数据行
-                    foreach (var row in usedRange.RowsUsed().Skip(1))
+                    // 读数据行（⚠️ 不用 RowsUsed() 枚举：它只返回有内容的行，空行会被跳过，
+                    // 导致保存的空行在重新加载时消失（详 ERR-014）。
+                    // 改用末行行号逐行循环装载，空行/中间空行全部保留为空白行；
+                    // 空格占位单元格经 Trim 还原为空字符串）
+                    var lastRow = ws.LastRowUsed();
+                    if (lastRow is null)
+                    {
+                        table.AcceptChanges();
+                        return Result<DataTable>.OK(table); // 表内无任何行（仅表头都不存在）
+                    }
+
+                    int lastRowNumber = lastRow.RowNumber();
+                    for (int r = 2; r <= lastRowNumber; r++)
                     {
                         var dataRow = table.NewRow();
                         for (int c = 1; c <= table.Columns.Count; c++)
                         {
-                            dataRow[c - 1] = row.Cell(c).GetString();
+                            var cellText = ws.Cell(r, c).GetString();
+                            dataRow[c - 1] = cellText.Trim();
                         }
                         table.Rows.Add(dataRow);
                     }
@@ -275,12 +287,27 @@ namespace UiTopMachine.Services
                         ws.Cell(1, c + 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F0FE");
                     }
 
-                    // 写数据
+                    // 写数据（⚠️ ClosedXML 对纯空字符串单元格不落任何痕迹 → 整行全空时
+                    // 该行在 xlsx 文件 XML 层面不存在，重新加载时读不到，
+                    // 表现为「新增行/清空的行在刷新后消失」（详 ERR-014）。
+                    // 解决：整行全空时向首列写入单个空格占位，保证该行在文件中真实存在；
+                    // 空格经 IsNullOrWhiteSpace 判定为空白，不影响编号唯一性校验等既有逻辑）
                     for (int r = 0; r < table.Rows.Count; r++)
                     {
+                        var isRowEmpty = true;
                         for (int c = 0; c < table.Columns.Count; c++)
                         {
-                            ws.Cell(r + 2, c + 1).Value = table.Rows[r][c]?.ToString() ?? string.Empty;
+                            var text = table.Rows[r][c]?.ToString() ?? string.Empty;
+                            ws.Cell(r + 2, c + 1).Value = text;
+                            if (text.Length > 0)
+                            {
+                                isRowEmpty = false;
+                            }
+                        }
+
+                        if (isRowEmpty && table.Columns.Count > 0)
+                        {
+                            ws.Cell(r + 2, 1).Value = " "; // 空格占位：让空行在文件中留下痕迹
                         }
                     }
 

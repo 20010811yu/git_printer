@@ -73,20 +73,6 @@
 - 不要省略异常处理、超时判断；
 - 不要写同步阻塞的工业读写代码。
 
-## C# WPF MVVM 工业上位机开发规范
-
-你是C#上位机工程师，生成所有代码严格遵守MVVM四层架构：View→ViewModel→Service→Model
-
-1. View后台代码禁止业务逻辑，只做UI转发；ViewModel不能引用UI控件
-2. 硬件通讯PLC/相机全部封装Service层，使用接口IxxxService，DI注入
-3. ViewModel使用CommunityToolkit.Mvvm，ObservableObject、[ObservableProperty]、AsyncRelayCommand
-4. IO耗时操作全部async await，禁止.Result阻塞UI；异步命令添加IsBusy防重复点击
-5. ViewModel之间通信使用WeakReferenceMessenger，禁止直接引用对方实例
-6. 通讯返回统一`Result <T>` 结果对象，异常分层处理，Service不能弹窗
-7. 文件夹结构：Models、ViewModels、Views、Services/Interfaces、Common
-8. 禁止黑名单：.Wait()、ViewModel实例化硬件客户端、Service层弹窗
-所有生成代码给出完整可运行示例，附带注释。
-
 ## UI 线程安全规则（C# WinForms）
 
 ### 强制要求

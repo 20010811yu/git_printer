@@ -334,11 +334,16 @@ namespace UiTopMachine.ViewModels
 
                 var row = RecipeTable.NewRow();
 
-                // 自动生成唯一配方编号（列存在时）
+                // 自动生成唯一配方编号（列存在时）；无编号列则提示新行为全空行
+                //（空行依赖 Service 层空格占位落盘，否则刷新后该行会消失，详 ERR-014）
                 var idCol = RecipeTable.Columns.IndexOf(RecipeIdColumn);
                 if (idCol >= 0)
                 {
                     row[idCol] = GenerateUniqueRecipeId();
+                }
+                else
+                {
+                    _logService.Info($"表格无「{RecipeIdColumn}」列，新增行暂为空白行，请双击单元格录入数据");
                 }
 
                 RecipeTable.Rows.Add(row);

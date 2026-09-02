@@ -44,6 +44,7 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 4. **无 WPF CommandManager**：命令状态刷新需手动调 `RaiseCanExecuteChanged()`
 5. **UI 线程**：硬件 IO 全 async/await；后台事件禁止直接操作绑定控件
 6. **AntdUI Table 事件语义**：`CellFocused` 鼠标单击不触发（键盘焦点用），跟踪鼠标选中必须订阅 `CellClick`（详 ERR-012）；第三方事件勿望文生义，先反射实证
+7. **ClosedXML 空行语义**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端整行全空时首列空格占位 + 读端 `LastRowUsed().RowNumber()` 行号循环逐行装载」，不要依赖 RowsUsed 枚举（详 ERR-014）
 
 ## 依赖清单
 
