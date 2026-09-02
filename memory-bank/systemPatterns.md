@@ -107,6 +107,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 | 自绘控件 `BackColor = Color.Transparent` 抛异常 | 用具体色 + GDI+ `FromArgb` 半透明画刷 | ERR-001 |
 | `Timer` 歧义 CS0104 | 后台定时器完全限定 `System.Threading.Timer` | ERR-002 |
 | 参数化命令被 `CanExecute(null)` 误判禁用 | 绑定存原参数/参数提供器，刷新带参调 CanExecute | ERR-004 |
+| 属性 setter 漏刷命令致按钮永久禁用 | VM 统一 `RefreshAllCommandStates()` 全量刷新 | ERR-013 |
 | 接口升级后实现类/调用方未同步（CS0535） | 改接口 → 同步实现类 → 全局搜索旧方法名调用 | ERR-005 |
 | 构建报 MSB3027 exe 被锁 | 先 taskkill 再构建 | ERR-006 |
 | 自动保存与手动保存并发写 xlsx 冲突 | `SemaphoreSlim(1,1)` 统一入口串行化 | ERR-007 |

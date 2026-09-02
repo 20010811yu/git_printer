@@ -50,7 +50,9 @@ namespace UiTopMachine.ViewModels
             {
                 if (SetProperty(ref _recipeTable, value))
                 {
-                    LoadCommand.RaiseCanExecuteChanged();
+                    // 表格结构变化（加载/新建）：依赖行列数的命令全部刷新可用态
+                    //（详 ERR-013：漏刷 AddRowCommand 导致按钮永久禁用）
+                    RefreshAllCommandStates();
                 }
             }
         }
@@ -73,8 +75,9 @@ namespace UiTopMachine.ViewModels
             {
                 if (SetProperty(ref _isLoading, value))
                 {
-                    LoadCommand.RaiseCanExecuteChanged();
-                    CreateBlankCommand.RaiseCanExecuteChanged();
+                    // 加载状态变化：所有命令的 CanExecute 都依赖 !IsLoading，统一刷新
+                    //（详 ERR-013：漏刷导致依赖命令状态不同步）
+                    RefreshAllCommandStates();
                 }
             }
         }
@@ -87,7 +90,7 @@ namespace UiTopMachine.ViewModels
             {
                 if (SetProperty(ref _isSaving, value))
                 {
-                    SaveCommand.RaiseCanExecuteChanged();
+                    RefreshAllCommandStates();
                 }
             }
         }
@@ -143,6 +146,25 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>打开文件夹命令：资源管理器定位配方所在目录</summary>
         public RelayCommand OpenFolderCommand { get; }
+
+        // ══════════════ 私有辅助 ══════════════
+
+        /// <summary>
+        /// 统一刷新全部命令的 CanExecuteChanged（CommandManagerHelper 据此同步按钮 Enabled）：
+        /// 任何影响命令可用性的状态（RecipeTable/IsLoading/IsSaving）变化后必须调用，
+        /// 避免逐个列举遗漏（详 ERR-013：AddRowCommand 漏刷导致按钮永久禁用）
+        /// </summary>
+        private void RefreshAllCommandStates()
+        {
+            LoadCommand.RaiseCanExecuteChanged();
+            SaveCommand.RaiseCanExecuteChanged();
+            AddRowCommand.RaiseCanExecuteChanged();
+            AddColumnCommand.RaiseCanExecuteChanged();
+            DeleteRowCommand.RaiseCanExecuteChanged();
+            DeleteColumnCommand.RaiseCanExecuteChanged();
+            CreateBlankCommand.RaiseCanExecuteChanged();
+            OpenFolderCommand.RaiseCanExecuteChanged();
+        }
 
         // ══════════════ 构造 ══════════════
 

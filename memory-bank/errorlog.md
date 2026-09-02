@@ -98,6 +98,14 @@
 - **验证结果**：目录创建正常
 - **教训**：环境类坑优先查实际 shell 类型（见 ERR-008）
 
+### ERR-013：AddRowCommand 永久禁用（RaiseCanExecuteChanged 漏刷）
+- **错误现象**：「新增行」按钮在数据加载完成后仍为灰色不可点击
+- **发生上下文**：配方页 v1.4，`AddRowCommand.CanExecute = !IsLoading && RecipeTable.Columns.Count > 0`——初始空表（0 列）时绑定为禁用，但数据加载成功后**没有任何代码触发该命令的 CanExecuteChanged**，按钮停留在禁用态
+- **根本原因**：VM 多个属性 setter（RecipeTable/IsLoading/IsSaving）各自手动列举要刷新的命令，`AddRowCommand` 被遗漏——逐个列举的维护方式天然易漏
+- **解决方式**：VM 提取 `RefreshAllCommandStates()` 统一刷新全部 8 个命令，三个属性 setter 全部改调此方法；属性变化 → 全量刷新，简单可靠不再遗漏
+- **验证结果**：🟢 已解决——构建 0 警告 0 错误，运行验证按钮恢复正常（PID 24312）
+- **教训**：⚠️ WinForms 无自动命令刷新机制，**属性变化影响命令可用性时必须显式通知**；多个命令依赖同一属性时用「全量刷新」替代「逐个列举」，遗漏一次就是永久禁用；评审命令 CanExecute 时同步检查其依赖属性的每个 setter 是否触发了刷新
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -116,6 +124,7 @@
 4. **构建失败** → 先确认 exe 未运行（MSB3027），再读 CS 错误码（ERR-006）
 5. **AntdUI Table** → 只用 `AntList<AntItem[]>` 适配，DataTable 必须先转换（ERR-010）；跟踪鼠标选中用 `CellClick`（`CellFocused` 单击不触发，ERR-012）
 6. **执行命令** → PowerShell 语法：单命令或 `;` 分隔，禁 `&&`（ERR-008/011）
+6a. **命令 CanExecute 依赖属性** → 属性 setter 必须触发 RaiseCanExecuteChanged；多命令共用时用统一的全量刷新方法（ERR-013）
 7. **WinForms 绑定** → 后台线程更新控件经 `SynchronizationContext.Post` / `BeginInvoke`；重绑前 `DataBindings.Clear()`
 8. **自绘控件** → 禁用 `Color.Transparent` 背景色（ERR-001）；标注 `[DesignerSerializationVisibility(Hidden)]`
 

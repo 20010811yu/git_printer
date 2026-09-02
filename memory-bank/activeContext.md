@@ -18,6 +18,10 @@
 
 ## 最近变更（2026-09-02）
 
+1.4b ✅ **修复新增行按钮永久禁用**（用户反馈：「新增行按钮依旧是灰色不可点击状态」）：
+    - **根因（ERR-013）**：`AddRowCommand.CanExecute = !IsLoading && RecipeTable.Columns.Count > 0`，初始空表绑定为禁用；但数据加载后 **`AddRowCommand.RaiseCanExecuteChanged()` 从未被任何 setter 触发**，按钮永远停留在禁用态——属性 setter 逐个手动列举刷新命令的维护方式天然易漏
+    - **修复**：VM 提取 `RefreshAllCommandStates()` 统一刷新全部 8 个命令；`RecipeTable`/`IsLoading`/`IsSaving` 三个 setter 全部接入，属性变化即全量刷新，杜绝遗漏
+    - 构建 0 警告 0 错误，运行验证按钮恢复可用（PID 24312）
 1.4a ✅ **按钮样式优化 + 连续删除焦点钳制**（用户反馈：「按钮状态为灰色」）：
     - **诊断结论**：日志证实删除功能实际正常（已成功删除 3 列并自动保存）；「灰色」痛点 = ① 新增行/列用 `TTypeMini.Default` 灰白样式被误认为禁用 ② 删除一次后焦点重置，按钮回到禁用态，连续删除需重新点选
     - **修复一（语义色）**：新增行/新增列按钮改 `TTypeMini.Success` 绿色（正向操作），与删除的 Error 红色形成语义对比，消除「灰色=禁用」误解
@@ -133,7 +137,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-013 命令刷新漏刷
 
 ### API 知识与技巧（保留本体）
 

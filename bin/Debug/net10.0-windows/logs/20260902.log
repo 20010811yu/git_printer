@@ -155,3 +155,24 @@
 14:41:18.504 [Info] 正在加载配方文件：D:\Printer\Data\Recipe.xlsx
 14:41:18.571 [Info] 切换页面 → 配方管理
 14:41:21.945 [Success] 配方加载完成：18 行 / 26 列
+14:44:38.132 [Info] 系统初始化完成，正在读取抽屉状态…
+14:44:38.402 [Info] 抽屉 1 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.412 [Info] 抽屉 3 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.413 [Info] 抽屉 4 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.414 [Info] 抽屉 5 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.415 [Info] 抽屉 8 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.416 [Info] 抽屉 9 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.416 [Info] 抽屉 10 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.417 [Info] 抽屉 13 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.418 [Info] 抽屉 14 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.418 [Info] 抽屉 15 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.419 [Info] 抽屉 16 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.419 [Info] 抽屉 18 状态变更：Idle → Warning（有料，配方：无）
+14:44:38.437 [Success] 已加载 18 个抽屉状态
+14:44:44.286 [Info] 正在加载配方文件：D:\Printer\Data\Recipe.xlsx
+14:44:44.320 [Info] 切换页面 → 配方管理
+14:44:46.357 [Success] 配方加载完成：18 行 / 26 列
+14:44:53.754 [Success] 已新增第 19 行
+14:44:54.437 [Info] 已自动保存至 D:\Printer\Data\Recipe.xlsx
+14:45:06.049 [Info] 正在加载配方文件：D:\Printer\Data\Recipe.xlsx
+14:45:06.172 [Success] 配方加载完成：18 行 / 26 列

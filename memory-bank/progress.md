@@ -4,6 +4,7 @@
 
 ### 删除行/列 + 确认弹框（2026-09-02）⭐ 最新
 
+- [x] **1.4b 修正**：修复新增行按钮永久禁用（ERR-013——`AddRowCommand.RaiseCanExecuteChanged` 从未被触发）；VM 提取 `RefreshAllCommandStates()` 全量刷新，三个属性 setter 统一接入（PID 24312）
 - [x] **1.4a 修正**：新增行/列按钮 `Default` → `Success` 绿色（灰白样式被误读为禁用）；删除后焦点钳制到相邻行/列（`Math.Min`），连续删除无需重新点选 + `SelectedIndex` 恢复选中高亮（PID 16500）
 - [x] 新增 `Common/ConfirmRequestEventArgs.cs`（VM↔View 确认请求事件参数）+ `Views/Dialogs/ConfirmDialog.cs`（⚠ 警示 + Error 红确定按钮）
 - [x] `RecipePageViewModel`：`DeletionConfirmRequested` 事件 + `DeleteRowCommand`/`DeleteColumnCommand`（CanExecute 校验索引 → 无选中时按钮禁用）；删除链路 = 索引校验 → 确认弹框 → 移除 + TableVersion++ + 自动保存
@@ -102,4 +103,5 @@
 | 2026-09-02 | 删除命令用单元格焦点索引 + 动态参数提供器 | 无选中行/列时按钮自动禁用，重建表格后焦点重置 |
 | 2026-09-02 | 焦点跟踪改 CellClick + CellFocused 双订阅（初版仅 CellFocused 实测单击不触发） | 反射实证 + 用户实测：鼠标选中必须走 CellClick（详 ERR-012） |
 | 2026-09-02 | 新增按钮 Success 绿色 + 删除后焦点钳制（1.4a） | Default 灰白样式被误读为禁用；焦点重置导致连续删除需反复点选 |
+| 2026-09-02 | VM 命令刷新改统一全量刷新 `RefreshAllCommandStates()`（1.4b，ERR-013） | 属性 setter 逐个列举刷新命令天然易漏，漏刷即按钮永久禁用 |
 | 2026-09-02 | 建立 errorlog.md 作为错误唯一事实来源 | 按记忆库规范集中管理错误条目/防回归清单，其他文件只留摘要+链接 |
