@@ -1,0 +1,126 @@
+# 错误日志 (Error Log)
+
+> 项目"问题—解决方式"的**唯一事实来源**。其他记忆库文件只留摘要 + 指向本文件编号，避免重复膨胀。
+>
+> **记录原则**：必须记录——导致任务中断或返工的错误、多次尝试才解决的问题、环境与依赖相关的坑、AI 生成代码的典型错误模式；不予记录——当场修复且无副作用的一次性笔误。
+>
+> **生命周期**：🔴 未解决 → 🟡 规避中 → 🟢 已解决（复现时更新原条目，不新建）
+
+---
+
+## 错误条目
+
+### ERR-001：WinForms 透明背景 ArgumentException
+- **错误现象**：自绘控件设置 `BackColor = Color.Transparent` 抛 `ArgumentException: 控件不支持透明的背景色`
+- **发生上下文**：`DrawerIndicatorControl` / `TabItemControl` 等自绘控件绘制背景时
+- **根本原因**：普通 Control 未通过 `SetStyle(ControlStyles.SupportsTransparentBackColor, true)` 启用透明支持，直接赋值 Transparent 非法
+- **解决方式**：背景色用与父容器一致的具体色（白色）；半透明效果改用 GDI+ `Color.FromArgb` 画刷实现（不受背景色影响）
+- **验证结果**：🟢 已解决——18 抽屉网格与 Tab 导航渲染正常
+- **教训**：WinForms 自绘控件慎用 Transparent，GDI+ 半透明画刷是更可控的替代
+
+### ERR-002：CS0104 Timer 引用歧义
+- **错误现象**：编译错误 `CS0104: Timer 是 "System.Windows.Forms.Timer" 和 "System.Threading.Timer" 之间的不明确引用`
+- **发生上下文**：Service 层（MockDrawerService）使用 Timer 时
+- **根本原因**：ImplicitUsings + csproj 的 UseWindowsForms 同时引入两个命名空间，`Timer` 类型歧义
+- **解决方式**：Service 层用 `System.Threading.Timer` 完全限定名
+- **验证结果**：🟢 已解决——构建 0 警告 0 错误
+- **教训**：WinForms 项目中后台定时器一律完全限定，避免依赖 using 顺序
+
+### ERR-003：CS0067 事件未使用警告
+- **错误现象**：编译警告 `CS0067: 事件 "EventHandler" 从未使用过`
+- **发生上下文**：RelayCommand 的 `CanExecuteChanged` 事件声明后，编译器找不到触发点
+- **根本原因**：编译器静态分析看不到事件被 invoke 的代码路径
+- **解决方式**：`RaiseCanExecuteChanged()` 中实际调用 `EventHandler?.Invoke(this, EventArgs.Empty)`
+- **验证结果**：🟢 已解决——构建 0 警告
+- **教训**：ICommand 实现里 CanExecuteChanged 必须有真实触发点，WinForms 无 CommandManager 自动刷新
+
+### ERR-004：参数化命令 CanExecute(null) 误判禁用
+- **错误现象**：底部 Tab 全部被禁用，点击无响应
+- **发生上下文**：CommandManagerHelper 统一用 `CanExecute(null)` 刷新所有绑定命令时
+- **根本原因**：NavigateCommand 带 PageType 参数，`CanExecute` 校验 `parameter is PageType`，传 null 被误判为不可执行 → 控件 Enabled 全刷为 false
+- **解决方式**：绑定时存储 `(Control, Parameter)` 元组，刷新时用**原参数**调 CanExecute；后续升级为 `(Control, Func<object?> 参数提供器)` 支持动态参数
+- **验证结果**：🟢 已解决——Tab 导航正常切换
+- **教训**：⚠️ WinForms ICommand 无泛型约束，参数化命令的刷新必须携带原参数；动态参数（如当前选中单元格）用 ProxyCommand + 参数提供器实时取值，CanExecute 与 Execute 取同一参数源保证一致性
+
+### ERR-005：CS0535 接口升级后实现类未同步
+- **错误现象**：`dotnet build` 报 3 个 CS0535——`RecipeFileService` 未实现 `IRecipeFileService.LoadAsync(string)` / `SaveAsync(DataTable, string)` / `CreateBlankAsync(string, string)`
+- **发生上下文**：IRecipeFileService 升级为多配方接口（2026-09-02），实现类未同步
+- **根本原因**：接口加了带路径重载与 CreateBlankAsync 带参版本，但实现类仍是旧版方法签名；且 ViewModel 还在调用接口上已不存在的旧方法 `CreateBlankFileAsync()`（修完 Service 还会在 VM 处二次报错）
+- **解决方式**：① 重写 RecipeFileService——提取私有核心 `LoadCoreAsync/SaveCoreAsync` 消除重复，带路径重载成功后切换 `FilePath`（private set），实现 `CreateBlankAsync(recipeName, recipeId)`；② 全局搜索 VM 中旧方法名调用并同步修正
+- **验证结果**：🟢 已解决——构建 0 警告 0 错误
+- **教训**：⚠️ 接口升级必须同步实现类 + 全局搜索所有调用方（Service 修完不等于修完，VM 层旧调用是第二波编译错误）
+
+### ERR-006：MSB3027 程序运行锁定 exe
+- **错误现象**：构建错误 `MSB3027: 无法复制 bin\...\UiTopMachine.exe 到 ...，文件正被另一进程使用`
+- **发生上下文**：程序仍在运行时执行 `dotnet build`
+- **根本原因**：Windows 下运行中的 exe 被锁定，覆盖输出失败
+- **解决方式**：`taskkill /f /im UiTopMachine.exe` 结束进程后重试构建
+- **验证结果**：🟢 已解决——重试构建成功
+- **教训**：构建前确认目标 exe 未在运行；GUI 调试循环"改代码→构建→运行"尤其易踩
+
+### ERR-007：并发保存 xlsx 抛 IOException 文件锁冲突
+- **错误现象**：`System.IO.IOException: The process cannot access the file ... because it is being used by another process`
+- **发生上下文**：配方页验证时，单元格编辑触发的自动保存与手动保存按钮并发写同一 `Recipe.xlsx`
+- **根本原因**：ClosedXML `SaveAs` 写盘期间独占文件句柄，两个保存并发时后者拿不到锁
+- **解决方式**：ViewModel 层加 `SemaphoreSlim(1,1) _saveLock`，所有保存统一走 `SaveCoreAsync` 串行化写盘
+- **验证结果**：🟢 已解决——连续快速编辑+保存不再报错
+- **教训**：⚠️ 自动保存类后台 IO 必须考虑与用户手动操作并发，同一资源的写入用信号量排队
+
+### ERR-008：Cline 终端 `&&` 命令分隔符报错
+- **错误现象**：`cd xxx && dotnet build` 报错 `标记"&&"不是此版本中有效的语句分隔符`
+- **发生上下文**：execute_command 执行多命令时
+- **根本原因**：Cline 终端实际是 **PowerShell** 而非 cmd，`&&` 在旧版 PowerShell 中不可用
+- **解决方式**：🟡 规避中——工作目录已在项目根时直接执行单命令；确需多命令用 `;` 分隔
+- **验证结果**：单命令与 `;` 分隔均正常
+- **教训**：执行命令前先按 PowerShell 语法书写；`mkdir` 多参数同样不可用（用 `New-Item -ItemType Directory -Force`）
+
+### ERR-009：dotnet build 输出 GBK 乱码
+- **错误现象**：PowerShell 中 `dotnet build` 中文输出显示为乱码
+- **发生上下文**：所有构建命令
+- **根本原因**：MSBuild 输出编码（GBK/CP936）与终端解码不匹配
+- **解决方式**：🟡 规避中——仅显示问题，凭关键字辨识："已成功生成"/"0 个警告"/"0 个错误" 即成功；错误码（CS/MSB）为 ASCII 不受影响；管道接 `| Out-String` 可读性更好
+- **验证结果**：可正常解读构建结果
+- **教训**：乱码不等于构建失败，先找 CS/MSB 错误码再判断
+
+### ERR-010：AntdUI Table 不支持 DataTable 直接绑定
+- **错误现象**：将 `DataTable` 传入 `table.Binding(...)` 编译/运行类型不匹配
+- **发生上下文**：配方页 AntdUI Table 化时尝试直接绑定 DataTable 数据源
+- **根本原因**：AntdUI 2.4.7 `Table.Binding<T>` 只接受 `AntList<T>` 或 `BindingList<T>`（反射确认签名）
+- **解决方式**：View 层写 `BindTable(DataTable)` 适配方法——按 DataTable 列重建 `Column(key, title)`，逐行转 `AntItem(key, value)[]` 装入 `AntList<AntItem[]>` 后 Binding；TableVersion++ 通知 View 重建
+- **验证结果**：🟢 已解决——Excel 任意表头动态列正常展示
+- **教训**：⚠️ 第三方 UI 库 API 以反射/编译用例实证为准，不凭文档臆测；反射检查套路：临时控制台项目 LoadFrom DLL 导出签名（需 UseWindowsForms=true 解析依赖），用完即删
+
+### ERR-011：PowerShell `mkdir` 多参数不可用
+- **错误现象**：`mkdir a b c` 报错（cmd 语法可一次建多个，PowerShell 不行）
+- **发生上下文**：批量创建目录结构时
+- **根本原因**：PowerShell 的 mkdir 是 New-Item 别名，一次只接受一个路径
+- **解决方式**：🟡 规避中——用 `New-Item -ItemType Directory -Force <路径>` 逐个创建，或多条命令 `;` 分隔
+- **验证结果**：目录创建正常
+- **教训**：环境类坑优先查实际 shell 类型（见 ERR-008）
+
+### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
+- **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
+- **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
+- **根本原因**：AntdUI 2.4.7 的 `CellFocused` 事件在鼠标单击时**不触发**（偏向键盘焦点导航）；跟踪鼠标选中必须订阅 `CellClick`（`TableClickEventArgs` 含 RowIndex/ColumnIndex，继承 MouseEventArgs）
+- **解决方式**：`CellClick + CellFocused` 双事件订阅，共用 `UpdateFocus` 处理函数（两者参数均含 RowIndex/ColumnIndex）；点击表头（索引 < 0）视为取消选中
+- **验证结果**：🟢 已解决——反射实证两事件委托签名后修正，构建 0 错误
+- **教训**：⚠️ 第三方 UI 库事件名不能望文生义（"Focused"≠鼠标点击），必须反射实证委托签名并用运行时行为验证；同名委托可能是其他组件的（`ClickEventHandler` 首轮全局按名搜索命中了 Chat 组件的同名委托，需从 `Table.GetEvent` 取真实类型）
+
+---
+
+## 防回归清单（编码前必查）
+
+1. **接口改动** → 同步实现类 + 全局搜索旧方法名调用（ERR-005）
+2. **参数化命令** → 刷新用原参数，禁止统一 `CanExecute(null)`（ERR-004）
+3. **同一文件写入** → 检查是否可能并发，加锁排队（ERR-007）
+4. **构建失败** → 先确认 exe 未运行（MSB3027），再读 CS 错误码（ERR-006）
+5. **AntdUI Table** → 只用 `AntList<AntItem[]>` 适配，DataTable 必须先转换（ERR-010）；跟踪鼠标选中用 `CellClick`（`CellFocused` 单击不触发，ERR-012）
+6. **执行命令** → PowerShell 语法：单命令或 `;` 分隔，禁 `&&`（ERR-008/011）
+7. **WinForms 绑定** → 后台线程更新控件经 `SynchronizationContext.Post` / `BeginInvoke`；重绑前 `DataBindings.Clear()`
+8. **自绘控件** → 禁用 `Color.Transparent` 背景色（ERR-001）；标注 `[DesignerSerializationVisibility(Hidden)]`
+
+## 沉淀出口
+
+- 普适性设计模式/架构教训 → 写入 `systemPatterns.md`（如 Service 带路径重载切换、并发保存串行化）
+- 环境与工具链约束 → 写入 `techContext.md`（如 PowerShell 语法限制、构建排错流程）
+- 本文件仅追加新错误条目并维护生命周期状态，避免教训在多处重复维护

@@ -11,7 +11,7 @@ namespace UiTopMachine.ViewModels
 {
     /// <summary>
     /// 配方管理页视图模型：Excel 配方的展示、单元格编辑（编号唯一校验）、
-    /// 新增行/列、新建空白配方（带时间戳不删原文件）、保存、打开文件夹
+    /// 新增行/列、删除行/列（删除前经确认弹框）、新建空白配方（带时间戳不删原文件）、保存、打开文件夹
     /// ViewModel 不接触 ClosedXML 对象，仅持有 Service 返回的 DataTable 数据源
     /// </summary>
     public class RecipePageViewModel : ObservableObject
@@ -103,6 +103,12 @@ namespace UiTopMachine.ViewModels
         /// </summary>
         public event EventHandler<InputRequestEventArgs>? ColumnNamingRequested;
 
+        /// <summary>
+        /// 删除确认请求事件：VM 执行删除行/列前向 View 请求用户确认（参数为纯数据，不接触任何 UI 控件），
+        /// View 订阅此事件弹出确认弹框，并把用户选择（是否确认删除）回填到事件参数
+        /// </summary>
+        public event EventHandler<ConfirmRequestEventArgs>? DeletionConfirmRequested;
+
         // ══════════════ 命令 ══════════════
 
         /// <summary>刷新命令：重新从当前 Excel 文件加载数据（异步，IsLoading 防重复）</summary>
@@ -116,6 +122,18 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>新增列命令：弹出列名输入弹框，列名校验通过后表格末尾追加一列</summary>
         public RelayCommand AddColumnCommand { get; }
+
+        /// <summary>
+        /// 删除行命令：确认弹框通过后删除指定行（参数 = 行索引，由 View 依表格焦点实时提供；
+        /// 无选中行时命令禁用）
+        /// </summary>
+        public RelayCommand DeleteRowCommand { get; }
+
+        /// <summary>
+        /// 删除列命令：确认弹框通过后删除指定列（参数 = 列索引，由 View 依表格焦点实时提供；
+        /// 无选中列时命令禁用）
+        /// </summary>
+        public RelayCommand DeleteColumnCommand { get; }
 
         /// <summary>
         /// 新建空白配方命令：在当前配方目录创建"原文件名+时间戳.xlsx"的新空白配方，
@@ -151,6 +169,14 @@ namespace UiTopMachine.ViewModels
             AddColumnCommand = new RelayCommand(
                 _ => AddColumn(),
                 _ => !IsLoading);
+
+            DeleteRowCommand = new RelayCommand(
+                p => DeleteRow(p),
+                p => !IsLoading && p is int row && row >= 0 && row < RecipeTable.Rows.Count);
+
+            DeleteColumnCommand = new RelayCommand(
+                p => DeleteColumn(p),
+                p => !IsLoading && p is int col && col >= 0 && col < RecipeTable.Columns.Count);
 
             CreateBlankCommand = new AsyncRelayCommand(
                 _ => CreateBlankRecipeAsync(),
@@ -353,6 +379,101 @@ namespace UiTopMachine.ViewModels
             catch (Exception ex)
             {
                 _logService.Error($"新增列异常：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 删除行：向 View 发起确认请求（弹框由 View 弹出，业务执行全部在 VM）——
+        /// 用户取消 → 静默放弃；确认 → 移除指定行并通知 View 重建表格 + 自动保存。
+        /// 索引无效（未选中行）时记录警告日志
+        /// </summary>
+        /// <param name="parameter">行索引（View 动态参数提供器传入的 int）</param>
+        private void DeleteRow(object? parameter)
+        {
+            try
+            {
+                // ① 校验行索引有效性（越界/未选中直接拒绝，不弹框）
+                if (parameter is not int rowIndex || rowIndex < 0 || rowIndex >= RecipeTable.Rows.Count)
+                {
+                    _logService.Warn("删除行失败：请先在表格中点击选中要删除的行");
+                    return;
+                }
+
+                // ② 组装确认提示（带行号与配方编号，便于用户核对目标行）
+                var idCol = RecipeTable.Columns.IndexOf(RecipeIdColumn);
+                var recipeId = idCol >= 0 ? RecipeTable.Rows[rowIndex][idCol]?.ToString() : null;
+                var rowDesc = string.IsNullOrWhiteSpace(recipeId)
+                    ? $"第 {rowIndex + 1} 行"
+                    : $"第 {rowIndex + 1} 行（配方编号：{recipeId}）";
+
+                // ③ 向 View 发起删除确认请求（View 弹模态框后同步回填结果）
+                var request = new ConfirmRequestEventArgs
+                {
+                    Title = "删除行",
+                    Message = $"确定删除{rowDesc}吗？\r\n删除后该行所有数据不可恢复。"
+                };
+                DeletionConfirmRequested?.Invoke(this, request);
+                if (!request.Confirmed)
+                {
+                    return; // 用户取消：静默放弃
+                }
+
+                // ④ 确认通过：移除行并通知 View 重建表格
+                RecipeTable.Rows.RemoveAt(rowIndex);
+                TableVersion++;
+                _logService.Success($"已删除{rowDesc}");
+
+                _ = AutoSaveAsync();
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"删除行异常：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 删除列：向 View 发起确认请求（弹框由 View 弹出，业务执行全部在 VM）——
+        /// 用户取消 → 静默放弃；确认 → 移除指定列并通知 View 重建表格 + 自动保存。
+        /// 索引无效（未选中列）时记录警告日志
+        /// </summary>
+        /// <param name="parameter">列索引（View 动态参数提供器传入的 int）</param>
+        private void DeleteColumn(object? parameter)
+        {
+            try
+            {
+                // ① 校验列索引有效性（越界/未选中直接拒绝，不弹框）
+                if (parameter is not int columnIndex || columnIndex < 0 || columnIndex >= RecipeTable.Columns.Count)
+                {
+                    _logService.Warn("删除列失败：请先在表格中点击选中要删除的列");
+                    return;
+                }
+
+                // ② 组装确认提示（带列名，便于用户核对目标列）
+                var columnName = RecipeTable.Columns[columnIndex].ColumnName;
+
+                // ③ 向 View 发起删除确认请求（View 弹模态框后同步回填结果）
+                var request = new ConfirmRequestEventArgs
+                {
+                    Title = "删除列",
+                    Message = $"确定删除列「{columnName}」吗？\r\n该列的所有数据将被移除且不可恢复。"
+                };
+                DeletionConfirmRequested?.Invoke(this, request);
+                if (!request.Confirmed)
+                {
+                    return; // 用户取消：静默放弃
+                }
+
+                // ④ 确认通过：移除列并通知 View 重建表格
+                //（配方编号列被删时编号唯一校验自动跳过，见 ValidateRecipeIdUnique 的列存在性检查）
+                RecipeTable.Columns.RemoveAt(columnIndex);
+                TableVersion++;
+                _logService.Success($"已删除列「{columnName}」");
+
+                _ = AutoSaveAsync();
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"删除列异常：{ex.Message}");
             }
         }
 

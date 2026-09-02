@@ -2,10 +2,30 @@
 
 ## 当前工作焦点
 
-**多配方文件管理 + 构建修复** —— IRecipeFileService 升级为多配方接口（带路径加载/保存 + 新建配方带配方名/编号），RecipeFileService 实现同步补齐，构建修复通过（0 错误）。
-  
+**配方页删除行/列 + 确认弹框（v1.4）** —— 删除行/删除列按钮上线，删除前经 ConfirmDialog 二次确认；焦点跟踪（CellClick + CellFocused 双订阅，详 ERR-012）驱动删除命令可用态。构建 0 警告 0 错误，运行验证通过（PID 25012）。
+
+## 当前处理中的错误
+
+> 仅列编号与状态，详情见 [errorlog.md](errorlog.md)
+
+| 编号 | 错误 | 状态 |
+|------|------|------|
+| ERR-008 | Cline 终端 `&&` 分隔符不可用（实为 PowerShell） | 🟡 规避中 |
+| ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
+| ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
+
+> 其余历史错误（ERR-001~007、ERR-010）均已 🟢 解决，详见 errorlog.md
+
 ## 最近变更（2026-09-02）
 
+1.4 ✅ **删除行/列 + 确认弹框**（用户需求：新增删除行/删除列功能，删除时弹框确认）：
+    - **新增 `Common/ConfirmRequestEventArgs.cs`**：VM↔View 确认请求事件参数（纯数据载体：Title/Message 由 VM 设置，Confirmed 由 View 回填）
+    - **新增 `Views/Dialogs/ConfirmDialog.cs`**：确认弹框（纯 View）——⚠ 警示图标 + 提示文字 + AntdUI 确定（**Error 红色危险语义**）/取消按钮，模态居中，回车=确定/Esc=取消
+    - **`RecipePageViewModel` 新增**：`DeletionConfirmRequested` 事件 + `DeleteRowCommand`/`DeleteColumnCommand`（RelayCommand，CanExecute 校验索引有效性 → 无选中行/列时按钮自动禁用）；`DeleteRow/DeleteColumn` 业务链——索引校验→组装确认文案（删除行带配方编号）→ 触发确认请求 → 用户取消静默放弃 → 确认后移除行/列 + TableVersion++ 重建表格 + 自动保存
+    - **`RecipePage` 改造**：工具栏 6→8 按钮（删除行/列用 `TTypeMini.Error` 红色）；反射实证 AntdUI 2.4.7 `CellClick`（`TableClickEventArgs.RowIndex/ColumnIndex`，鼠标单击）与 `CellFocused`（键盘焦点导航）**双事件订阅**维护 `_focusedRowIndex/_focusedColumnIndex`，经 CommandManagerHelper **动态参数提供器**实时取参（详 ERR-004 模式）；BindTable 重建表格时重置焦点索引（删除后按钮回到禁用态）；点击表头/空白（索引<0）视为取消选中
+    - **⚠️ 实测修正**：初版仅订阅 `CellFocused`，用户反馈单击后按钮未启用 → 反射确认 `CellFocused` 鼠标单击不触发，改 `CellClick + CellFocused` 双订阅后修复
+    - 删除行确认文案示例：「确定删除第 3 行（配方编号：R003）吗？删除后该行所有数据不可恢复。」
+    - 构建 0 警告 0 错误，运行验证通过（PID 21960）
 1.3 ✅ **新增列弹框交互 + 列名空校验**（用户需求：新增列按钮弹出输入弹框，列名为空则新增失败）：
     - **新增 `Views/Dialogs/InputDialog.cs`**：通用输入弹框（纯 View）——说明 Label + TextBox 输入框 + AntdUI 确定（Primary）/取消按钮，FixedDialog 模态居中，回车=确定/Esc=取消，仅收集输入零业务逻辑
     - **新增 `Common/InputRequestEventArgs.cs`**：VM↔View 输入请求事件参数（纯数据载体：Title/Prompt 由 VM 设置，Confirmed/InputText 由 View 回填）
@@ -104,21 +124,26 @@
 
 ## 经验与项目洞察
 
-- ⚠️ **WinForms 透明背景**：普通 Control 未启用 SupportsTransparentBackColor 时 `BackColor = Color.Transparent` 抛 ArgumentException；用具体色 + GDI+ 半透明画刷替代
-- ⚠️ **参数化命令刷新陷阱**：CommandManagerHelper 若统一用 `CanExecute(null)` 刷新，参数化命令（PageType 参数）会被误判禁用 → 绑定时存储参数元组，刷新用原参数
-- Cline 终端实际为 PowerShell：多命令用 `;` 分隔（`&` 报错）；`dotnet build` 输出为 GBK 乱码（可解读："已成功生成，0个警告，0个错误"）
-- ImplicitUsings + UseWindowsForms 会引入 `System.Windows.Forms`，`Timer` 与 `System.Threading.Timer` 歧义需完全限定
+### 错误类教训（已归档 → errorlog.md）
+
+错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数
+
+### API 知识与技巧（保留本体）
+
 - WinForms 无 WPF CommandManager，自建 `CommandManagerHelper` 维护命令↔控件绑定
 - 自绘控件需标注 `[DesignerSerializationVisibility(Hidden)]` 避免设计器序列化警告
 - ListBox 绑定 `ObservableCollection<T>` 用 BindingSource 包装，DisplayMember 显示 Index；选中项变化时 TextBox 重绑前必须 `DataBindings.Clear()` 防串数据
-- ⚠️ **WinForms ICommand 无泛型约束**：删除行列等依赖运行时状态的命令用「动态参数提供器」（Bind 时存 Func<object?>，点击/刷新实时取参）+ View 局部 ProxyCommand 延迟解析命令实例，CanExecute 与 Execute 取同一参数源保证一致性
 - **DataTable 直接绑定 DataGridView**：单元格编辑自动回写（无需手写 INPC）；整表替换时先 EndEdit + DataSource=null 再赋新表，DataBindingComplete 事件里做样式定制
 - ClosedXML 写 xlsx：`ws.Columns().AdjustToContents()` 自适应列宽；表头样式用 `XLColor.FromHtml`；目录不存在时 `Directory.CreateDirectory` 兜底
-- ⚠️ **AntdUI 2.4.7 Table 只接受 AntList<T> / BindingList<T>**：不支持 DataTable 直接 Binding；动态列（Excel 任意表头）用 `AntList<AntItem[]>`，行 = `AntItem(key, value)[]`，key 匹配 `Column(key, title).key`；反射确认签名为 `Binding<T>(AntList<T>)` 与 `Binding<T>(BindingList<T>)`
+- **AntdUI 2.4.7 Table**：动态列用 `AntList<AntItem[]>`，行 = `AntItem(key, value)[]`，key 匹配 `Column(key, title).key`（详 ERR-010）；单元格编辑 `EditMode = TEditMode.DoubleClick` + `EditLostFocus = true`，`CellEndEdit` 委托 `bool Handler(object, TableEndEditEventArgs)` 返回 false 自动还原显示（适合校验拒绝场景）；AntItem 是 class（key/value 属性）
 - **反射检查第三方 API 套路**：临时控制台项目 LoadFrom DLL 反射导出类型与方法签名（需 UseWindowsForms=true 解析 WinForms 依赖），或直接引用包写编译用例实证，用完即删
-- ⚠️ **AntdUI 2.4.7 Table 单元格编辑**：`EditMode = TEditMode.DoubleClick`（None/Click/DoubleClick）+ `EditLostFocus = true`（失焦自动提交）；`CellEndEdit` 委托签名 `bool Handler(object, TableEndEditEventArgs)`，参数含 `Value/Record/RowIndex/ColumnIndex/Column`；返回 false 自动还原单元格显示（适合校验拒绝场景）；AntItem 是 class（key/value 属性）
-- ⚠️ **并发写同一 xlsx 文件锁冲突**：自动保存（编辑/增删触发）与手动保存并发时 ClosedXML SaveAs 抛 IOException（being used by another process）→ ViewModel 层用 `SemaphoreSlim(1,1)` 串行化所有 SaveAsync 调用（SaveCoreAsync 统一入口）
-- **新建文件防覆盖命名**：`原名_yyyyMMdd_HHmmss.xlsx` + 同秒递增序号（`_2`、`_3`）+ `File.Exists` 循环检测，保证多实例/快速连点均不覆盖
-- ⚠️ **接口升级必须同步实现类**：CS0535（不实现接口成员）多因接口加方法后实现类未同步；修完 Service 后还要全局搜索 ViewModel 对旧方法名的调用（本次 `CreateBlankFileAsync` 已删但 VM 仍调用，Service 修完还会在 VM 处二次编译报错）
-- **Cline 终端是 PowerShell 而非 cmd**：`cd xxx && cmd` 的 `&&` 分隔符报错（"标记&&不是有效语句分隔符"）→ 工作目录已在项目根时直接执行命令，或用 `;` 分隔
+- **VM↔View 输入请求模式（1.3 落地）**：VM 触发事件（携带 Title/Prompt）→ View 弹模态 InputDialog → 结果回填事件参数（Confirmed/InputText）→ VM 按结果继续业务；VM 全程不接触 UI 控件，适合弹框收集输入类交互
+- **VM↔View 确认请求模式（1.4 落地）**：同输入请求模式，ConfirmRequestEventArgs（Title/Message/Confirmed）→ View 弹 ConfirmDialog；适合删除等危险操作二次确认
+- ⚠️ **AntdUI 2.4.7 Table 焦点/点击 API（反射实证）**：`CellFocused` 事件鼠标单击**不触发**（偏向键盘焦点导航），跟踪鼠标选中必须订阅 `CellClick`（`TableClickEventArgs` 含 `RowIndex/ColumnIndex/Button/Clicks`，继承 MouseEventArgs）；两者签名一致可共用处理逻辑双订阅；`FocusedCell` 是嵌套类型 `Table+CELL`（外部不可直接用）；`SelectedIndex`/`SelectedIndexs` 为行选中（int/int[]），删除单格所在列需用 ColumnIndex；点击表头时 RowIndex/ColumnIndex 为 -1（可作取消选中依据）
+
+### 模式沉淀（详见 systemPatterns.md）
+
+- **新建文件防覆盖命名**：`原名_yyyyMMdd_HHmmss.xlsx` + 同秒递增序号（`_2`、`_3`）+ `File.Exists` 循环检测
 - **Service 带路径重载切换数据源模式**：`LoadAsync(path)/SaveAsync(table, path)` 成功后内部更新 `FilePath`（private set），ViewModel 无需感知路径切换细节，无参重载始终作用于"当前工作文件"
+- **并发保存串行化**：`SemaphoreSlim(1,1)` 统一入口串行化写盘（详 ERR-007）

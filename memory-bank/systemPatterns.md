@@ -17,7 +17,7 @@ d:\GitRepo\
 │   ├── NavigationViewModel.cs  # 导航状态 CurrentPage + NavigateCommand（参数化）
 │   ├── PrintPageViewModel.cs   # 打印页 VM（占位：模拟打印 + 计数）
 │   ├── ImagePageViewModel.cs   # 图像页 VM（占位：模拟采集 + 计数）
-│   ├── RecipePageViewModel.cs  # 配方页 VM（AntdUI Table 编辑 + 编号唯一校验 + 新建空白配方）
+│   ├── RecipePageViewModel.cs  # 配方页 VM（AntdUI Table 编辑 + 编号唯一校验 + 增删行列 + 确认弹框请求）
 │   ├── DrawerItemViewModel.cs  # 单抽屉三态判定 + 配方双向绑定
 │   └── LogEntryViewModel.cs    # 日志行（级别着色）
 ├── Views\                 # 视图层
@@ -27,11 +27,14 @@ d:\GitRepo\
 │   │   ├── TabItemControl.cs          # 底部导航 Tab（文本+选中下划线，自绘）
 │   │   ├── FlatButton.cs              # 圆角扁平按钮（Primary/Danger/Neutral）
 │   │   └── LogPanelControl.cs         # 日志面板（级别着色）
+│   ├── Dialogs\
+│   │   ├── InputDialog.cs    # 通用输入弹框（纯 View，回车=确定/Esc=取消，零业务逻辑）
+│   │   └── ConfirmDialog.cs  # 确认弹框（纯 View，⚠ 警示 + Error 红确定按钮，删除二次确认）
 │   └── Pages\
 │       ├── FeedDrawersPage.cs  # 进料抽屉监控页（18 抽屉网格）
 │       ├── PrintPage.cs        # 打印管理页（占位）
 │       ├── ImagePage.cs        # 图像管理页（占位）
-│       └── RecipePage.cs       # 配方管理页（列表+编辑+单抽屉下发）
+│       └── RecipePage.cs       # 配方管理页（AntdUI Table 编辑 + 删除行/列确认弹框 + CellClick/CellFocused 焦点跟踪）
 ├── Services\              # 业务服务层
 │   ├── Interfaces\IDrawerService.cs   # 含统一 Result<T> 定义
 │   ├── Interfaces\ILogService.cs
@@ -40,10 +43,13 @@ d:\GitRepo\
 │   ├── LogService.cs                  # 事件推送 + 文件落盘
 │   └── RecipeFileService.cs           # ClosedXML 封装（xlsx 读写全 async，SDK 对象不外泄）
 ├── Communications\        # 通信层（⏳ 待接入真实 PLC 实现）
-├── Common\Commands\       # MVVM 基础设施（已实现）
-│   ├── ObservableObject.cs
-│   ├── RelayCommand.cs    # ICommand + RelayCommand + AsyncRelayCommand
-│   └── CommandManagerHelper.cs  # 命令↔控件绑定注册与刷新
+├── Common\
+│   ├── Commands\          # MVVM 基础设施（已实现）
+│   │   ├── ObservableObject.cs
+│   │   ├── RelayCommand.cs    # ICommand + RelayCommand + AsyncRelayCommand
+│   │   └── CommandManagerHelper.cs  # 命令↔控件绑定注册与刷新
+│   ├── InputRequestEventArgs.cs  # VM↔View 输入请求事件参数（纯数据载体）
+│   └── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除等危险操作二次确认）
 ├── DataAccess\ / Configs\ / Resources\ / docs\ / tests\   # ⏳ 待开发
 └── memory-bank\           # 项目记忆文档
 ```
@@ -92,13 +98,21 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 按钮点击 ▶ CommandManagerHelper.Bind ▶ command.Execute ▶ VM 业务 ▶ 日志/状态更新 ▶ 界面刷新
 ```
 
-## ⚠️ 重要踩坑记录
+## 已知陷阱与规避模式
 
-| 问题 | 原因 | 解决 |
-|------|------|------|
-| `ArgumentException: 控件不支持透明的背景色` | 普通 Control 未启用 `SupportsTransparentBackColor` 样式时设置 `BackColor = Color.Transparent` | 自绘控件背景色用与父容器一致的具体色（白色）；半透明效果用 GDI+ `FromArgb` 画刷实现（不受背景色影响） |
-| `Timer` 引用歧义 CS0104 | ImplicitUsings + UseWindowsForms 同时引入 Forms 与 Threading 命名空间 | Service 层用 `System.Threading.Timer` 完全限定 |
-| CS0067 事件未使用警告 | 编译器看不到事件触发点 | RaiseCanExecuteChanged 中实际 `Invoke` 事件 |
+> 完整错误条目（现象/根因/解决/验证/教训）统一沉淀于 [errorlog.md](errorlog.md)，此处仅列高频陷阱速查：
+
+| 陷阱 | 规避模式 | 详见 |
+|------|---------|------|
+| 自绘控件 `BackColor = Color.Transparent` 抛异常 | 用具体色 + GDI+ `FromArgb` 半透明画刷 | ERR-001 |
+| `Timer` 歧义 CS0104 | 后台定时器完全限定 `System.Threading.Timer` | ERR-002 |
+| 参数化命令被 `CanExecute(null)` 误判禁用 | 绑定存原参数/参数提供器，刷新带参调 CanExecute | ERR-004 |
+| 接口升级后实现类/调用方未同步（CS0535） | 改接口 → 同步实现类 → 全局搜索旧方法名调用 | ERR-005 |
+| 构建报 MSB3027 exe 被锁 | 先 taskkill 再构建 | ERR-006 |
+| 自动保存与手动保存并发写 xlsx 冲突 | `SemaphoreSlim(1,1)` 统一入口串行化 | ERR-007 |
+| PowerShell 环境 `&&` / `mkdir` 多参数不可用 | 单命令或 `;` 分隔；`New-Item -ItemType Directory` | ERR-008/011 |
+| AntdUI Table 不接受 DataTable | View 层 `BindTable` 适配为 `AntList<AntItem[]>` | ERR-010 |
+| AntdUI `CellFocused` 鼠标单击不触发 | 跟踪鼠标选中订阅 `CellClick`（双订阅共用处理） | ERR-012 |
 
 ## 关键实现路径（✅ 已完成 / ⏳ 待做）
 
@@ -107,6 +121,8 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 3. ✅ 底部 Tab 页面导航（NavigationViewModel + 页面懒创建切换）
 4. ✅ 配方单抽屉下发（RecipePageViewModel 共享主页面数据源，已被 0.9 配方 Table 化覆盖）
 5. ✅ 配方文件服务多配方接口（IRecipeFileService 带路径重载 + CreateBlankAsync(recipeName, recipeId)，2026-09-02 构建修复同步补齐）
-6. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
-7. ⏳ 打印/图像真实服务接入（IPrintService / VisionCameraService）
-8. ⏳ DataAccess：数据库历史存储
+6. ✅ VM↔View 输入请求模式（ColumnNamingRequested 事件 + InputDialog 弹框，1.3 落地）
+7. ✅ 删除行/列 + 确认弹框（DeletionConfirmRequested 事件 + ConfirmDialog + CellClick/CellFocused 双订阅焦点驱动动态参数，1.4 落地；CellFocused 单击不触发修正详 ERR-012）
+8. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
+9. ⏳ 打印/图像真实服务接入（IPrintService / VisionCameraService）
+10. ⏳ DataAccess：数据库历史存储

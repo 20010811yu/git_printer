@@ -28,9 +28,10 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 
 | 要点 | 实现 |
 |------|------|
-| MVVM 基础设施 | `Common/Commands/`：ObservableObject（INPC + SetProperty）、RelayCommand/AsyncRelayCommand（IsBusy 防重复）、CommandManagerHelper（命令↔按钮绑定，替代 WPF CommandManager） |
+| MVVM 基础设施 | `Common/Commands/`：ObservableObject（INPC + SetProperty）、RelayCommand/AsyncRelayCommand（IsBusy 防重复）、CommandManagerHelper（命令↔按钮绑定 + 动态参数提供器，替代 WPF CommandManager） |
 | 统一返回 | `Result<T>`（定义在 IDrawerService.cs）：Success / ErrorMessage / Data |
 | UI 线程调度 | VM 后台事件经 `SynchronizationContext.Post` 回 UI 线程 |
+| VM↔View 弹框请求 | 输入请求（`InputRequestEventArgs` + InputDialog）/ 确认请求（`ConfirmRequestEventArgs` + ConfirmDialog）事件模式，VM 零 UI 依赖 |
 | 自绘控件 | DrawerIndicatorControl / FlatButton / LogPanelControl（双缓冲 + AntiAlias） |
 | 日志 | ILogService 事件推送 + 落盘 `logs/yyyyMMdd.log` |
 | 异常处理 | Program.cs 全局异常捕获；VM 捕获业务异常记日志；Service 返回 Result 不抛 UI |
@@ -42,6 +43,7 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 3. **自绘控件**：需标注 `[DesignerSerializationVisibility(Hidden)]` 消除设计器序列化警告
 4. **无 WPF CommandManager**：命令状态刷新需手动调 `RaiseCanExecuteChanged()`
 5. **UI 线程**：硬件 IO 全 async/await；后台事件禁止直接操作绑定控件
+6. **AntdUI Table 事件语义**：`CellFocused` 鼠标单击不触发（键盘焦点用），跟踪鼠标选中必须订阅 `CellClick`（详 ERR-012）；第三方事件勿望文生义，先反射实证
 
 ## 依赖清单
 
@@ -55,16 +57,18 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 
 ## 工具使用模式（Cline 环境经验）
 
-- 终端实际为 **PowerShell**：`mkdir` 多参数不可用 → 用 `New-Item -ItemType Directory -Force`
-- **`&&` 命令分隔符不可用**（"标记&&不是有效语句分隔符"）→ 工作目录已在项目根时直接执行单命令，或多命令用 `;` 分隔
-- `dotnet build` 输出为 GBK 乱码（可凭"0 个警告 0 个错误”/“已成功生成”辨识），管道接 `| Out-String` 可读性更好
-- 启动 GUI：`Start-Process "完整路径.exe"`
+> 环境类坑的完整条目见 [errorlog.md](errorlog.md)（ERR-006/008/009/011），此处仅留操作要点：
+
+- 终端实际为 **PowerShell**：命令用单命令或 `;` 分隔（禁 `&&`，详 ERR-008）；建目录用 `New-Item -ItemType Directory -Force`（详 ERR-011）
+- `dotnet build` 输出为 GBK 乱码（凭“0 个警告 0 个错误”/“已成功生成”辨识，详 ERR-009），管道接 `| Out-String` 可读性更好
+- 启动 GUI：`Start-Process "完整路径.exe"`；构建前确认 exe 未运行（详 ERR-006）
 - 构建排错流程：先 `dotnet build` 拿真实错误（obj/build_result.txt 可能是过期缓存，不可信）→ 按 CS 错误码定位文件行号 → 修复后重跑构建验证
 
 ## 开发 setup
 
 - [x] 创建 .csproj 解决方案工程（net10.0-windows）
 - [x] 确定 .NET 目标框架版本（.NET 10）
-- [x] 安装 NuGet 依赖包（DI 容器）
+- [x] 安装 NuGet 依赖包（DI 容器、AntdUI、ClosedXML）
 - [x] 配置构建/调试流程（dotnet build + exe 直跑）
+- [x] 建立 errorlog.md 错误归档机制（2026-09-02，编码前必查防回归清单）
 - [ ] 创建 .sln（可选，多项目时再建）

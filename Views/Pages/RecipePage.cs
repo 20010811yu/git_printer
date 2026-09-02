@@ -10,13 +10,21 @@ using UiTopMachine.Views.Dialogs;
 namespace UiTopMachine.Views.Pages
 {
     /// <summary>
-    /// 配方管理页（纯 View）：标题区 + 工具栏（刷新/保存/新增行/新增列/新建配方/打开文件夹）
-    /// + AntdUI Table 展示与双击单元格编辑（编辑提交经 VM 校验，本页零业务逻辑）
+    /// 配方管理页（纯 View）：标题区 + 工具栏（刷新/保存/新增行/新增列/删除行/删除列/新建配方/打开文件夹）
+    /// + AntdUI Table 展示与双击单元格编辑（编辑提交经 VM 校验，本页零业务逻辑）。
+    /// 删除行/列经 VM 的确认请求事件弹确认框，用户确认后才执行删除
     /// </summary>
     public class RecipePage : UserControl
     {
         // ══════════════ 依赖（ViewModel 注入） ══════════════
         private readonly RecipePageViewModel _viewModel;
+
+        /// <summary>
+        /// 当前焦点单元格索引（AntdUI Table CellFocused 事件维护，供删除命令动态取参；
+        /// -1 = 未选中。重建表格后焦点丢失需重置）
+        /// </summary>
+        private int _focusedRowIndex = -1;
+        private int _focusedColumnIndex = -1;
 
         // ══════════════ 布局控件 ══════════════
         private Label _titleLabel = null!;
@@ -26,6 +34,8 @@ namespace UiTopMachine.Views.Pages
         private AntdUI.Button _saveButton = null!;
         private AntdUI.Button _addRowButton = null!;
         private AntdUI.Button _addColumnButton = null!;
+        private AntdUI.Button _deleteRowButton = null!;
+        private AntdUI.Button _deleteColumnButton = null!;
         private AntdUI.Button _createBlankButton = null!;
         private AntdUI.Button _openFolderButton = null!;
         private AntdUI.Table _recipeTable = null!;
@@ -81,7 +91,7 @@ namespace UiTopMachine.Views.Pages
                 ForeColor = Color.FromArgb(120, 132, 148)
             };
 
-            // 工具栏：6 按钮单行排列（刷新/保存/新增行/新增列/新建配方/打开文件夹）
+            // 工具栏：8 按钮单行排列（刷新/保存/新增行/新增列/删除行/删除列/新建配方/打开文件夹）
             _toolbar = new FlowLayoutPanel
             {
                 AutoSize = true,
@@ -93,12 +103,14 @@ namespace UiTopMachine.Views.Pages
             _saveButton = CreateToolButton("保存", AntdUI.TTypeMini.Primary);
             _addRowButton = CreateToolButton("新增行", AntdUI.TTypeMini.Default);
             _addColumnButton = CreateToolButton("新增列", AntdUI.TTypeMini.Default);
+            _deleteRowButton = CreateToolButton("删除行", AntdUI.TTypeMini.Error);
+            _deleteColumnButton = CreateToolButton("删除列", AntdUI.TTypeMini.Error);
             _createBlankButton = CreateToolButton("新建配方", AntdUI.TTypeMini.Warn);
             _openFolderButton = CreateToolButton("打开文件夹", AntdUI.TTypeMini.Default);
             _toolbar.Controls.AddRange(new Control[]
             {
-                _refreshButton, _saveButton, _addRowButton,
-                _addColumnButton, _createBlankButton, _openFolderButton
+                _refreshButton, _saveButton, _addRowButton, _addColumnButton,
+                _deleteRowButton, _deleteColumnButton, _createBlankButton, _openFolderButton
             });
 
             header.Controls.AddRange(new Control[] { _titleLabel, _descriptionLabel, _toolbar });
@@ -159,6 +171,13 @@ namespace UiTopMachine.Views.Pages
             CommandManagerHelper.Bind(_saveButton, _viewModel.SaveCommand);
             CommandManagerHelper.Bind(_addRowButton, _viewModel.AddRowCommand);
             CommandManagerHelper.Bind(_addColumnButton, _viewModel.AddColumnCommand);
+
+            // 删除按钮：动态参数提供器实时取焦点单元格索引（点击/刷新时调用，详 ERR-004 教训）
+            CommandManagerHelper.Bind(_deleteRowButton, _viewModel.DeleteRowCommand,
+                () => _focusedRowIndex);
+            CommandManagerHelper.Bind(_deleteColumnButton, _viewModel.DeleteColumnCommand,
+                () => _focusedColumnIndex);
+
             CommandManagerHelper.Bind(_createBlankButton, _viewModel.CreateBlankCommand);
             CommandManagerHelper.Bind(_openFolderButton, _viewModel.OpenFolderCommand);
 
@@ -166,7 +185,11 @@ namespace UiTopMachine.Views.Pages
             // 结果回填事件参数交由 VM 校验与处理，本页零业务逻辑）
             _viewModel.ColumnNamingRequested += (_, request) => ShowInputDialog(request);
 
-            // VM 数据/结构变化 → 重建 AntdUI Table（新增行/列/加载/新建配方均触发）
+            // VM 请求删除确认 → 弹出确认弹框（纯 UI 转发：确认框展示与用户选择回填，
+            // 删除执行与业务校验全部在 VM）
+            _viewModel.DeletionConfirmRequested += (_, request) => ShowConfirmDialog(request);
+
+            // VM 数据/结构变化 → 重建 AntdUI Table（新增行/列/删除行/列/加载/新建配方均触发）
             _viewModel.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(RecipePageViewModel.RecipeTable) ||
@@ -175,6 +198,20 @@ namespace UiTopMachine.Views.Pages
                     BindTable(_viewModel.RecipeTable);
                 }
             };
+
+            // 焦点单元格变化 → 记录索引并刷新删除命令可用态（无选中行/列时删除按钮禁用）。
+            // ⚠️ 实测 CellFocused 在鼠标单击时不触发（偏向键盘焦点导航），
+            // 因此 CellClick（鼠标单击，含 RowIndex/ColumnIndex）与 CellFocused 双订阅保证鼠标/键盘都能跟踪
+            void UpdateFocus(int rowIndex, int columnIndex)
+            {
+                // 点击表头/空白区（索引 < 0）视为取消选中，删除按钮回到禁用
+                _focusedRowIndex = rowIndex >= 0 ? rowIndex : -1;
+                _focusedColumnIndex = columnIndex >= 0 ? columnIndex : -1;
+                _viewModel.DeleteRowCommand.RaiseCanExecuteChanged();
+                _viewModel.DeleteColumnCommand.RaiseCanExecuteChanged();
+            }
+            _recipeTable.CellClick += (_, e) => UpdateFocus(e.RowIndex, e.ColumnIndex);
+            _recipeTable.CellFocused += (_, e) => UpdateFocus(e.RowIndex, e.ColumnIndex);
 
             // 单元格编辑完成 → 转发 VM 校验提交（业务逻辑全部在 VM，View 仅转发）；
             // 返回 false 时 AntdUI 自动还原单元格原值（编号重复被拒绝后 UI 同步回退）
@@ -201,10 +238,27 @@ namespace UiTopMachine.Views.Pages
         }
 
         /// <summary>
+        /// 弹出确认弹框（模态）：展示标题/提示内容，回填用户选择；
+        /// 确定 → Confirmed=true；取消/关闭 → Confirmed=false（由 VM 判定后续流程）
+        /// </summary>
+        /// <param name="request">确认请求参数（VM 创建，本方法仅回填结果）</param>
+        private void ShowConfirmDialog(ConfirmRequestEventArgs request)
+        {
+            using var dialog = new ConfirmDialog(request.Title, request.Message);
+            request.Confirmed = dialog.ShowDialog(FindForm()) == DialogResult.OK;
+        }
+
+        /// <summary>
         /// 将 DataTable 转换为 AntdUI Table 数据并绑定（UI 数据适配：依列结构重建列，再逐行装载）
         /// </summary>
         private void BindTable(DataTable data)
         {
+            // 重建表格后旧焦点失效：重置焦点索引并刷新删除命令可用态（按钮回到禁用）
+            _focusedRowIndex = -1;
+            _focusedColumnIndex = -1;
+            _viewModel.DeleteRowCommand.RaiseCanExecuteChanged();
+            _viewModel.DeleteColumnCommand.RaiseCanExecuteChanged();
+
             // 依 Excel 表头重建列（key 与标题同名）
             _recipeTable.Columns.Clear();
             foreach (DataColumn col in data.Columns)
