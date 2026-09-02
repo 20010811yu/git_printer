@@ -65,7 +65,7 @@
 2. 实施重大变更后
 3. 当用户请求 **更新记忆库** 时（必须审查所有文件）
 4. 当上下文需要澄清时
-5. **每次任务交付前（attempt_completion 之前）——强制执行同步检查与 Git 同步，无需用户提示**
+5. **每次任务交付前（attempt_completion 之前）——强制执行同步检查与 GitHub 远程同步（commit + push），无需用户提示**
 
 ## 📌 任务后同步检查（强制，交付前自动执行）
 
@@ -100,14 +100,22 @@
 
 记忆库同步检查通过后、attempt_completion 之前，**必须**完成 Git 提交与推送：
 
+### ⭐ 强制规则：执行完成即同步 GitHub
+
+- **每次任务执行完成且产生任何文件修改时（代码 / 记忆库 / 配置 / 构建产物），必须将改动同步到 GitHub 远程仓库（`git add -A` → `git commit` → `git push`）**——这是交付的强制收尾步骤，**不依赖用户提示**
+- 交付前必须确认同步完成：`git status` 干净（无未提交变更）、`git status -sb` 显示本地分支与远程一致（无 ahead/behind）
+- push 成功后在交付说明（attempt_completion）中附上**提交哈希与远程分支**（如 `3fc7a86 → origin/master`）
+- ❌ 禁止只 commit 不 push、禁止把「同步远程」留给下一次任务
+
 ### 标准收尾流程
 ```
 任务开发完成
   → ① git status / git diff 确认实际改动范围
   → ② 按映射表逐文件检查记忆库（受影响的更新、不受影响的记录原因）
   → ③ 交付说明附记忆库同步检查清单
-  → ④ git add -A && git commit && git push（注意：Cline 终端为 PowerShell 时用 ; 分隔）
-  → ⑤ attempt_completion
+  → ④ git add -A ; git commit ; git push（同步到 GitHub 远程仓库 origin；注意：Cline 终端为 PowerShell 时用 ; 分隔）
+  → ⑤ 核对 git status 干净 + 本地与远程一致（无 ahead/behind）
+  → ⑥ attempt_completion（附提交哈希与远程分支确认）
 ```
 
 ### 提交规范
