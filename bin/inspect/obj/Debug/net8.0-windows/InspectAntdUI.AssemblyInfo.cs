@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("InspectAntdUI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b2b23580cfb4825c2a85731f25412c2943e2dd13")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5de810bd1977f25996f0eea1d40908226a3415f4")]
 [assembly: System.Reflection.AssemblyProductAttribute("InspectAntdUI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("InspectAntdUI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

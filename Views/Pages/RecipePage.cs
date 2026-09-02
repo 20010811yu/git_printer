@@ -101,8 +101,9 @@ namespace UiTopMachine.Views.Pages
             };
             _refreshButton = CreateToolButton("刷新", AntdUI.TTypeMini.Primary);
             _saveButton = CreateToolButton("保存", AntdUI.TTypeMini.Primary);
-            _addRowButton = CreateToolButton("新增行", AntdUI.TTypeMini.Default);
-            _addColumnButton = CreateToolButton("新增列", AntdUI.TTypeMini.Default);
+            // 增/删按钮用语义色区分（绿=新增、红=删除），避免 Default 灰白样式被误认为禁用
+            _addRowButton = CreateToolButton("新增行", AntdUI.TTypeMini.Success);
+            _addColumnButton = CreateToolButton("新增列", AntdUI.TTypeMini.Success);
             _deleteRowButton = CreateToolButton("删除行", AntdUI.TTypeMini.Error);
             _deleteColumnButton = CreateToolButton("删除列", AntdUI.TTypeMini.Error);
             _createBlankButton = CreateToolButton("新建配方", AntdUI.TTypeMini.Warn);
@@ -253,11 +254,17 @@ namespace UiTopMachine.Views.Pages
         /// </summary>
         private void BindTable(DataTable data)
         {
-            // 重建表格后旧焦点失效：重置焦点索引并刷新删除命令可用态（按钮回到禁用）
-            _focusedRowIndex = -1;
-            _focusedColumnIndex = -1;
+            // 重建表格后焦点索引钳制到有效范围（删除行/列后焦点自动落到相邻行/列，
+            // 连续删除无需重新点选；初始 -1 经 Math.Min 保持 -1，加载新表时若旧焦点越界自动钳制）
+            _focusedRowIndex = data.Rows.Count > 0
+                ? Math.Min(_focusedRowIndex, data.Rows.Count - 1) : -1;
+            _focusedColumnIndex = data.Columns.Count > 0
+                ? Math.Min(_focusedColumnIndex, data.Columns.Count - 1) : -1;
             _viewModel.DeleteRowCommand.RaiseCanExecuteChanged();
             _viewModel.DeleteColumnCommand.RaiseCanExecuteChanged();
+
+            // 恢复行选中高亮（AntdUI SelectedIndex 可写；-1 = 不选中）
+            _recipeTable.SelectedIndex = _focusedRowIndex;
 
             // 依 Excel 表头重建列（key 与标题同名）
             _recipeTable.Columns.Clear();
