@@ -2,7 +2,16 @@
 
 ## ✅ 已完成功能
 
-### 配方页修改功能测试与修复（2026-09-03）⭐ 最新
+### 单元格错位写入修复（2026-09-03）⭐ 最新
+
+- [x] **运行时实证**（bin/inspect/InspectRowIndex.cs，临时工具）：AntdUI 2.4.7 `CellEndEdit` 事件 RowIndex/ColumnIndex 为 0 基视觉索引（与 CellClick 一致）、e.Value 为新值；但事件返回 true 时 AntdUI 内部把值提交到**含表头的 1 基 INDEX 行** → 用户编辑视觉行 N 被写到内部行 N（视觉行 N-1）→ 整体错位一行；返回 false 时内部**完全零写入**
+- [x] **修复（ERR-017，VM 唯一事实源）**：`RecipePage.CellEndEdit` 恒返回 false 阻止内部错位落值；VM `TryCommitCellEdit` 提交成功后 TableVersion++ 驱动 View 重建表格同步显示
+- [x] **新增 4 个位置正确性测试**：多单元格乱序编辑逐格断言 / 首行可改（ERR-017 症状回归）/ 编辑提交 TableVersion 自增 / 修改后保存重载各值仍在原位置
+- [x] 附带：测试 Dispose 加固（后台自动保存与清理竞态重试）
+- [x] 验证：dotnet test **63/63 PASS**（59 + 4 新用例）+ dotnet build 0 警告 0 错误
+- [x] Memory Bank 同步更新（errorlog 新增 ERR-017 + 防回归清单 #12 + activeContext）
+
+### 配方页修改功能测试与修复（2026-09-03）
 
 - [x] **新增 4 个空格规范化测试用例**（`RecipePageViewModelTests`）：编号带空格提交后规范化 / 带空格重复编号拒绝提交 / 保存校验拒绝带空格重复 / 普通文本列 Trim 与重载一致
 - [x] **测试暴露并修复产品 Bug（ERR-016）**：带首尾空格的编号（如 `" R001 "`）绕过唯一性校验，重载 Trim 后与已有编号撞车破坏唯一不变量；且单元格输入的空格重载后悄然消失（数据漂移）——根因 = 读端 `LoadCoreAsync` 有 Trim 而写端/校验端无
@@ -139,3 +148,4 @@
 | 2026-09-03 | 搭建 xUnit 单元测试 + 固化「每次任务修改功能必须配套测试并全绿」工作流 | 历史修复需永久回归守护；首轮测试即暴露潜伏产品 Bug（ERR-015）验证其价值 |
 | 2026-09-03 | LoadCoreAsync 表头改「按文件实际列重建」 | 「预置+重命名」遇重名列抛 DuplicateNameException（ERR-015） |
 | 2026-09-03 | VM 修改链路四处对齐 Trim 口径（提交/编辑校验/保存校验/自动编号） | 读端 Trim 写端无 → 带空格编号绕过唯一性校验、重载后撞车（ERR-016） |
+| 2026-09-03 | AntdUI CellEndEdit 恒返回 false + VM 提交后 TableVersion++ 重建（VM 唯一事实源） | AntdUI 内部提交按 1 基 INDEX 写行 vs 事件 0 基 RowIndex，返回 true 必错位一行（ERR-017） |

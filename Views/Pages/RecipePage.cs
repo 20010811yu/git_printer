@@ -215,11 +215,15 @@ namespace UiTopMachine.Views.Pages
             _recipeTable.CellFocused += (_, e) => UpdateFocus(e.RowIndex, e.ColumnIndex);
 
             // 单元格编辑完成 → 转发 VM 校验提交（业务逻辑全部在 VM，View 仅转发）；
-            // 返回 false 时 AntdUI 自动还原单元格原值（编号重复被拒绝后 UI 同步回退）
+            // ⚠️ 实证（ERR-017）：CellEndEdit 的 RowIndex 是 0 基视觉行，但 AntdUI 内部
+            // 提交写入的是含表头的 1 基 INDEX 行 → 返回 true 会把值错写到上一行（首行永远改不到）。
+            // 故一律返回 false 阻止 AntdUI 内部落值，VM 提交成功后经 TableVersion++ 重建表格
+            // 同步显示（VM = 唯一事实源）；VM 返回 false（编号重复/越界）时同样由重建还原显示
             _recipeTable.CellEndEdit += (s, e) =>
             {
                 var newValue = e.Value?.ToString() ?? string.Empty;
-                return _viewModel.TryCommitCellEdit(e.RowIndex, e.ColumnIndex, newValue);
+                _viewModel.TryCommitCellEdit(e.RowIndex, e.ColumnIndex, newValue);
+                return false; // 恒 false：阻止 AntdUI 内部错位写入，显示统一走 TableVersion 重建
             };
 
             // 初始绑定（空表占位，加载完成后自动刷新）

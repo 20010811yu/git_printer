@@ -310,6 +310,10 @@ namespace UiTopMachine.ViewModels
                 RecipeTable.Rows[rowIndex][columnIndex] = text;
                 _logService.Info($"单元格已修改 [{rowIndex + 1}行/{columnName}]：{oldValue} → {text}");
 
+                // 通知 View 重建表格：AntdUI 内部提交与事件 RowIndex 错位（ERR-017），
+                // View 已改为返回 false 阻止其内部写入，UI 显示必须由本表数据重建（VM = 唯一事实源）
+                TableVersion++;
+
                 // 修改后自动后台保存（不阻塞 UI；失败仅记日志，用户可手动保存重试）
                 _ = AutoSaveAsync();
                 return true;

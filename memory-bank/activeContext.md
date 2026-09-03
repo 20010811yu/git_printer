@@ -2,7 +2,7 @@
 
 ## 当前工作焦点
 
-**单元测试基础设施搭建（v1.5，2026-09-03）** —— tests/UiTopMachine.Tests（xUnit）+ UiTopMachine.slnx + .gitignore；55 用例覆盖命令/三态判定/xlsx 往返（ERR-014 防回归）/VM 业务（删除行列/列校验/编号唯一）。**测试首轮即暴露自 0.8 版本潜伏的产品 Bug（ERR-015 表头重命名 DuplicateNameException）并已修复**。dotnet test 55/55 全绿 + dotnet build 0 警告 0 错误。**「每次任务修改功能必须配套测试并全绿」工作流已固化至 techContext.md**。
+**单元格错位写入修复（v1.5c，ERR-017）** —— 用户反馈「修改不保存到对应单元格，刷新后位置错乱」。运行时实证（bin/inspect/InspectRowIndex.cs）锁定根因：AntdUI 2.4.7 `CellEndEdit` 事件索引 0 基正确，但其内部提交按含表头的 1 基 INDEX 写行 → 返回 true 必错位一行。修复 = 「VM 唯一事实源」：View 恒返回 false 阻止内部落值 + VM 提交后 TableVersion++ 重建表格。新增 4 个位置正确性测试，dotnet test 63/63 全绿 + 构建 0 警告 0 错误。测试基建与工作流详 techContext.md。
 
 ## 测试记录
 
@@ -10,6 +10,7 @@
 |------|------|---------|------|
 | 2026-09-03 | 搭建单元测试基础设施（v1.5） | 首批 55 用例（RelayCommand/AsyncRelayCommand、三态判定、xlsx 往返 ERR-014 回归、删除行列/列校验/编号唯一/ERR-013 回归）；暴露并修复 ERR-015 | ✅ 55/55 PASS（trx 留档） |
 | 2026-09-03 | 配方页修改功能测试与修复（v1.5b） | 新增 4 个空格规范化用例（编号 Trim 提交/带空格重复拒绝/保存校验/普通列 Trim）；暴露并修复 ERR-016 | ✅ 59/59 PASS（trx 留档） |
+| 2026-09-03 | 单元格错位写入修复（v1.5c） | 新增 4 个位置正确性用例（乱序编辑逐格断言/首行可改/TableVersion 重建/保存重载原位）；运行时实证并修复 ERR-017 | ✅ 63/63 PASS（trx 留档） |
 
 ## 当前处理中的错误
 
@@ -21,7 +22,7 @@
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 
-> 其余历史错误（ERR-001~007、ERR-010~016）均已 🟢 解决，详见 errorlog.md
+> 其余历史错误（ERR-001~007、ERR-010~017）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-02）
 
@@ -150,7 +151,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致）
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 内部 1 基 INDEX vs 事件 0 基索引）
 
 ### API 知识与技巧（保留本体）
 

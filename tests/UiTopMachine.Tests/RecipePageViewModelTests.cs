@@ -33,16 +33,26 @@ namespace UiTopMachine.Tests
 
         public void Dispose()
         {
-            try
+            // 后台自动保存为 fire-and-forget，可能与本方法竞态（文件句柄未释放）：
+            // 带短暂重试；仍失败则忽略残留（独立临时目录，不影响其它测试与仓库）
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                if (Directory.Exists(_tempDir))
+                try
                 {
-                    Directory.Delete(_tempDir, recursive: true);
+                    if (Directory.Exists(_tempDir))
+                    {
+                        Directory.Delete(_tempDir, recursive: true);
+                    }
+                    return;
                 }
-            }
-            catch (IOException)
-            {
-                // 句柄释放延迟：忽略清理失败
+                catch (IOException)
+                {
+                    System.Threading.Thread.Sleep(200);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    System.Threading.Thread.Sleep(200);
+                }
             }
         }
 
@@ -393,6 +403,86 @@ namespace UiTopMachine.Tests
 
             Assert.True(committed);
             Assert.Equal("新名字", _vm.RecipeTable.Rows[0]["配方名称"].ToString());
+        }
+
+        // ══════════════ 修改功能·位置正确性（ERR-017 回归：写对格子 + 保存往返不串位） ══════════════
+
+        [Fact]
+        public async Task 位置正确性_多单元格乱序编辑_各值落在正确位置()
+        {
+            // 4 行 3 列：乱序编辑互不相邻的格子，逐格断言位置与值
+            await LoadTableIntoVmAsync(BuildTable(
+                ("R001", "甲"), ("R002", "乙"), ("R003", "丙"), ("R004", "丁")));
+
+            Assert.True(_vm.TryCommitCellEdit(0, 1, "甲改"));    // 第 1 行 名称
+            Assert.True(_vm.TryCommitCellEdit(3, 2, "尾备注"));  // 第 4 行 备注
+            Assert.True(_vm.TryCommitCellEdit(1, 0, "R902"));    // 第 2 行 编号
+            Assert.True(_vm.TryCommitCellEdit(2, 1, "丙改"));    // 第 3 行 名称
+
+            Assert.Equal("甲改", _vm.RecipeTable.Rows[0]["配方名称"].ToString());
+            Assert.Equal("R902", _vm.RecipeTable.Rows[1]["配方编号"].ToString());
+            Assert.Equal("丙改", _vm.RecipeTable.Rows[2]["配方名称"].ToString());
+            Assert.Equal("尾备注", _vm.RecipeTable.Rows[3]["备注"].ToString());
+            // 其余格子不被误写（AntdUI 错位写症状：值跑到上一行/首行改不到）
+            Assert.Equal("乙", _vm.RecipeTable.Rows[1]["配方名称"].ToString());
+            Assert.Equal("R001", _vm.RecipeTable.Rows[0]["配方编号"].ToString());
+            Assert.Equal("R004", _vm.RecipeTable.Rows[3]["配方编号"].ToString());
+        }
+
+        [Fact]
+        public async Task 位置正确性_首行单元格修改_值落在首行_ERR017症状()
+        {
+            // ERR-017 症状：内部 1 基提交导致「首行永远改不到」——回归守护
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲"), ("R002", "乙")));
+
+            Assert.True(_vm.TryCommitCellEdit(0, 1, "首行改名"));
+
+            Assert.Equal("首行改名", _vm.RecipeTable.Rows[0]["配方名称"].ToString());
+            Assert.Equal("乙", _vm.RecipeTable.Rows[1]["配方名称"].ToString()); // 第 2 行不被误写
+        }
+
+        [Fact]
+        public async Task 位置正确性_编辑提交后TableVersion自增驱动UI重建()
+        {
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲")));
+            var versionBefore = _vm.TableVersion;
+
+            Assert.True(_vm.TryCommitCellEdit(0, 1, "新值"));
+
+            // View 订阅 TableVersion 重建 AntdUI 表格（ERR-017 修复：UI 显示由 VM 数据驱动）
+            Assert.Equal(versionBefore + 1, _vm.TableVersion);
+        }
+
+        [Fact]
+        public async Task 位置正确性_修改后保存重载_各值仍在原位置()
+        {
+            // 端到端位置守护：乱序编辑 → 保存 → 重载 → 逐格断言（模拟用户「刷新」操作）
+            await LoadTableIntoVmAsync(BuildTable(
+                ("R001", "甲"), ("R002", "乙"), ("R003", "丙")));
+
+            Assert.True(_vm.TryCommitCellEdit(1, 1, "乙改"));
+            Assert.True(_vm.TryCommitCellEdit(2, 2, "丙备注"));
+
+            // 等待自动保存写盘
+            _vm.SaveCommand.Execute(null);
+            while (_vm.IsSaving)
+            {
+                await Task.Delay(10);
+            }
+            await Task.Delay(200);
+
+            var reload = await _service.LoadAsync();
+            Assert.True(reload.Success, $"重载失败：{reload.ErrorMessage}");
+            Assert.NotNull(reload.Data);
+            Assert.Equal(3, reload.Data!.Rows.Count);
+
+            // 位置断言：修改值在原位，未编辑格子不被污染
+            Assert.Equal("R001", reload.Data.Rows[0]["配方编号"].ToString());
+            Assert.Equal("甲", reload.Data.Rows[0]["配方名称"].ToString());
+            Assert.Equal("R002", reload.Data.Rows[1]["配方编号"].ToString());
+            Assert.Equal("乙改", reload.Data.Rows[1]["配方名称"].ToString());
+            Assert.Equal("R003", reload.Data.Rows[2]["配方编号"].ToString());
+            Assert.Equal("丙备注", reload.Data.Rows[2]["备注"].ToString());
         }
     }
 }
