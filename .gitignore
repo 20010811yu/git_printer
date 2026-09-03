@@ -19,3 +19,5 @@ coveragereport/
 logs/
 
 # ============ VS Code 已有例外（保留 .vscode 配置可按需删除上行） ============
+# ============ ZCode 会话产物 ============
+.zcode/plans/
