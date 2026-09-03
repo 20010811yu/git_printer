@@ -654,7 +654,7 @@ namespace UiTopMachine.Tests
             // 文件不变（仍是原配方内容，无备份产生）
             Assert.True(File.Exists(originalPath));
             var files = Directory.GetFiles(Path.GetDirectoryName(originalPath)!);
-            Assert.Equal(1, files.Length); // 目录中只有原文件，没有备份
+            Assert.Single(files); // 目录中只有原文件，没有备份
         }
 
         [Fact]

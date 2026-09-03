@@ -52,7 +52,7 @@ namespace UiTopMachine
             services.AddSingleton<ILogService, LogService>();
             // 配方文件服务（ClosedXML 读写 D:\Printer\Data\Recipe.xlsx）
             services.AddSingleton<IRecipeFileService, RecipeFileService>();
-            // ZPL 打印服务（TCP 直连 192.168.1.200:9100 / Spooler RAW，流水号持久化 D:\Printer\Data\SerialNumber.txt）
+            // ZPL 打印服务（打印页走 Spooler RAW 连接打印机名 "zpl"，TCP 直连 192.168.1.200:9100 为备用通道；流水号持久化 D:\Printer\Data\SerialNumber.txt）
             services.AddSingleton<IPrintService, ZplPrinterService>();
 
             // ViewModel 层

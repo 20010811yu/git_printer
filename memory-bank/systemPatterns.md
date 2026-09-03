@@ -15,7 +15,7 @@ d:\GitRepo\
 ├── ViewModels\            # 视图模型层
 │   ├── MainViewModel.cs   # 抽屉集合/发送退出命令/日志/统计（单例，跨页共享）
 │   ├── NavigationViewModel.cs  # 导航状态 CurrentPage + NavigateCommand（参数化）
-│   ├── PrintPageViewModel.cs   # 打印页 VM（流水号自动递增持久化 + 码型选择 + 批量打印 + 失败弹窗）
+│   ├── PrintPageViewModel.cs   # 打印页 VM（自定义打印内容双路径 + 流水号自动递增持久化 + 码型选择 + 批量打印 + 失败弹窗）
 │   ├── ImagePageViewModel.cs   # 图像页 VM（占位：模拟采集 + 计数）
 │   ├── RecipePageViewModel.cs  # 配方页 VM（AntdUI Table 编辑 + 编号唯一校验 + 增删行列 + 确认弹框请求 + 备份轮转 + 行序整理 + 自动补行）
 │   ├── DrawerItemViewModel.cs  # 单抽屉三态判定 + 配方双向绑定
@@ -32,7 +32,7 @@ d:\GitRepo\
 │   │   └── ConfirmDialog.cs  # 确认弹框（纯 View，⚠ 警示 + Error 红确定按钮，危险操作二次确认）
 │   └── Pages\
 │       ├── FeedDrawersPage.cs  # 进料抽屉监控页（18 抽屉网格）
-│       ├── PrintPage.cs        # 打印管理页（流水号显示 + 码型下拉 + 张数 + 打印按钮，零业务逻辑）
+│       ├── PrintPage.cs        # 打印管理页（流水号显示 + 自定义内容输入框 + 码型下拉 + 张数 + 打印按钮，零业务逻辑）
 │       ├── ImagePage.cs        # 图像管理页（占位）
 │       └── RecipePage.cs       # 配方管理页（AntdUI Table 编辑 + RowHeight 行高 + 删除/新建确认弹框 + CellClick/CellFocused 焦点跟踪 + 行事件索引 1 基→0 基换算 + 可见高度补行）
 ├── Services\              # 业务服务层
@@ -54,7 +54,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；100 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；103 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -76,7 +76,7 @@ d:\GitRepo\
 - **Service 带路径重载数据源切换** ✅：`LoadAsync(path)/SaveAsync(table, path)` 成功后内部更新 `FilePath`（private set），无参重载始终作用于"当前工作文件"，ViewModel 无感切换
 - **新建空白配方备份轮转模式** ✅：原文件 `File.Move` 改名（原名+时间戳，同秒递增防覆盖）备份，模板表（传入表头 + N 空白行）写入**原路径**——新配方沿用原文件名、FilePath 不变；VM 先经通用 `ConfirmationRequested` 确认再轮转 + 内存构造同构表立即显示（ERR-019 教训：文件生命周期需求先对齐流转语义）
 - **行序整理 + 自动补行模式** ✅：`CompactRows`（数据连续、空白垫底，新表整体替换防半删态）在加载/编辑/删除后触发；`EnsureMinRows`（View 依可见高度计算）补真实可编辑空白行填满页面
-- **ZPL 打印服务封装模式** ✅：Socket/winspool 句柄全私有封装在 Service 内部；双通道（TCP 直连带超时 / Spooler RAW）可配置（构造参数）；全 async（Task.Run）；流水号持久化（保留位数补零）由 VM 调度递增
+- **ZPL 打印服务封装模式** ✅：Socket/winspool 句柄全私有封装在 Service 内部；双通道（TCP 直连带超时 / Spooler RAW）可配置（构造参数），**生产当前走 Spooler 通道**（TCP 备用，v1.8b 切换）；全 async（Task.Run）；流水号持久化（保留位数补零）由 VM 调度递增
 - **外部标识符识别模式（候选列表 + 规范化）** ✅：业务规则锚定的列名/表头来自外部文件，识别必须候选列表（配方编号/编号）+ Trim + 忽略大小写，统一入口 `FindRecipeIdColumnIndex()` 定位；配套「校验拦截 + 弹窗告知」一体交付（详 ERR-018）
 - **VM→View 消息提示请求模式** ✅：`MessageRequestEventArgs`（Title/Message 纯数据，无回填）→ View 弹 MessageBox（后台线程经 BeginInvoke 封送）；与输入请求（回填 InputText）/确认请求（回填 Confirmed）构成三类弹框交互模式
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
@@ -104,9 +104,10 @@ HasMaterial && HasRecipe   → Ready   (绿 #4CAF50)
 - **流程**：用户确认 → 原文件 `File.Move` 改名 `原名_yyyyMMdd_HHmmss.xlsx` 备份（同秒递增 `_2/_3` 防覆盖，无原文件跳过）→ 模板表（表头沿用当前表 + 10 空白行，空格占位持久化）写入原路径 → FilePath 不变，页面立即显示新配方
 - **原配方数据**：完整保留在备份文件中，绝不删除、不覆盖任何已有文件
 
-## 核心业务规则：ZPL 打印与流水号（v1.8）
+## 核心业务规则：ZPL 打印与流水号（v1.8，v1.9 内容双路径）
 
-- **双通道打印**：TCP 直连（默认 192.168.1.200:9100，3s 超时）/ Windows Spooler RAW（默认打印机名 "zpl"）；Socket/句柄私有封装，全 async
+- **双通道打印**：TCP 直连（默认 192.168.1.200:9100，3s 超时）/ Windows Spooler RAW（默认打印机名 "zpl"）；Socket/句柄私有封装，全 async；**生产通道 = Spooler**（`PrintBySpoolerAsync`，TCP 备用）
+- **打印内容双路径（v1.9）**：`CustomContent` Trim 后非空 → 每张打印该内容（批量每张相同），**流水号不递增不持久化、跳过流水号校验**；留空 → 走流水号路径（递增 + 持久化）；两条路径互不干扰
 - **流水号自动递增**：打印成功 +1 持久化 `D:\Printer\Data\SerialNumber.txt`（保留位数补零，999999→1000000 自然进位）；重开不断号；**批量中途失败流水号不前进**（防跳号，已打张由用户决定处理）；持久化失败弹窗警示
 - **码型**：二维码 ^BQ / Code39 ^B3 / Code128 ^BC（源码 `"LL300"` 笔误已修正）/ PDF417 ^B7 / 数字文本 ^AO
 
@@ -129,8 +130,8 @@ MockDrawerService ──DrawerChanged事件──▶ MainViewModel ──Observa
                                                                      │
 DrawerIndicatorControl.Status 属性绑定 ◀─────────────────────────────┘ → Invalidate 重绘变色
 
-打印页 ▶ PrintCommand ▶ PrintPageViewModel（流水号校验→GenerateZpl→PrintByIpAsync 逐张）▶ ZplPrinterService（TCP/Spooler）▶ 打印机
-                    │ 成功后 +1 持久化 SerialNumber.txt
+打印页 ▶ PrintCommand ▶ PrintPageViewModel（内容分支：CustomContent 非空用之/空走流水号→流水号校验→GenerateZpl→PrintBySpoolerAsync 逐张）▶ ZplPrinterService（Spooler 主/TCP 备）▶ 打印机
+                    │ 流水号路径成功后 +1 持久化 SerialNumber.txt（自定义内容路径不动流水号）
 
 按钮点击 ▶ CommandManagerHelper.Bind ▶ command.Execute ▶ VM 业务 ▶ 日志/状态更新 ▶ 界面刷新
 ```
@@ -154,6 +155,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 | AntdUI 行事件索引传 0 基数据源偏移 +1（编辑写到下一行/删除删错行/末行改不动/查重被短路） | `CellEndEdit`/`CellClick`/`CellFocused` 的 RowIndex 均为含表头 1 基 INDEX（ColumnIndex 0 基）：传 DataTable 前行减 1；恢复高亮 SelectedIndex 反向 +1；第三方索引基准必须对照实验实证 | ERR-017 |
 | 编号查重对真实文件静默失效（列名硬编码「配方编号」vs 用户表头「编号」） | 业务规则关联外部标识符（表头/列名）必须候选列表 + Trim + 忽略大小写匹配（`FindRecipeIdColumnIndex` 统一入口）；校验失败必须弹窗告知（`MessageRequested` 事件），拒绝提交同时 TableVersion++ 强制还原显示；识别不到编号列记 Warn 不静默 | ERR-018 |
 | 新建配方文件流转语义错（另存副本 vs 备份轮转，返工） | 涉及文件生命周期（重命名/移动/删除/覆盖）的需求，动手前先列出「原文件去向 × 新文件命名」候选矩阵让用户确认 | ERR-019 |
+| 生产代码换实现通道后测试桩脱节（VM 打印用例静默失效） | 换通道/方法/服务时全局搜索测试桩对应方法并同步迁移桩逻辑（双通道桩行为不对称必须注释标明）；交付硬门槛 = dotnet test 全绿，构建通过 ≠ 验证通过 | ERR-020 |
 | 数值型流水号 ToString 丢失前导零（打印内容 1 而非 000001） | 递增用 ulong、显示/打印前按原始位数 `PadLeft(digits, '0')` 还原；进位（999999→1000000）自然扩展 | 2026-09-03 v1.8 |
 | ClosedXML `RowsUsed()` 跳过空行致保存的空行蒸发 | 写端整行全空时首列写空格占位；读端 `LastRowUsed().RowNumber()` + for 循环逐行装载 | ERR-014 |
 | 读外部文件建 DataTable 用「预置表头+重命名」遇重名列崩溃 | 按文件实际表头新建 DataTable 重建列结构（空表头「列N」兜底） | ERR-015 |
@@ -168,8 +170,8 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 5. ✅ 配方文件服务多配方接口（IRecipeFileService 带路径重载 + CreateBlankAsync(headers, blankRowCount) 备份轮转，v1.7 表头参数化 + 空白行持久化；v1.7b 沿用原名）
 6. ✅ VM↔View 输入请求模式（ColumnNamingRequested 事件 + InputDialog 弹框，1.3 落地）
 7. ✅ 危险操作确认模式（ConfirmationRequested 事件 + ConfirmDialog，删除行/列与新建配方共用，v1.4 落地 / v1.7b 通用化；CellFocused 单击不触发修正详 ERR-012）
-8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，100 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
-9. ✅ ZPL 打印服务（IPrintService/ZplPrinterService：TCP/Spooler 双通道 + 5 码型生成 + 流水号持久化自动递增，打印页真实可用，v1.8）
+8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，103 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
+9. ✅ ZPL 打印服务（IPrintService/ZplPrinterService：TCP/Spooler 双通道 + 5 码型生成 + 流水号持久化自动递增，打印页真实可用，v1.8；v1.8b 切 Spooler 主通道 / v1.9 自定义打印内容双路径）
 10. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
 11. ⏳ 图像真实服务接入（VisionCameraService）
 12. ⏳ DataAccess：数据库历史存储

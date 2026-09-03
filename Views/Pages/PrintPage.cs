@@ -9,7 +9,7 @@ using UiTopMachine.ViewModels;
 namespace UiTopMachine.Views.Pages
 {
     /// <summary>
-    /// 打印管理页（纯 View）：标题 + 说明 + 当前流水号 + 码型选择 + 张数输入 + 打印按钮 + 计数，
+    /// 打印管理页（纯 View）：标题 + 说明 + 当前流水号 + 自定义内容输入 + 码型选择 + 张数输入 + 打印按钮 + 计数，
     /// 零业务逻辑（打印流程全部在 VM）
     /// </summary>
     public class PrintPage : UserControl
@@ -19,8 +19,13 @@ namespace UiTopMachine.Views.Pages
         // ══════════════ 布局控件 ══════════════
         private Label _titleLabel = null!;
         private Label _descriptionLabel = null!;
+        private Label _serialCaption = null!;
         private Label _serialLabel = null!;
+        private Label _contentCaption = null!;
+        private TextBox _contentInput = null!;
+        private Label _codeTypeCaption = null!;
         private ComboBox _codeTypeCombo = null!;
+        private Label _quantityCaption = null!;
         private NumericUpDown _quantityInput = null!;
         private AntdUI.Button _printButton = null!;
         private Label _countLabel = null!;
@@ -73,7 +78,7 @@ namespace UiTopMachine.Views.Pages
             };
 
             // ── 当前流水号（打印成功后自动 +1 并持久化） ──
-            var serialCaption = new Label
+            _serialCaption = new Label
             {
                 Text = "当前流水号",
                 AutoSize = true,
@@ -87,8 +92,23 @@ namespace UiTopMachine.Views.Pages
                 ForeColor = Color.FromArgb(22, 119, 255)
             };
 
+            // ── 自定义打印内容（Trim 后非空则每张打印该内容；留空走流水号） ──
+            _contentCaption = new Label
+            {
+                Text = "打印内容（留空则打印流水号）",
+                AutoSize = true,
+                Font = labelFont,
+                ForeColor = Color.FromArgb(120, 132, 148)
+            };
+            _contentInput = new TextBox
+            {
+                Font = inputFont,
+                Size = new Size(440, 34),
+                PlaceholderText = "输入标签内容，如：批次号 / 物料编码"
+            };
+
             // ── 码型选择 ──
-            var codeTypeCaption = new Label
+            _codeTypeCaption = new Label
             {
                 Text = "码型",
                 AutoSize = true,
@@ -113,7 +133,7 @@ namespace UiTopMachine.Views.Pages
             _codeTypeCombo.SelectedIndex = 0; // 默认二维码
 
             // ── 打印张数 ──
-            var quantityCaption = new Label
+            _quantityCaption = new Label
             {
                 Text = "打印张数",
                 AutoSize = true,
@@ -148,9 +168,10 @@ namespace UiTopMachine.Views.Pages
             card.Controls.AddRange(new Control[]
             {
                 _titleLabel, _descriptionLabel,
-                serialCaption, _serialLabel,
-                codeTypeCaption, _codeTypeCombo,
-                quantityCaption, _quantityInput,
+                _serialCaption, _serialLabel,
+                _contentCaption, _contentInput,
+                _codeTypeCaption, _codeTypeCombo,
+                _quantityCaption, _quantityInput,
                 _printButton, _countLabel
             });
             Controls.Add(card);
@@ -162,21 +183,32 @@ namespace UiTopMachine.Views.Pages
         }
 
         /// <summary>
-        /// 控件居中纵向排布（纯布局，无业务）
+        /// 控件居中纵向排布（纯布局，无业务）：每行说明标题在控件上方
         /// </summary>
         private void CenterLayout(Control card)
         {
             int cx = card.Width / 2;
-            _titleLabel.Location = new Point((card.Width - _titleLabel.PreferredWidth) / 2, card.Height / 2 - 210);
-            _descriptionLabel.Location = new Point((card.Width - _descriptionLabel.PreferredWidth) / 2, card.Height / 2 - 150);
+            int mid = card.Height / 2;
 
-            _serialLabel.Location = new Point(cx - 80, card.Height / 2 - 95);
+            _titleLabel.Location = new Point((card.Width - _titleLabel.PreferredWidth) / 2, mid - 250);
+            _descriptionLabel.Location = new Point((card.Width - _descriptionLabel.PreferredWidth) / 2, mid - 195);
 
-            _codeTypeCombo.Location = new Point(cx - 210, card.Height / 2 - 10);
-            _quantityInput.Location = new Point(cx + 20, card.Height / 2 - 10);
+            // 流水号行
+            _serialCaption.Location = new Point(cx - 80, mid - 150);
+            _serialLabel.Location = new Point(cx - 80, mid - 122);
 
-            _printButton.Location = new Point((card.Width - _printButton.Width) / 2, card.Height / 2 + 50);
-            _countLabel.Location = new Point((card.Width - _countLabel.PreferredWidth) / 2, card.Height / 2 + 130);
+            // 自定义内容行
+            _contentCaption.Location = new Point(cx - 80, mid - 58);
+            _contentInput.Location = new Point(cx - 80, mid - 28);
+
+            // 码型 / 张数双列行
+            _codeTypeCaption.Location = new Point(cx - 210, mid + 28);
+            _codeTypeCombo.Location = new Point(cx - 210, mid + 54);
+            _quantityCaption.Location = new Point(cx + 40, mid + 28);
+            _quantityInput.Location = new Point(cx + 40, mid + 54);
+
+            _printButton.Location = new Point((card.Width - _printButton.Width) / 2, mid + 118);
+            _countLabel.Location = new Point((card.Width - _countLabel.PreferredWidth) / 2, mid + 182);
         }
 
         /// <summary>
@@ -208,6 +240,9 @@ namespace UiTopMachine.Views.Pages
 
             // 张数输入 → VM（双向即时）
             _quantityInput.ValueChanged += (_, _) => _viewModel.Quantity = (int)_quantityInput.Value;
+
+            // 自定义内容输入 → VM（即时；Trim 后非空走自定义，留空走流水号）
+            _contentInput.TextChanged += (_, _) => _viewModel.CustomContent = _contentInput.Text;
 
             // 打印按钮绑定命令（AsyncRelayCommand 内置 IsBusy 防重复）
             CommandManagerHelper.Bind(_printButton, _viewModel.PrintCommand);

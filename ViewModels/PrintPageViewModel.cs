@@ -7,9 +7,10 @@ using UiTopMachine.Services.Interfaces;
 namespace UiTopMachine.ViewModels
 {
     /// <summary>
-    /// 打印管理页视图模型（v1.8 真实打印）：
+    /// 打印管理页视图模型（v1.9 自定义打印内容）：
     /// 流水号自动递增（持久化 D:\Printer\Data\SerialNumber.txt，重开程序不断号）+
-    /// 码型选择（二维码/Code39/Code128/PDF417/数字文本）+ 打印张数 + 批量打印（TCP 直连打印机）
+    /// 自定义打印内容（非空每张打印该内容，流水号不动；留空走流水号）+
+    /// 码型选择（二维码/Code39/Code128/PDF417/数字文本）+ 打印张数 + 批量打印（Windows Spooler RAW 连接打印机）
     /// </summary>
     public class PrintPageViewModel : ObservableObject
     {
@@ -23,12 +24,13 @@ namespace UiTopMachine.ViewModels
         private string _currentSerial = "------";
         private ZplCodeType _selectedCodeType = ZplCodeType.QRCode;
         private int _quantity = 1;
+        private string _customContent = string.Empty;
 
         /// <summary>页面标题</summary>
         public string Title => "打印管理";
 
         /// <summary>页面说明</summary>
-        public string Description => "标签打印（ZPL）：选择码型与张数，流水号打印后自动递增并持久化";
+        public string Description => "标签打印（ZPL）：输入自定义内容或走流水号，选择码型与张数；流水号打印后自动递增并持久化";
 
         /// <summary>是否忙碌（打印命令执行中，防重复点击）</summary>
         public bool IsBusy
@@ -74,6 +76,15 @@ namespace UiTopMachine.ViewModels
         {
             get => _quantity;
             set => SetProperty(ref _quantity, value < 1 ? 1 : value);
+        }
+
+        /// <summary>
+        /// 自定义打印内容（可选）：Trim 后非空时每张打印该内容（流水号不递增不持久化）；留空走流水号自动递增
+        /// </summary>
+        public string CustomContent
+        {
+            get => _customContent;
+            set => SetProperty(ref _customContent, value);
         }
 
         // ══════════════ 事件 ══════════════
@@ -128,43 +139,56 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 批量打印：从当前流水号起连续 N 张，每张生成 ZPL → TCP 发送；
-        /// 全部成功后流水号 +N 并持久化（中途失败则停在失败张，不前进流水号——
-        /// 已成功张的号下次会重复打印，用户可从失败处手动继续）
+        /// 批量打印（Windows Spooler RAW 发送）：
+        /// ① 自定义内容 Trim 后非空 → 每张打印该内容（每张相同），流水号不递增不持久化；
+        /// ② 留空 → 从当前流水号起连续 N 张，全部成功后流水号 +N 并持久化
+        /// （中途失败则停在失败张，不前进流水号——已成功张的号下次会重复打印，用户可从失败处手动继续）
         /// </summary>
         private async Task PrintAsync()
         {
             IsBusy = true;
             try
             {
-                // ① 流水号校验（非空 + 纯数字）
-                var serial = CurrentSerial;
-                if (!_printService.IsValidSerial(serial))
+                // ① 打印内容来源：自定义内容优先，留空走流水号
+                var customContent = string.IsNullOrWhiteSpace(CustomContent) ? null : CustomContent.Trim();
+
+                // ② 流水号路径校验（非空 + 纯数字）；自定义内容路径无流水号校验
+                int digits = 0;
+                ulong number = 0;
+                if (customContent is null)
                 {
-                    var message = $"当前流水号非法（应为纯数字）：{serial}";
-                    RaiseMessage("流水号错误", message);
-                    _logService.Error(message);
-                    return;
+                    var serial = CurrentSerial;
+                    if (!_printService.IsValidSerial(serial))
+                    {
+                        var message = $"当前流水号非法（应为纯数字）：{serial}";
+                        RaiseMessage("流水号错误", message);
+                        _logService.Error(message);
+                        return;
+                    }
+
+                    digits = serial.Length;          // 保留用户/持久化文件的位数
+                    number = ulong.Parse(serial);
                 }
 
                 int quantity = Math.Max(1, Quantity);
-                _logService.Info($"开始打印 {quantity} 张（码型：{SelectedCodeType}，起始流水号：{serial}）…");
+                _logService.Info(customContent is null
+                    ? $"开始打印 {quantity} 张（码型：{SelectedCodeType}，起始流水号：{CurrentSerial}）…"
+                    : $"开始打印 {quantity} 张（码型：{SelectedCodeType}，内容：自定义输入）…");
 
-                // ② 逐张生成并打印（流水号连续递增，保持原始位数——如 000001 而非 1）
-                int digits = serial.Length;          // 保留用户/持久化文件的位数
-                ulong number = ulong.Parse(serial);
+                // ③ 逐张生成并打印（流水号连续递增保持原始位数——如 000001 而非 1；自定义内容每张相同）
                 int successCount = 0;
                 for (int i = 0; i < quantity; i++)
                 {
-                    // 按原始位数补零（超出位数时自然扩展，如 999999→1000000）
-                    var serialText = number.ToString().PadLeft(digits, '0');
-                    var zpl = _printService.GenerateZpl(SelectedCodeType, serialText);
-                    var result = await _printService.PrintByIpAsync(zpl);
+                    // 流水号按原始位数补零（超出位数时自然扩展，如 999999→1000000）
+                    var dataText = customContent ?? number.ToString().PadLeft(digits, '0');
+                    var zpl = _printService.GenerateZpl(SelectedCodeType, dataText);
+                    var result = await _printService.PrintBySpoolerAsync(zpl);
                     if (!result.Success)
                     {
                         // 中途失败：停在当前张，提示用户（流水号不前进，避免跳号；
                         // 已打印张的号下次会重复打印，由用户决定处理方式）
-                        var message = $"第 {successCount + 1} 张打印失败：{result.ErrorMessage}（已成功 {successCount} 张，流水号未前进）";
+                        var message = $"第 {successCount + 1} 张打印失败：{result.ErrorMessage}（已成功 {successCount} 张"
+                            + (customContent is null ? "，流水号未前进）" : "）");
                         RaiseMessage("打印失败", message);
                         _logService.Error(message);
                         return;
@@ -172,23 +196,33 @@ namespace UiTopMachine.ViewModels
 
                     successCount++;
                     PrintCount++;
-                    number++;
+                    if (customContent is null)
+                    {
+                        number++;
+                    }
                 }
 
                 OnPropertyChanged(nameof(PrintCountText));
 
-                // ③ 全部成功：流水号 +quantity 并持久化（补零格式与打印一致）
-                var newSerial = number.ToString().PadLeft(digits, '0');
-                var saveResult = await _printService.SaveSerialAsync(newSerial);
-                if (!saveResult.Success)
+                // ④ 流水号路径全部成功：流水号 +quantity 并持久化（补零格式与打印一致）；自定义内容路径不涉及
+                if (customContent is null)
                 {
-                    var message = $"流水号保存失败：{saveResult.ErrorMessage}（当前打印成功，但重开程序可能重复使用 {newSerial} 前的编号）";
-                    RaiseMessage("流水号保存失败", message);
-                    _logService.Error(message);
-                }
+                    var newSerial = number.ToString().PadLeft(digits, '0');
+                    var saveResult = await _printService.SaveSerialAsync(newSerial);
+                    if (!saveResult.Success)
+                    {
+                        var message = $"流水号保存失败：{saveResult.ErrorMessage}（当前打印成功，但重开程序可能重复使用 {newSerial} 前的编号）";
+                        RaiseMessage("流水号保存失败", message);
+                        _logService.Error(message);
+                    }
 
-                CurrentSerial = newSerial;
-                _logService.Success($"打印完成：{quantity} 张成功（码型：{SelectedCodeType}），下一流水号：{CurrentSerial}");
+                    CurrentSerial = newSerial;
+                    _logService.Success($"打印完成：{quantity} 张成功（码型：{SelectedCodeType}），下一流水号：{CurrentSerial}");
+                }
+                else
+                {
+                    _logService.Success($"打印完成：{quantity} 张成功（码型：{SelectedCodeType}，内容：自定义输入），流水号未变动：{CurrentSerial}");
+                }
             }
             catch (FormatException)
             {

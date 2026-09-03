@@ -2,7 +2,7 @@
 
 ## 当前工作焦点
 
-**ZPL 打印机集成（v1.8）** —— 用户提供 ZplPrinter 源码（TCP 直连 192.168.1.200:9100 / winspool Spooler RAW + ZPL 生成），按 MVVM 集成到打印管理页：① `IPrintService`/`ZplPrinterService`（句柄/Socket 全私有封装、全 async、Result 返回、IP/端口/打印机名构造可配置、剔除非相关 using）；② 流水号自动递增（打印成功 +1 持久化到 `D:\Printer\Data\SerialNumber.txt`，6 位补零保留位数，重开不断号）；③ 打印页启用（当前流水号显示 + 码型选择二维码/Code39/Code128/PDF417/数字文本 + 张数 + 批量打印，中途失败流水号不前进防跳号 + MessageRequested 弹窗）；④ 修正源码 Code128 笔误（`"LL300"` → `"^LL300"`）。dotnet test **100/100** 全绿。
+**打印页自定义打印内容（v1.9）** —— 打印页新增「打印内容」输入框：① `PrintPageViewModel.CustomContent`（Trim 后非空 → 每张打印用户输入内容、批量时每张相同，流水号**不递增不持久化**；留空 → 走流水号自动递增原路径，两条路径互不干扰）；② `PrintPage` 视图加 TextBox（PlaceholderText 提示「留空则打印流水号」）+ `TextChanged` 绑定 VM；③ 顺带修复视图布局缺陷——三个说明标题（当前流水号/码型/打印张数）此前是局部变量、未参与 `CenterLayout` 布局叠在左上角，现提升为字段全部归位（每行标题位于控件上方）；④ 打印通道 v1.8b 已切 Spooler RAW 为主（TCP 备用）；⑤ 测试桩通道同步迁移（ERR-020：记录/失败注入从 `PrintByIpAsync` 迁至 `PrintBySpoolerAsync`）+ 新增 3 个自定义内容用例。dotnet test **103/103** 全绿、构建 0 警告 0 错误。**下一步：重启程序人工验证打印页输入框与打印行为。**
 
 ## 测试记录
 
@@ -16,6 +16,7 @@
 | 2026-09-03 | 新建空白配方改造（v1.7） | 新增 4 用例（表头一致+数据全空+指定行数/空白行占位保存重载不消失/空表头回退默认/VM 端到端表头沿用+10空行+保存往返）；CreateBlankAsync 接口变更同步 5 处调用 | ✅ 74/74 PASS（trx 留档） |
 | 2026-09-03 | 备份轮转+行序整理+补空白行（v1.7b） | 改写 CreateBlank 7 个 Service 用例（备份轮转/数据完整/不覆盖/无原文件/取消不变）+ VM 3 个（确认轮转/取消不变/保存往返）+ 行序整理/补行 4 个；DeletionConfirmRequested→ConfirmationRequested 迁移 | ✅ 79/79 PASS（trx 留档） |
 | 2026-09-03 | ZPL 打印机集成（v1.8） | 新增 ZplPrinterServiceTests 21 用例（ZPL 5 码型断言含 Code128 笔误修正/流水号校验 Theory/持久化往返补零/VM 5 用例打印桩模拟单张多张中途失败非法拒绝）；流水号补零位数保留修复 | ✅ 100/100 PASS（trx 留档） |
+| 2026-09-03 | 打印页自定义内容（v1.9） | 新增 3 用例（自定义内容每张打印流水号不变/纯空白回退流水号/自定义内容优先非法流水号不拦截）；修复 ERR-020（测试桩记录/失败注入随生产代码迁移至 Spooler 通道）+ 修 1 个历史 xUnit2013 警告 | ✅ 103/103 PASS |
 
 ## 当前处理中的错误
 
@@ -29,7 +30,15 @@
 
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
-## 最近变更（2026-09-02）
+## 最近变更（2026-09-03）
+
+1.9 ✅ **打印页自定义打印内容 + 布局修正**（用户需求：「修改打印页面，增加输入框，打印内容用户输入的内容」）：
+    - **VM**：`CustomContent` 属性 + `PrintAsync` 内容来源分支——Trim 后非空走自定义（每张相同、流水号不动），留空走流水号原路径（递增+持久化）；自定义路径跳过流水号校验；失败文案按路径区分
+    - **View**：新增「打印内容（留空则打印流水号）」输入行（TextBox + PlaceholderText）；修复三个说明标题局部变量未参与布局叠在左上角的缺陷（提升为字段 + CenterLayout 统一排布，每行标题位于控件上方）
+    - **测试**：新增 3 用例（自定义内容每张打印流水号不变/纯空白回退流水号递增/自定义优先时非法流水号不拦截不弹窗）；ERR-020 修复（桩的 SentZpl 记录/失败注入迁至 `PrintBySpoolerAsync` 对齐生产通道）+ 修 1 个历史 xUnit2013 警告；**103/103 PASS、0 警告**
+    - 另：v1.8b 打印通道已从 TCP 直连切换为 **Spooler RAW 为主**（用户需求，Program.cs 注释同步；实测打印成功流水号递增正常）
+
+## 历史变更（2026-09-02）
 
 1.4c ✅ **修复新增行刷新后消失（空行蒸发）**（用户反馈：「新增行不能添加数据，在刷新之后不显示」）：
     - **根因（ERR-014）**：用户配方表无「配方编号」列 → 新增行为全空行；ClosedXML 对空字符串单元格不落盘（整行在 xlsx XML 层面不存在）+ `LoadCoreAsync` 用 `RowsUsed().Skip(1)` 枚举（空行被跳过）→「新增空行→自动保存成功→刷新」后行凭空消失（日志铁证：14:44~14:51 四次「已新增第 19 行」→ 刷新均回到 18 行）
@@ -156,7 +165,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗） · ERR-019 新建配方文件流转语义偏差（另存副本 vs 备份轮转，返工）
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗） · ERR-019 新建配方文件流转语义偏差（另存副本 vs 备份轮转，返工） · ERR-020 测试桩通道与生产代码脱节（VM 打印测试静默失效）
 
 ### API 知识与技巧（保留本体）
 

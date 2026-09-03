@@ -193,17 +193,17 @@ namespace UiTopMachine.Tests
             public string? StubSerial { get; set; }                // 桩返回的流水号（null = 默认 000001）
 
             public Task<Result<bool>> PrintByIpAsync(string zpl)
+                => Task.FromResult(Result<bool>.OK(true)); // 备用通道：生产代码当前不走此路径，不做记录
+
+            public Task<Result<bool>> PrintBySpoolerAsync(string zpl)
             {
                 if (SentZpl.Count >= FailFromIndex)
                 {
-                    return Task.FromResult(Result<bool>.Fail("模拟网络失败"));
+                    return Task.FromResult(Result<bool>.Fail("模拟打印失败"));
                 }
                 SentZpl.Add(zpl);
                 return Task.FromResult(Result<bool>.OK(true));
             }
-
-            public Task<Result<bool>> PrintBySpoolerAsync(string zpl)
-                => Task.FromResult(Result<bool>.OK(true));
 
             public string GenerateZpl(ZplCodeType codeType, string serialNumber)
                 => $"[ZPL:{codeType}:{serialNumber}]";
@@ -318,6 +318,69 @@ namespace UiTopMachine.Tests
             await vm.InitializeAsync();
 
             Assert.Equal("000001", vm.CurrentSerial);
+        }
+
+        [Fact]
+        public async Task VM打印_自定义内容_每张打印输入_流水号不变()
+        {
+            var stub = new StubPrintService();
+            var vm = new PrintPageViewModel(stub, new StubLogService());
+            await vm.InitializeAsync();
+            vm.CustomContent = "ABC123";
+            vm.Quantity = 2;
+
+            vm.PrintCommand.Execute(null);
+            while (vm.IsBusy)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.Equal(2, stub.SentZpl.Count);
+            Assert.Contains("ABC123", stub.SentZpl[0]);   // 每张都是用户输入的内容
+            Assert.Contains("ABC123", stub.SentZpl[1]);
+            Assert.Equal("000001", vm.CurrentSerial);     // 流水号不递增
+            Assert.Equal(2, vm.PrintCount);
+        }
+
+        [Fact]
+        public async Task VM打印_自定义内容为空白_回退流水号()
+        {
+            var stub = new StubPrintService();
+            var vm = new PrintPageViewModel(stub, new StubLogService());
+            await vm.InitializeAsync();
+            vm.CustomContent = "   "; // 纯空白视为未输入
+
+            vm.PrintCommand.Execute(null);
+            while (vm.IsBusy)
+            {
+                await Task.Delay(10);
+            }
+
+            var sent = Assert.Single(stub.SentZpl);
+            Assert.Contains("000001", sent);              // 走流水号路径
+            Assert.Equal("000002", vm.CurrentSerial);     // 流水号正常递增
+        }
+
+        [Fact]
+        public async Task VM打印_自定义内容优先_非法流水号不拦截()
+        {
+            var stub = new StubPrintService { StubSerial = "12A" }; // 流水号非法
+            var vm = new PrintPageViewModel(stub, new StubLogService());
+            await vm.InitializeAsync();
+            vm.CustomContent = "XYZ789";
+
+            MessageRequestEventArgs? messageRequest = null;
+            vm.MessageRequested += (_, e) => messageRequest = e;
+
+            vm.PrintCommand.Execute(null);
+            while (vm.IsBusy)
+            {
+                await Task.Delay(10);
+            }
+
+            var sent = Assert.Single(stub.SentZpl);
+            Assert.Contains("XYZ789", sent);              // 自定义内容正常打印
+            Assert.Null(messageRequest);                  // 不触发流水号校验弹窗
         }
     }
 }
