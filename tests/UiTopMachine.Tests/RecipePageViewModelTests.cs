@@ -75,6 +75,23 @@ namespace UiTopMachine.Tests
             return table;
         }
 
+        /// <summary>构造「编号」表头（用户真实配方表列结构）与 N 行数据的表</summary>
+        private static DataTable BuildTableWithIdHeader(params (string Id, string Name)[] rows)
+        {
+            var table = new DataTable("配方");
+            table.Columns.Add("编号");
+            table.Columns.Add("名称");
+
+            foreach (var (id, name) in rows)
+            {
+                var row = table.NewRow();
+                row["编号"] = id;
+                row["名称"] = name;
+                table.Rows.Add(row);
+            }
+            return table;
+        }
+
         /// <summary>把表装入 VM 并等待自动保存静默完成</summary>
         private async Task<RecipePageViewModel> LoadTableIntoVmAsync(DataTable table)
         {
@@ -481,6 +498,114 @@ namespace UiTopMachine.Tests
 
             // View 订阅 TableVersion 重建 AntdUI 表格（ERR-017 修复：UI 显示由 VM 数据驱动）
             Assert.Equal(versionBefore + 1, _vm.TableVersion);
+        }
+
+        // ══════════════ 编号列候选识别（v1.6：真实表头「编号」查重生效） ══════════════
+
+        [Fact]
+        public async Task 编号列_表头为编号_编辑重复编号_拒绝提交并触发消息弹窗()
+        {
+            // 用户反馈「编号相同仍保存」根因：查重硬编码只认「配方编号」，
+            // 真实表头「编号」被跳过——本用例守护候选识别后的拒绝链路（含弹窗事件）
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲"), ("R002", "乙")));
+            var versionBefore = _vm.TableVersion;
+
+            MessageRequestEventArgs? messageRequest = null;
+            _vm.MessageRequested += (_, e) => messageRequest = e;
+
+            var committed = _vm.TryCommitCellEdit(1, 0, "R001"); // 与第 1 行重复
+
+            Assert.False(committed);
+            Assert.Equal("R002", _vm.RecipeTable.Rows[1]["编号"].ToString()); // 原值保留
+            Assert.NotNull(messageRequest);
+            Assert.Contains("R001", messageRequest!.Message);
+            Assert.Contains("已存在", messageRequest!.Message);
+            Assert.Equal(versionBefore + 1, _vm.TableVersion); // 拒绝也强制重建还原显示
+        }
+
+        [Fact]
+        public async Task 编号列_表头为编号_编辑唯一编号_提交成功且不弹窗()
+        {
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲"), ("R002", "乙")));
+
+            MessageRequestEventArgs? messageRequest = null;
+            _vm.MessageRequested += (_, e) => messageRequest = e;
+
+            var committed = _vm.TryCommitCellEdit(1, 0, "R009");
+
+            Assert.True(committed);
+            Assert.Equal("R009", _vm.RecipeTable.Rows[1]["编号"].ToString());
+            Assert.Null(messageRequest); // 唯一编号不触发弹窗
+        }
+
+        [Fact]
+        public async Task 编号列_表头为编号_新增行自动编号_跳过已占用编号()
+        {
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲"), ("R003", "丙")));
+
+            _vm.AddRowCommand.Execute(null);
+
+            Assert.Equal(3, _vm.RecipeTable.Rows.Count);
+            Assert.Equal("R002", _vm.RecipeTable.Rows[2]["编号"].ToString()); // R001/R003 已占用
+        }
+
+        [Fact]
+        public async Task 编号列_表头为编号_新增行后手改新行编号为重复值_拒绝()
+        {
+            // 用户场景：新增行自动编号 R002 后手动改成已有编号 R001 → 必须被拦
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲")));
+
+            _vm.AddRowCommand.Execute(null); // 新增行自动编号 R002
+            Assert.Equal("R002", _vm.RecipeTable.Rows[1]["编号"].ToString());
+
+            // 把新增行（第 2 行）编号改成第 1 行的 R001 → 拒绝
+            var committed = _vm.TryCommitCellEdit(1, 0, "R001");
+
+            Assert.False(committed);
+            Assert.Equal("R002", _vm.RecipeTable.Rows[1]["编号"].ToString()); // 原值保留
+            Assert.Contains(_log.Entries, e => e.Level == "Error" && e.Message.Contains("已存在"));
+        }
+
+        [Fact]
+        public async Task 保存兜底_表头为编号且存在历史重复_拒绝落盘并触发弹窗()
+        {
+            // 手动保存兜底防线（含历史数据场景）+ 弹窗提示
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲")));
+            _vm.RecipeTable.Rows[0]["编号"] = "DUP";
+            var dupRow = _vm.RecipeTable.NewRow();
+            dupRow["编号"] = "DUP"; // 直接在数据源制造重复（模拟历史数据）
+            dupRow["名称"] = "重复行";
+            _vm.RecipeTable.Rows.Add(dupRow);
+
+            MessageRequestEventArgs? messageRequest = null;
+            _vm.MessageRequested += (_, e) => messageRequest = e;
+
+            _vm.SaveCommand.Execute(null); // 手动保存（userInitiated=true → 弹窗）
+            while (_vm.IsSaving)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.Contains(_log.Entries, e => e.Level == "Error" && e.Message.Contains("重复"));
+            Assert.NotNull(messageRequest);
+            Assert.Contains("DUP", messageRequest!.Message);
+        }
+
+        // ══════════════ 失败弹窗反馈（v1.6：校验失败用户必须可见） ══════════════
+
+        [Fact]
+        public async Task 编号列_表头为配方编号_编辑重复_同样弹窗与拒绝_候选兼容()
+        {
+            // 候选列表兼容性：新建空白配方的默认表头「配方编号」链路不受影响
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲"), ("R002", "乙")));
+
+            MessageRequestEventArgs? messageRequest = null;
+            _vm.MessageRequested += (_, e) => messageRequest = e;
+
+            var committed = _vm.TryCommitCellEdit(1, 0, "R001");
+
+            Assert.False(committed);
+            Assert.NotNull(messageRequest);
         }
 
         [Fact]

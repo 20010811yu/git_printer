@@ -49,9 +49,10 @@ d:\GitRepo\
 │   │   ├── RelayCommand.cs    # ICommand + RelayCommand + AsyncRelayCommand
 │   │   └── CommandManagerHelper.cs  # 命令↔控件绑定注册与刷新
 │   ├── InputRequestEventArgs.cs  # VM↔View 输入请求事件参数（纯数据载体）
-│   └── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除等危险操作二次确认）
+│   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除等危险操作二次确认）
+│   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；55 用例覆盖命令/三态/xlsx往返/VM业务）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；71 用例覆盖命令/三态/xlsx往返/VM业务/编号查重）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -71,6 +72,8 @@ d:\GitRepo\
 - **依赖注入** ✅：Microsoft.Extensions.DependencyInjection 构造注入
 - **Result 模式** ✅：`Result<T>` 统一成功/失败返回，Service 不抛 UI 异常
 - **Service 带路径重载数据源切换** ✅：`LoadAsync(path)/SaveAsync(table, path)` 成功后内部更新 `FilePath`（private set），无参重载始终作用于"当前工作文件"，ViewModel 无感切换
+- **外部标识符识别模式（候选列表 + 规范化）** ✅：业务规则锚定的列名/表头来自外部文件，识别必须候选列表（配方编号/编号）+ Trim + 忽略大小写，统一入口 `FindRecipeIdColumnIndex()` 定位；配套「校验拦截 + 弹窗告知」一体交付（详 ERR-018）
+- **VM→View 消息提示请求模式** ✅：`MessageRequestEventArgs`（Title/Message 纯数据，无回填）→ View 弹 MessageBox（后台线程经 BeginInvoke 封送）；与输入请求（回填 InputText）/确认请求（回填 Confirmed）构成三类弹框交互模式
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
 - **工厂/策略模式** ⏳：预留（真实多协议通信接入时启用）
 - **测试桩模式** ✅：StubLogService（内存记录日志供断言）/ 事件参数回填模拟 View 弹框（VM 测试零 UI 依赖）/ 临时目录 + IDisposable 每测试隔离（xlsx 测试不污染仓库）
@@ -84,6 +87,12 @@ HasMaterial && HasRecipe   → Ready   (绿 #4CAF50)
 其余                        → Warning (黄 #FFC107)
 ```
 实现位置：`DrawerItemViewModel.RefreshStatus()`；配方输入框双向绑定（DataSourceUpdateMode.OnPropertyChanged）即时联动状态灯。
+
+## 核心业务规则：配方编号唯一性
+
+- **编号列识别**：候选表头 `{ "配方编号", "编号" }`，Trim + 忽略大小写匹配（用户真实表头为「编号」，新建空白配方默认表头为「配方编号」）；识别不到时编号校验不启用并记 Warn 日志
+- **三道防线**：① 单元格编辑提交（`TryCommitCellEdit` → `IsDuplicateRecipeId`，排除自身行，重复拒绝 + 弹窗 + 强制还原显示）；② 保存兜底（`ValidateRecipeIdUnique`，重复拒绝落盘，手动保存弹窗/自动保存静默日志）；③ 新增行自动编号（`GenerateUniqueRecipeId`，R001 起跳过已占用）
+- **规范化口径**：编号值与表头一律 Trim 后比较（详 ERR-016/018）
 
 ## 组件关系（数据流）
 
@@ -118,6 +127,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 | AntdUI Table 不接受 DataTable | View 层 `BindTable` 适配为 `AntList<AntItem[]>` | ERR-010 |
 | AntdUI `CellFocused` 鼠标单击不触发 | 跟踪鼠标选中订阅 `CellClick`（双订阅共用处理） | ERR-012 |
 | AntdUI 行事件索引传 0 基数据源偏移 +1（编辑写到下一行/删除删错行/末行改不动/查重被短路） | `CellEndEdit`/`CellClick`/`CellFocused` 的 RowIndex 均为含表头 1 基 INDEX（ColumnIndex 0 基）：传 DataTable 前行减 1；恢复高亮 SelectedIndex 反向 +1；第三方索引基准必须对照实验实证 | ERR-017 |
+| 编号查重对真实文件静默失效（列名硬编码「配方编号」vs 用户表头「编号」） | 业务规则关联外部标识符（表头/列名）必须候选列表 + Trim + 忽略大小写匹配（`FindRecipeIdColumnIndex` 统一入口）；校验失败必须弹窗告知（`MessageRequested` 事件），拒绝提交同时 TableVersion++ 强制还原显示；识别不到编号列记 Warn 不静默 | ERR-018 |
 | ClosedXML `RowsUsed()` 跳过空行致保存的空行蒸发 | 写端整行全空时首列写空格占位；读端 `LastRowUsed().RowNumber()` + for 循环逐行装载 | ERR-014 |
 | 读外部文件建 DataTable 用「预置表头+重命名」遇重名列崩溃 | 按文件实际表头新建 DataTable 重建列结构（空表头「列N」兜底） | ERR-015 |
 | 主项目 glob 误收 tests 目录测试代码（CS0246/CS0579） | 主 csproj 加 `Compile Remove="tests\**\*.cs"` + `<None Remove>` | 2026-09-03 测试搭建 |
@@ -131,7 +141,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 5. ✅ 配方文件服务多配方接口（IRecipeFileService 带路径重载 + CreateBlankAsync(recipeName, recipeId)，2026-09-02 构建修复同步补齐）
 6. ✅ VM↔View 输入请求模式（ColumnNamingRequested 事件 + InputDialog 弹框，1.3 落地）
 7. ✅ 删除行/列 + 确认弹框（DeletionConfirmRequested 事件 + ConfirmDialog + CellClick/CellFocused 双订阅焦点驱动动态参数，1.4 落地；CellFocused 单击不触发修正详 ERR-012）
-8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，55 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
+8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，71 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
 9. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
 10. ⏳ 打印/图像真实服务接入（IPrintService / VisionCameraService）
 11. ⏳ DataAccess：数据库历史存储

@@ -2,7 +2,7 @@
 
 ## 当前工作焦点
 
-**单元格错位二次修复（v1.5d，ERR-017 复现修正）** —— 首轮修复（v1.5c）后用户二次反馈「修改内容跑到下一行同列 + 编号查重未生效」。第二轮运行时实证（bin/inspect/InspectRowIndex.cs 双实验对照）确认真根因：AntdUI 2.4.7 `CellEndEdit`/`CellClick`/`CellFocused` 三事件 **RowIndex 均为含表头的 1 基内部 INDEX（ColumnIndex 为 0 基）**，首轮误判事件为 0 基 → VM 收到 +1 偏移行号（写到下一行、末行越界静默失败、查重读错行被短路）。修复 = 三处换算：CellEndEdit 传 VM 前行减 1；UpdateFocus（删除链路）同样减 1；BindTable 高亮 SelectedIndex 加 1 反向换算；保持恒返回 false + VM 提交 + TableVersion++ 重建。新增 2 个边界用例（65/65 全绿），构建 0 警告 0 错误。教训详 errorlog ERR-017。
+**编号查重真实表头生效 + 失败弹窗反馈（v1.6，ERR-018）** —— 用户反馈「修改编号列/新增行录入编号与现有重复仍保存写盘」。根因：查重列名硬编码「配方编号」，用户真实配方表表头为「**编号**」→ 编辑校验/保存兜底/自动编号三道防线静默失效（`IndexOf` 返回 -1 视为无编号列）。修复三件套：① 编号列识别宽松化——候选 `{ "配方编号", "编号" }` + Trim + 忽略大小写，`FindRecipeIdColumnIndex()` 统一入口替换 6 处硬编码；② 失败弹窗——新增 `MessageRequestEventArgs` + `MessageRequested` 事件，重复拒绝弹「编号已存在，修改失败」+ 拒绝也 TableVersion++ 强制还原显示，手动保存兜底失败弹窗（`userInitiated` 区分自动保存静默），View 经 BeginInvoke 封送弹 MessageBox；③ Service 表头 Trim。新增 6 用例，dotnet test **71/71** 全绿，构建 0 警告 0 错误。教训详 errorlog ERR-018。
 
 ## 测试记录
 
@@ -12,6 +12,7 @@
 | 2026-09-03 | 配方页修改功能测试与修复（v1.5b） | 新增 4 个空格规范化用例（编号 Trim 提交/带空格重复拒绝/保存校验/普通列 Trim）；暴露并修复 ERR-016 | ✅ 59/59 PASS（trx 留档） |
 | 2026-09-03 | 单元格错位写入修复（v1.5c） | 新增 4 个位置正确性用例（乱序编辑逐格断言/首行可改/TableVersion 重建/保存重载原位）；运行时实证并修复 ERR-017 | ✅ 63/63 PASS（trx 留档） |
 | 2026-09-03 | 单元格错位二次修复（v1.5d） | 新增 2 个边界用例（编号列重输自身原值不误报/末行可编辑）；二轮实证确证 1 基真根因并三处换算修复 ERR-017 复现 | ✅ 65/65 PASS（trx 留档） |
+| 2026-09-03 | 编号查重生效 + 失败弹窗（v1.6） | 新增 6 用例（「编号」表头重复拒绝+弹窗/唯一不弹窗/新增行自动编号/手改重复拒绝/保存兜底+弹窗/候选兼容）；候选表头识别 + MessageRequested 弹窗修复 ERR-018 | ✅ 71/71 PASS（trx 留档） |
 
 ## 当前处理中的错误
 
@@ -23,7 +24,7 @@
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 
-> 其余历史错误（ERR-001~007、ERR-010~017，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
+> 其余历史错误（ERR-001~007、ERR-010~018，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-02）
 
@@ -152,7 +153,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正）
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗）
 
 ### API 知识与技巧（保留本体）
 

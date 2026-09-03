@@ -2,7 +2,17 @@
 
 ## ✅ 已完成功能
 
-### 单元格错位二次修复（2026-09-03）⭐ 最新
+### 编号查重真实表头生效 + 失败弹窗（2026-09-03）⭐ 最新
+
+- [x] **根因确证（ERR-018）**：查重列名硬编码「配方编号」，用户真实配方表表头为「编号」→ 编辑校验（`columnName == RecipeIdColumn` 恒 false）/保存兜底（`IndexOf` 返回 -1）/自动编号三道防线静默失效，重复编号照常写盘
+- [x] **编号列识别宽松化**：候选表头 `{ "配方编号", "编号" }` + Trim + 忽略大小写，`FindRecipeIdColumnIndex()` 统一入口替换 6 处硬编码调用（TryCommitCellEdit/IsDuplicateRecipeId/ValidateRecipeIdUnique/GenerateUniqueRecipeId/AddRow/DeleteRow 文案）；识别不到编号列记 Warn 明确告知
+- [x] **失败弹窗反馈**：新增 `Common/MessageRequestEventArgs.cs` + VM `MessageRequested` 事件（VM→View 弹框请求模式）；编辑重复拒绝 → 弹「编号已存在，修改失败」+ 拒绝也 TableVersion++ 强制还原显示；手动保存兜底失败弹窗（`SaveCoreAsync` 增 `userInitiated` 参数，自动保存静默）；View 经 `BeginInvoke` 封送 UI 线程弹 MessageBox
+- [x] **Service 表头 Trim**：`LoadCoreAsync` 读表头 Trim 规范化（消除「编号␣」空格陷阱）
+- [x] **新增 6 个测试用例**：「编号」表头编辑重复拒绝+弹窗断言 / 唯一通过不弹窗 / 新增行自动编号跳过占用 / 新增行手改重复拒绝 / 手动保存兜底拒绝+弹窗 /「配方编号」候选兼容
+- [x] 验证：dotnet test **71/71 PASS**（65 + 6 新用例）+ dotnet build 0 警告 0 错误
+- [x] Memory Bank 同步更新（errorlog 新增 ERR-018 + 防回归清单 11a + activeContext/progress/systemPatterns/projectbrief）
+
+### 单元格错位二次修复（2026-09-03）
 
 - [x] **二次实证**（bin/inspect/InspectRowIndex.cs 双实验对照）：AntdUI 2.4.7 `CellEndEdit`/`CellClick`/`CellFocused` 三事件 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头 INDEX=0，首条数据行 INDEX=1，事件值与之一致），ColumnIndex 为 0 基，`SelectedIndex` 亦为 1 基——推翻首轮「事件 0 基」误判
 - [x] **修复（ERR-017 复现，v1.5d）**：`RecipePage` 三处索引换算——① `CellEndEdit` 传 VM 前行减 1（修正「内容跑到下一行同列/末行越界静默失败/查重读错行被短路」三症状）；② `UpdateFocus`（CellClick/CellFocused 共用，删除行/列链路）同样减 1；③ `BindTable` 高亮 `SelectedIndex = 行 + 1` 反向换算；保持恒返回 false + VM 提交 + TableVersion++ 重建
@@ -119,6 +129,7 @@
 **删除行/列带确认弹框**（ConfirmDialog 二次确认 + 单元格单击选中驱动按钮可用态，v1.4）；
 **新增行空行可持久化**（写端空格占位 + 读端逐行装载，空行/清空行刷新后不再消失，v1.4c/ERR-014）；
 **单元格编辑/删除链路索引换算已修正**（AntdUI 行事件 1 基 INDEX → VM 0 基减 1，高亮反向 +1，v1.5d/ERR-017 二次修复）；
+**编号查重对真实表头「编号」生效**（候选表头识别 + 重复拒绝弹窗提示 + 手动保存兜底弹窗，v1.6/ERR-018）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(recipeName, recipeId)`）；全局 Status 日志跨页面共享。
 
 ## ⚠️ 已知问题
@@ -159,3 +170,4 @@
 | 2026-09-03 | VM 修改链路四处对齐 Trim 口径（提交/编辑校验/保存校验/自动编号） | 读端 Trim 写端无 → 带空格编号绕过唯一性校验、重载后撞车（ERR-016） |
 | 2026-09-03 | AntdUI CellEndEdit 恒返回 false + VM 提交后 TableVersion++ 重建（VM 唯一事实源，1.5c） | 返回 true 时 AntdUI 内部落值与业务数据源双写竞争必错位（ERR-017） |
 | 2026-09-03 | AntdUI 行事件索引统一减 1 换算 + 高亮反向 +1（1.5d，ERR-017 二次修复） | 二轮实证确证 CellEndEdit/CellClick/CellFocused 的 RowIndex 均为含表头 1 基 INDEX（列 0 基），未换算导致编辑偏下一行、删除偏移、末行改不动、查重被短路（首轮误诊「事件 0 基」的修正） |
+| 2026-09-03 | 编号列识别候选化（配方编号/编号 + Trim）+ 校验失败弹窗（1.6，ERR-018） | 用户真实表头「编号」≠ 硬编码「配方编号」致三道防线静默失效；校验类功能「拦截」必须配「告知」否则用户感知等于没生效 |

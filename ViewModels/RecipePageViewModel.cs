@@ -95,8 +95,15 @@ namespace UiTopMachine.ViewModels
             }
         }
 
-        /// <summary>"配方编号"列名（编号唯一性校验依据；文件无此列时校验自动跳过）</summary>
-        private const string RecipeIdColumn = "配方编号";
+        // ══════════════ 编号列识别 ══════════════
+
+        /// <summary>
+        /// 编号列候选表头名（匹配时 Trim + 忽略大小写）：
+        /// ⚠️ 用户真实配方表表头为「编号」（新建空白配方默认表头为「配方编号」），
+        /// 硬编码单一列名会令唯一性校验在真实文件上全部静默失效——用户反馈
+        /// 「编号相同仍保存写盘」的根因（详 activeContext v1.6）
+        /// </summary>
+        private static readonly string[] RecipeIdColumnCandidates = { "配方编号", "编号" };
 
         // ══════════════ 事件 ══════════════
 
@@ -111,6 +118,12 @@ namespace UiTopMachine.ViewModels
         /// View 订阅此事件弹出确认弹框，并把用户选择（是否确认删除）回填到事件参数
         /// </summary>
         public event EventHandler<ConfirmRequestEventArgs>? DeletionConfirmRequested;
+
+        /// <summary>
+        /// 消息提示请求事件：VM 需要向用户展示校验失败等重要提示时触发（参数为纯数据，不接触 UI 控件），
+        /// View 订阅后弹消息框展示（编号重复拒绝、保存校验失败等用户必须立即感知的场景）
+        /// </summary>
+        public event EventHandler<MessageRequestEventArgs>? MessageRequested;
 
         // ══════════════ 命令 ══════════════
 
@@ -165,6 +178,30 @@ namespace UiTopMachine.ViewModels
             CreateBlankCommand.RaiseCanExecuteChanged();
             OpenFolderCommand.RaiseCanExecuteChanged();
         }
+
+        /// <summary>
+        /// 定位编号列索引（候选表头 Trim + 忽略大小写匹配；未找到返回 -1，
+        /// 此时编号唯一性校验不启用并已在加载/新增行时记 Warn 日志明确告知）
+        /// </summary>
+        private int FindRecipeIdColumnIndex()
+        {
+            foreach (DataColumn col in RecipeTable.Columns)
+            {
+                var name = (col.ColumnName ?? string.Empty).Trim();
+                foreach (var candidate in RecipeIdColumnCandidates)
+                {
+                    if (string.Equals(name, candidate, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return col.Ordinal;
+                    }
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>向 View 发起消息提示请求（弹窗由 View 展示，VM 不接触 UI 控件）</summary>
+        private void RaiseMessage(string title, string message)
+            => MessageRequested?.Invoke(this, new MessageRequestEventArgs { Title = title, Message = message });
 
         // ══════════════ 构造 ══════════════
 
@@ -256,7 +293,7 @@ namespace UiTopMachine.ViewModels
             IsSaving = true;
             try
             {
-                await SaveCoreAsync(successMessage: $"配方已保存：{{0}}");
+                await SaveCoreAsync(successMessage: $"配方已保存：{{0}}", userInitiated: true);
             }
             catch (Exception ex)
             {
@@ -299,11 +336,15 @@ namespace UiTopMachine.ViewModels
 
                 var columnName = RecipeTable.Columns[columnIndex].ColumnName;
 
-                // 配方编号唯一性校验（大小写敏感按工业惯例保持原样比较；校验值已 Trim）
-                if (columnName == RecipeIdColumn && IsDuplicateRecipeId(text, excludeRowIndex: rowIndex))
+                // 编号列唯一性校验（候选表头识别；校验值已 Trim，大小写敏感按工业惯例保持原样比较）
+                if (columnIndex == FindRecipeIdColumnIndex() && IsDuplicateRecipeId(text, excludeRowIndex: rowIndex))
                 {
-                    _logService.Error($"配方编号「{text}」已存在，修改被拒绝（编号必须唯一）");
-                    return false; // View 收到 false 后还原单元格显示
+                    _logService.Error($"编号「{text}」已存在，修改被拒绝（编号必须唯一）");
+                    // 弹窗提示 + TableVersion++ 强制重建表格：拒绝场景同样以数据源真值刷新 UI
+                    //（VM 唯一事实源原则覆盖拒绝场景，杜绝 AntdUI 编辑残留显示假象）
+                    RaiseMessage("编号重复", $"编号「{text}」已存在，修改失败（编号必须唯一）");
+                    TableVersion++;
+                    return false;
                 }
 
                 // 写回数据源
@@ -342,14 +383,14 @@ namespace UiTopMachine.ViewModels
 
                 // 自动生成唯一配方编号（列存在时）；无编号列则提示新行为全空行
                 //（空行依赖 Service 层空格占位落盘，否则刷新后该行会消失，详 ERR-014）
-                var idCol = RecipeTable.Columns.IndexOf(RecipeIdColumn);
+                var idCol = FindRecipeIdColumnIndex();
                 if (idCol >= 0)
                 {
                     row[idCol] = GenerateUniqueRecipeId();
                 }
                 else
                 {
-                    _logService.Info($"表格无「{RecipeIdColumn}」列，新增行暂为空白行，请双击单元格录入数据");
+                    _logService.Warn("未识别到编号列（候选表头：配方编号/编号），新增行暂为空白行，请双击单元格录入数据");
                 }
 
                 RecipeTable.Rows.Add(row);
@@ -433,7 +474,7 @@ namespace UiTopMachine.ViewModels
                 }
 
                 // ② 组装确认提示（带行号与配方编号，便于用户核对目标行）
-                var idCol = RecipeTable.Columns.IndexOf(RecipeIdColumn);
+                var idCol = FindRecipeIdColumnIndex();
                 var recipeId = idCol >= 0 ? RecipeTable.Rows[rowIndex][idCol]?.ToString() : null;
                 var rowDesc = string.IsNullOrWhiteSpace(recipeId)
                     ? $"第 {rowIndex + 1} 行"
@@ -569,7 +610,7 @@ namespace UiTopMachine.ViewModels
         {
             try
             {
-                await SaveCoreAsync(successMessage: null); // 自动保存：成功仅记 Info 级日志
+                await SaveCoreAsync(successMessage: null, userInitiated: false); // 自动保存：成功仅记 Info 级日志
             }
             catch (Exception ex)
             {
@@ -582,13 +623,15 @@ namespace UiTopMachine.ViewModels
         /// 信号量串行化（防并发写文件锁冲突）→ 编号唯一校验（失败拒绝落盘）→ 写 Excel
         /// </summary>
         /// <param name="successMessage">手动保存时传成功提示模板（{0}=文件路径）；自动保存传 null</param>
-        private async Task SaveCoreAsync(string? successMessage)
+        /// <param name="userInitiated">是否用户主动触发（手动保存=true：校验失败弹窗提示；
+        /// 自动保存=false：仅记日志不打断操作）</param>
+        private async Task SaveCoreAsync(string? successMessage, bool userInitiated)
         {
             await _saveLock.WaitAsync();
             try
             {
                 // 保存前强制校验编号唯一性（防止重复编号落盘）
-                if (!ValidateRecipeIdUnique(out var dupError))
+                if (!ValidateRecipeIdUnique(notifyUser: userInitiated, out var dupError))
                 {
                     _logService.Error(dupError);
                     return;
@@ -626,13 +669,14 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 校验整表"配方编号"列唯一性（不存在该列时视为通过）
+        /// 校验整表编号列唯一性（候选表头识别；无编号列时视为通过）
         /// </summary>
+        /// <param name="notifyUser">true 时校验失败经 MessageRequested 事件弹窗提示（手动保存场景）</param>
         /// <param name="errorMessage">校验失败时的错误描述</param>
-        private bool ValidateRecipeIdUnique(out string errorMessage)
+        private bool ValidateRecipeIdUnique(bool notifyUser, out string errorMessage)
         {
             errorMessage = string.Empty;
-            var idCol = RecipeTable.Columns.IndexOf(RecipeIdColumn);
+            var idCol = FindRecipeIdColumnIndex();
             if (idCol < 0)
             {
                 return true;
@@ -650,7 +694,11 @@ namespace UiTopMachine.ViewModels
 
                 if (!seen.Add(value))
                 {
-                    errorMessage = $"配方编号「{value}」重复，保存被拒绝（编号必须唯一）";
+                    errorMessage = $"编号「{value}」重复，保存被拒绝（编号必须唯一）";
+                    if (notifyUser)
+                    {
+                        RaiseMessage("编号重复", $"编号「{value}」已存在，保存失败（编号必须唯一，请修改后重试）");
+                    }
                     return false;
                 }
             }
@@ -669,7 +717,7 @@ namespace UiTopMachine.ViewModels
                 return false; // 空编号允许（不参与唯一性约束）
             }
 
-            var idCol = RecipeTable.Columns.IndexOf(RecipeIdColumn);
+            var idCol = FindRecipeIdColumnIndex();
             if (idCol < 0)
             {
                 return false;
@@ -697,7 +745,7 @@ namespace UiTopMachine.ViewModels
         /// </summary>
         private string GenerateUniqueRecipeId()
         {
-            var idCol = RecipeTable.Columns.IndexOf(RecipeIdColumn);
+            var idCol = FindRecipeIdColumnIndex();
             var existing = new HashSet<string>(StringComparer.Ordinal);
             if (idCol >= 0)
             {

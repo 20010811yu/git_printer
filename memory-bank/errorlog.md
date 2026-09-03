@@ -148,6 +148,19 @@
 - **验证结果**：🟢 已解决——dotnet test **65/65** 全绿（新增 2 个用例：编号列重输自身原值不误报 / 末行可编辑且落在末行）；dotnet build 0 警告 0 错误；实证工具双实验确认索引基准与零内部写入
 - **教训**：⚠️ **第三方 UI 库的索引基准必须实证且不可想当然**——首轮「实证」实际只验证了内部落值行为，未对事件索引基准做对照实验（拿事件值直接当 0 基用），导致修复引入反向错位；正确套路 = 同一次交互同时捕获已知正确的基准事件（如坐标模拟双击的视觉行）与待测事件的索引做对照。⚠️ 行/列基准可能不一致（本例行 1 基、列 0 基），必须分别验证。⚠️ 一个索引错位会级联放大成多个「看似无关」的症状（错位写 + 查重失效 + 末行改不动 + 高亮偏移），排查时从共同根因入手而非逐症状打补丁
 
+### ERR-018：编号查重在真实配方表上静默失效（查重列名硬编码「配方编号」，用户表头为「编号」）
+- **错误现象**：用户反馈「没有对编号列设置防重复——修改编号列/给新建行录入编号时，与现有编号重复仍成功保存并写进 Excel」；且校验失败仅写日志面板无弹窗，用户无法感知「被拒绝」
+- **发生上下文**：2026-09-03 用户反馈编号防重未生效；经确认用户真实配方表编号列表头为「**编号**」
+- **发生时间**：2026-09-03 12:44
+- **根本原因**：`RecipePageViewModel.RecipeIdColumn = "配方编号"` 硬编码单列名精确匹配——用户表头「编号」≠「配方编号」→ 三道防线同时静默失效：① `TryCommitCellEdit` 的 `columnName == RecipeIdColumn` 恒 false 跳过编辑查重；② `ValidateRecipeIdUnique` 的 `IndexOf` 返回 -1 视为「无编号列」跳过保存兜底；③ `AddRow` 跳过自动编号（需手输，与用户描述吻合）。附带缺陷：校验失败仅记日志无用户可见反馈、拒绝后未强制重建表格（AntdUI 可能残留编辑值假象）、`LoadCoreAsync` 表头未 Trim（「编号␣」同样失效）
+- **解决方式**（v1.6）：
+  ① **编号列识别宽松化**：`RecipeIdColumnCandidates = { "配方编号", "编号" }` 候选列表 + Trim + 忽略大小写，新增 `FindRecipeIdColumnIndex()` 统一入口替换全部 6 处硬编码调用（TryCommitCellEdit/IsDuplicateRecipeId/ValidateRecipeIdUnique/GenerateUniqueRecipeId/AddRow/DeleteRow 文案）
+  ② **失败弹窗反馈**：新增 `Common/MessageRequestEventArgs.cs`（纯数据）+ VM `MessageRequested` 事件（沿用 VM→View 弹框请求模式）；编辑重复拒绝 → 弹「编号已存在，修改失败」+ 拒绝也 `TableVersion++` 强制重建还原显示；手动保存兜底失败 → 弹「保存失败」（`SaveCoreAsync` 增加 `userInitiated` 参数，自动保存保持静默日志）；View 订阅经 `BeginInvoke` 封送 UI 线程弹 MessageBox
+  ③ **Service 表头 Trim**：`LoadCoreAsync` 读表头 Trim 规范化，消除「编号␣」空格陷阱
+- **解决时间**：2026-09-03 13:00
+- **验证结果**：🟢 已解决——dotnet test **71/71** 全绿（新增 6 用例：「编号」表头编辑重复拒绝+弹窗断言/唯一通过不弹窗/新增行自动编号跳过占用/新增行手改重复拒绝/手动保存兜底拒绝+弹窗/「配方编号」候选兼容）；dotnet build 0 警告 0 错误
+- **教训**：⚠️ **业务规则关联外部数据（列名/表头）时禁止硬编码单一精确名**——用户的文件结构是变的，识别逻辑必须候选列表 + 规范化（Trim/大小写）匹配；⚠️ **校验类功能的「拦截」与「告知」是一体的**——只拦截不告知，用户感知就是「没生效」；⚠️ 沉淀普适教训 → systemPatterns（外部标识符识别模式）
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -171,7 +184,8 @@
 8. **自绘控件** → 禁用 `Color.Transparent` 背景色（ERR-001）；标注 `[DesignerSerializationVisibility(Hidden)]`
 9. **测试项目隔离** → 主项目 csproj 必须 `Compile Remove="tests\**\*.cs"`，否则 glob 误收测试代码引发 CS0246/CS0579 连环报错（2026-09-03 搭建 xUnit 时踩坑）
 10. **读外部文件建 DataTable** → 用「按文件实际表头重建列」，禁用「预置表头 + 重命名」（重名即 DuplicateNameException，ERR-015）
-11. **数据规范化口径** → 读写两端必须一致：读端 Trim，则提交/唯一性校验/自动编号全部 Trim 后比较；不变量守护放在规范化后的值域（ERR-016）
+11. **数据规范化口径** → 读写两端必须一致：读端 Trim，则提交/唯一性校验/自动编号全部 Trim 后比较；**表头同样 Trim**（列名漂移会让识别失效）；不变量守护放在规范化后的值域（ERR-016）
+11a. **编号列识别** → 候选表头 `{ "配方编号", "编号" }` Trim + 忽略大小写匹配（`FindRecipeIdColumnIndex` 统一入口），禁止硬编码单一列名；校验失败必须弹窗告知用户（`MessageRequested` 事件），拒绝提交同时 `TableVersion++` 强制还原显示（ERR-018）
 12. **AntdUI Table 索引基准** → `CellEndEdit`/`CellClick`/`CellFocused` 的 **RowIndex 均为含表头的 1 基内部 INDEX（ColumnIndex 为 0 基）**，传给 0 基数据源（DataTable）前必须减 1；`SelectedIndex` 亦为 1 基（恢复高亮 +1）；`CellEndEdit` 恒返回 false 阻止内部落值，VM 提交后 TableVersion++ 重建表格同步显示（ERR-017，两轮实证）
 
 ## 沉淀出口

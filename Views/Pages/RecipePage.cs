@@ -190,6 +190,20 @@ namespace UiTopMachine.Views.Pages
             // 删除执行与业务校验全部在 VM）
             _viewModel.DeletionConfirmRequested += (_, request) => ShowConfirmDialog(request);
 
+            // VM 请求消息提示（编号重复拒绝/保存校验失败等）→ 弹出消息框
+            //（纯 UI 转发；VM 事件可能在后台自动保存线程触发，经 BeginInvoke 封送到 UI 线程）
+            _viewModel.MessageRequested += (_, request) =>
+            {
+                if (InvokeRequired)
+                {
+                    BeginInvoke(new Action(() => ShowMessage(request)));
+                }
+                else
+                {
+                    ShowMessage(request);
+                }
+            };
+
             // VM 数据/结构变化 → 重建 AntdUI Table（新增行/列/删除行/列/加载/新建配方均触发）
             _viewModel.PropertyChanged += (_, e) =>
             {
@@ -258,6 +272,17 @@ namespace UiTopMachine.Views.Pages
         {
             using var dialog = new ConfirmDialog(request.Title, request.Message);
             request.Confirmed = dialog.ShowDialog(FindForm()) == DialogResult.OK;
+        }
+
+        /// <summary>
+        /// 弹出消息提示框（模态）：展示校验失败等重要提示，纯单向通知无回填
+        ///（编号重复拒绝/保存校验失败等用户必须立即感知的场景）
+        /// </summary>
+        /// <param name="request">消息请求参数（VM 创建）</param>
+        private void ShowMessage(MessageRequestEventArgs request)
+        {
+            MessageBox.Show(FindForm(), request.Message, request.Title,
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         /// <summary>

@@ -214,7 +214,9 @@ namespace UiTopMachine.Services
                     var fileTable = new DataTable("配方");
                     for (int c = 1; c <= colCount; c++)
                     {
-                        string header = headerRow.Cell(c).GetString();
+                        // 表头 Trim 规范化：Excel 表头带首尾空格（如「编号␣」）会让 VM 的
+                        // 编号列候选匹配失败 → 唯一性校验静默失效（Trim 同时消除列名漂移）
+                        string header = headerRow.Cell(c).GetString().Trim();
                         fileTable.Columns.Add(string.IsNullOrWhiteSpace(header) ? $"列{c}" : header);
                     }
                     table = fileTable; // 后续数据行装载与返回均使用文件实际列结构
