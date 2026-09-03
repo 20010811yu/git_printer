@@ -2,7 +2,7 @@
 
 ## 当前工作焦点
 
-**新建配方备份轮转 + 行序整理 + 自动补空白行（v1.7b，ERR-019）** —— 用户指出 v1.7「另存副本」语义不对，正确流程为**备份轮转**：原配方 `File.Move` 改名（原名+时间戳）备份 → 新空白配方**沿用原文件名**（Recipe.xlsx）→ 页面立即显示新配方。改造：① 接口 `CreateBlankAsync(headers, blankRowCount)` 移除 recipeName；② Service 轮转（同秒递增 `_2/_3` 防覆盖）；③ VM 经通用 `ConfirmationRequested`（替换 DeletionConfirmRequested，删除行/列迁移共用）确认后轮转 + 内存构造立即显示；④ 同批需求：`CompactRows` 行序整理（加载/编辑/删除后数据连续、空白垫底）+ `EnsureMinRows`（依表格可见高度补**真实可编辑**空白行）+ `RowHeight=36/RowHeightHeader=40`。教训详 errorlog ERR-019（文件生命周期需求必须先对齐文件流转语义）。dotnet test **79/79** 全绿。
+**ZPL 打印机集成（v1.8）** —— 用户提供 ZplPrinter 源码（TCP 直连 192.168.1.200:9100 / winspool Spooler RAW + ZPL 生成），按 MVVM 集成到打印管理页：① `IPrintService`/`ZplPrinterService`（句柄/Socket 全私有封装、全 async、Result 返回、IP/端口/打印机名构造可配置、剔除非相关 using）；② 流水号自动递增（打印成功 +1 持久化到 `D:\Printer\Data\SerialNumber.txt`，6 位补零保留位数，重开不断号）；③ 打印页启用（当前流水号显示 + 码型选择二维码/Code39/Code128/PDF417/数字文本 + 张数 + 批量打印，中途失败流水号不前进防跳号 + MessageRequested 弹窗）；④ 修正源码 Code128 笔误（`"LL300"` → `"^LL300"`）。dotnet test **100/100** 全绿。
 
 ## 测试记录
 
@@ -15,6 +15,7 @@
 | 2026-09-03 | 编号查重生效 + 失败弹窗（v1.6） | 新增 6 用例（「编号」表头重复拒绝+弹窗/唯一不弹窗/新增行自动编号/手改重复拒绝/保存兜底+弹窗/候选兼容）；候选表头识别 + MessageRequested 弹窗修复 ERR-018 | ✅ 71/71 PASS（trx 留档） |
 | 2026-09-03 | 新建空白配方改造（v1.7） | 新增 4 用例（表头一致+数据全空+指定行数/空白行占位保存重载不消失/空表头回退默认/VM 端到端表头沿用+10空行+保存往返）；CreateBlankAsync 接口变更同步 5 处调用 | ✅ 74/74 PASS（trx 留档） |
 | 2026-09-03 | 备份轮转+行序整理+补空白行（v1.7b） | 改写 CreateBlank 7 个 Service 用例（备份轮转/数据完整/不覆盖/无原文件/取消不变）+ VM 3 个（确认轮转/取消不变/保存往返）+ 行序整理/补行 4 个；DeletionConfirmRequested→ConfirmationRequested 迁移 | ✅ 79/79 PASS（trx 留档） |
+| 2026-09-03 | ZPL 打印机集成（v1.8） | 新增 ZplPrinterServiceTests 21 用例（ZPL 5 码型断言含 Code128 笔误修正/流水号校验 Theory/持久化往返补零/VM 5 用例打印桩模拟单张多张中途失败非法拒绝）；流水号补零位数保留修复 | ✅ 100/100 PASS（trx 留档） |
 
 ## 当前处理中的错误
 

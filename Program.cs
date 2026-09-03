@@ -52,6 +52,8 @@ namespace UiTopMachine
             services.AddSingleton<ILogService, LogService>();
             // 配方文件服务（ClosedXML 读写 D:\Printer\Data\Recipe.xlsx）
             services.AddSingleton<IRecipeFileService, RecipeFileService>();
+            // ZPL 打印服务（TCP 直连 192.168.1.200:9100 / Spooler RAW，流水号持久化 D:\Printer\Data\SerialNumber.txt）
+            services.AddSingleton<IPrintService, ZplPrinterService>();
 
             // ViewModel 层
             // MainViewModel 单例：RecipePageViewModel 与 FeedDrawersPage 需共享同一抽屉集合

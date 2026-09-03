@@ -35,10 +35,12 @@
   - ✅ MVVM 基础设施（ObservableObject / RelayCommand / CommandManagerHelper 含参数化与动态参数绑定）
   - ✅ 浅色现代风界面：18 抽屉三态监控（绿=有料有配方/灰=无料无配方/黄=其余）、配方双向绑定、全局 Status 日志
   - ✅ 底部 Tab 页面导航：打印/图像/进料抽屉/配方四页面切换（NavigationViewModel 驱动）
-  - ✅ 配方管理页（AntdUI Table）：单元格双击编辑（编号唯一校验）、增删行列、新建空白配方（时间戳防覆盖）、保存/打开文件夹
+  - ✅ 配方管理页（AntdUI Table）：单元格双击编辑（编号唯一校验）、增删行列、新建空白配方（备份轮转沿用原名）、保存/打开文件夹
+  - ✅ 打印管理页（ZPL 真实打印）：TCP 直连/Spooler 双通道、5 种码型、流水号自动递增持久化
   - ✅ 弹框交互：新增列经 InputDialog 收集列名；删除行/列经 ConfirmDialog 二次确认（VM↔View 事件模式，零 UI 耦合）
-  - ✅ 配方服务：ClosedXML 多配方接口（带路径加载/保存 + CreateBlankAsync 带配方名/编号）
+  - ✅ 配方服务：ClosedXML 多配方接口（带路径加载/保存 + CreateBlankAsync 备份轮转）
+  - ✅ 打印服务：IPrintService/ZplPrinterService（Socket/句柄私有封装，全 async）
   - ✅ DI 组装（Microsoft.Extensions.DependencyInjection）+ Mock 模拟服务 + errorlog.md 错误归档机制
-   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，79 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
-  - ⏳ 待办：真实 PLC 通信实现、打印/图像真实服务接入
+   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，100 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
+  - ⏳ 待办：真实 PLC 通信实现、图像页真实服务接入
   

@@ -2,7 +2,17 @@
 
 ## ✅ 已完成功能
 
-### 备份轮转 + 行序整理 + 自动补空白行（2026-09-03）⭐ 最新
+### ZPL 打印机集成（2026-09-03）⭐ 最新
+
+- [x] **Service 层**：`IPrintService` + `ZplPrinterService`——整合用户 ZplPrinter 源码：TCP 直连（默认 192.168.1.200:9100，可配置，3s 超时）+ Windows Spooler RAW（默认打印机名 "zpl"，winspool 句柄私有封装）+ ZPL 生成 5 码型（二维码 ^BQ / Code39 ^B3 / Code128 ^BC / PDF417 ^B7 / 数字文本 ^AO）+ 流水号校验；全 async + Result 返回；剔除非相关 using；修正源码 Code128 笔误（`"LL300"` → `"^LL300"`）
+- [x] **流水号自动递增**：打印成功 +1 持久化 `D:\Printer\Data\SerialNumber.txt`（6 位补零、保留位数、自然进位）；重开不断号；**批量中途失败流水号不前进**（防跳号）+ 持久化失败弹窗
+- [x] **打印页启用**：当前流水号显示 + 码型选择 + 张数（1~999）+ 批量打印命令 + 失败弹窗
+- [x] **DI**：`IPrintService → ZplPrinterService` 单例注册
+- [x] **测试**：新增 `ZplPrinterServiceTests` 21 用例（ZPL 5 码型断言含笔误修正回归 / 流水号校验 Theory 7 组合 / 持久化往返补零 / VM 5 用例打印桩模拟）；**流水号补零位数保留修复**（打印内容 000001 而非 1）
+- [x] 验证：dotnet test **100/100 PASS** + dotnet build 0 错误
+- [x] Memory Bank 同步更新（activeContext/progress/systemPatterns/projectbrief/techContext）
+
+### 备份轮转 + 行序整理 + 自动补空白行（2026-09-03）
 
 - [x] **需求语义修正（ERR-019）**：v1.7「另存副本」返工 → **备份轮转**：原配方 `File.Move` 改名（原名+时间戳）备份（同秒递增 `_2/_3` 防覆盖）→ 新空白配方**沿用原文件名**（Recipe.xlsx）→ 页面立即显示新配方；接口 `CreateBlankAsync(headers, blankRowCount)` 移除 recipeName
 - [x] **用户确认**：新建前经通用 `ConfirmationRequested` 事件（替换 DeletionConfirmRequested，删除行/列迁移共用，View 单点订阅）弹确认框「当前配方将自动备份（原文件名+时间戳），新配方沿用当前文件名」；取消则一切不变
@@ -134,7 +144,8 @@
 
 ## 🔨 待构建功能
 
-- [ ] 打印/图像页接入真实服务（IPrintService / VisionCameraService）
+- [ ] 图像页接入真实服务（VisionCameraService）
+- [x] ~~打印页接入真实服务（IPrintService）~~ ✅ 2026-09-03 完成（ZplPrinterService，ZPL TCP/Spooler 双通道 + 流水号自动递增，v1.8）
 - [ ] 真实 PLC 通信实现（替换 MockDrawerService，放 Communications/，建议 HslCommunication/S7NetPlus）
 - [ ] 配方管理页增强（列表显示配方名/状态列、批量下发）
 - [x] ~~单元测试（tests/）~~ ✅ 2026-09-03 完成（xUnit，55 用例全绿，工作流固化）
@@ -152,6 +163,7 @@
 **编号查重对真实表头「编号」生效**（候选表头识别 + 重复拒绝弹窗提示 + 手动保存兜底弹窗，v1.6/ERR-018）；
 **新建配方备份轮转**（原文件改名+时间戳备份、新配方沿用 Recipe.xlsx 原名、确认弹框、页面即显，v1.7b/ERR-019）；
 **行序整理 + 自动补空白行**（数据连续排列空白垫底、按可见高度补真实可编辑空白行、RowHeight=36，v1.7b）；
+**ZPL 打印已启用**（打印页真实可用：TCP 直连 192.168.1.200:9100 + 流水号自动递增持久化 + 5 码型批量打印，v1.8）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
 
 ## ⚠️ 已知问题
@@ -195,3 +207,4 @@
 | 2026-09-03 | 编号列识别候选化（配方编号/编号 + Trim）+ 校验失败弹窗（1.6，ERR-018） | 用户真实表头「编号」≠ 硬编码「配方编号」致三道防线静默失效；校验类功能「拦截」必须配「告知」否则用户感知等于没生效 |
 | 2026-09-03 | CreateBlankAsync 表头参数化 + 数据全空 + 预置空白行（1.7） | 用户需求：新表与已有表结构一致、数据待录入、页面美观；复用 SaveCoreAsync 让空格占位机制自动保证空白行持久化（ERR-014） |
 | 2026-09-03 | 新建配方改备份轮转（原名+时间戳备份，新配方沿用原名）+ 行序整理 + 自动补空白行（1.7b，ERR-019） | 用户明确文件流转语义：原配方保留（改名备份）且新配方沿用 Recipe.xlsx（工作文件名不变）；涉及文件生命周期的需求必须先对齐流转语义再实施（返工教训） |
+| 2026-09-03 | 打印接入 ZplPrinterService（TCP 优先）+ 流水号持久化自动递增（1.8） | 用户提供源码整合进 MVVM 分层；流水号持久化保证重开不断号、中途失败不前进防跳号；IP/端口/打印机名构造可配置便于环境变更 |
