@@ -31,7 +31,7 @@
 ## 项目状态
 
 - 📅 初始化日期：2026-08-31
-- 📁 当前阶段：**多页面应用（导航 + 配方管理全套编辑）已开发完成并可运行**
+- 📁 当前阶段：**多页面应用 + 单元测试基础设施已开发完成并可运行**
   - ✅ MVVM 基础设施（ObservableObject / RelayCommand / CommandManagerHelper 含参数化与动态参数绑定）
   - ✅ 浅色现代风界面：18 抽屉三态监控（绿=有料有配方/灰=无料无配方/黄=其余）、配方双向绑定、全局 Status 日志
   - ✅ 底部 Tab 页面导航：打印/图像/进料抽屉/配方四页面切换（NavigationViewModel 驱动）
@@ -39,5 +39,6 @@
   - ✅ 弹框交互：新增列经 InputDialog 收集列名；删除行/列经 ConfirmDialog 二次确认（VM↔View 事件模式，零 UI 耦合）
   - ✅ 配方服务：ClosedXML 多配方接口（带路径加载/保存 + CreateBlankAsync 带配方名/编号）
   - ✅ DI 组装（Microsoft.Extensions.DependencyInjection）+ Mock 模拟服务 + errorlog.md 错误归档机制
-  - ⏳ 待办：真实 PLC 通信实现、打印/图像真实服务接入、单元测试
+  - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，55 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
+  - ⏳ 待办：真实 PLC 通信实现、打印/图像真实服务接入
   

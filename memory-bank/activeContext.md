@@ -2,7 +2,13 @@
 
 ## 当前工作焦点
 
-**配方页新增行空行蒸发修复（v1.4c，ERR-014）** —— 修复「新增行/清空的行在刷新后消失」：ClosedXML 空字符串单元格不落盘 + `RowsUsed()` 跳过空行导致往返后行蒸发；`RecipeFileService` 双端修复（写端空行首列空格占位、读端末行行号逐行装载），VM `AddRow` 无编号列时补提示日志。构建 0 警告 0 错误，往返验证 8 PASS / 0 FAIL。
+**单元测试基础设施搭建（v1.5，2026-09-03）** —— tests/UiTopMachine.Tests（xUnit）+ UiTopMachine.slnx + .gitignore；55 用例覆盖命令/三态判定/xlsx 往返（ERR-014 防回归）/VM 业务（删除行列/列校验/编号唯一）。**测试首轮即暴露自 0.8 版本潜伏的产品 Bug（ERR-015 表头重命名 DuplicateNameException）并已修复**。dotnet test 55/55 全绿 + dotnet build 0 警告 0 错误。**「每次任务修改功能必须配套测试并全绿」工作流已固化至 techContext.md**。
+
+## 测试记录
+
+| 日期 | 任务 | 测试内容 | 结果 |
+|------|------|---------|------|
+| 2026-09-03 | 搭建单元测试基础设施（v1.5） | 首批 55 用例（RelayCommand/AsyncRelayCommand、三态判定、xlsx 往返 ERR-014 回归、删除行列/列校验/编号唯一/ERR-013 回归）；暴露并修复 ERR-015 | ✅ 55/55 PASS（trx 留档） |
 
 ## 当前处理中的错误
 
@@ -14,7 +20,7 @@
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 
-> 其余历史错误（ERR-001~007、ERR-010~014）均已 🟢 解决，详见 errorlog.md
+> 其余历史错误（ERR-001~007、ERR-010~015）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-02）
 
@@ -113,8 +119,8 @@
 1. 打印/图像页接入真实服务（IPrintService / VisionCameraService，放 Services/）
 2. 用真实 PLC 通信实现替换 `MockDrawerService`（实现 `IDrawerService` 即可，建议 HslCommunication/S7NetPlus 放入 `Communications/`）
 3. 配方管理页增强：抽屉列表显示配方名/状态列、批量下发
-4. 补充单元测试（tests/ 目录）
-5. 创建解决方案文件 .sln（可选）
+4. ~~补充单元测试（tests/ 目录）~~ ✅ 已完成（2026-09-03，55 用例全绿；此后每次任务修改功能必须配套测试，详 techContext.md 测试工作流）
+5. ~~创建解决方案文件 .sln~~ ✅ 已完成（2026-09-03，UiTopMachine.slnx）
 
 ## 用户已确认的需求决策
 
@@ -143,7 +149,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露）
 
 ### API 知识与技巧（保留本体）
 

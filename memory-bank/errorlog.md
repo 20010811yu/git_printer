@@ -116,6 +116,16 @@
 - **验证结果**：🟢 已解决——构建 0 警告 0 错误；临时控制台往返验证 8 PASS / 0 FAIL（空行保留/中间空行位置不变/有数据行完整/真实文件可加载）
 - **教训**：⚠️ ClosedXML 的 `RowsUsed()` 语义是「有内容的行」不是「表格的行」，读写循环必须**自己维护行号**（`LastRowUsed().RowNumber()` + for 循环）而非依赖枚举器；空 DataTable 行写入 Excel 必须显式占位；单元格值 `Trim` 需评估业务影响（本例占位空格还原为空是预期行为）
 
+### ERR-015：加载特定列结构的配方文件失败（表头重命名 DuplicateNameException）
+- **错误现象**：加载列名与默认表头部分重合的配方 xlsx（如「配方编号/配方名称/备注」3 列）时，`LoadAsync` 返回失败，用户无法打开正常配方文件
+- **发生上下文**：2026-09-03 搭建单元测试（tests/UiTopMachine.Tests），首个 VM 业务测试套件运行时 17 个用例连锁失败，失败断言暴露「前置加载失败：A column named '备注' already belongs to this DataTable」
+- **发生时间**：2026-09-03 10:38
+- **根本原因**：`RecipeFileService.LoadCoreAsync` 读表头采用「预置默认表头 + 逐列重命名」方式——当文件某列名与默认表头中**其它列**重名时（本例：文件第 3 列「备注」重命名默认列时与默认第 5 列「备注」冲突），DataTable 抛 `DuplicateNameException`，整个加载失败。该缺陷自 0.8 版本引入后一直未被发现（无「文件列结构 ≠ 默认 5 列」场景的自动化验证），正是单元测试要捕获得回归类型
+- **解决方式**：`LoadCoreAsync` 弃用重命名方式，改为按文件实际表头**新建 DataTable 重建列结构**（空表头用「列N」兜底），数据行装载与返回均基于文件真实列。附带收益：文件列结构与加载结果严格一致，不再残留默认表头多余列
+- **解决时间**：2026-09-03 10:40
+- **验证结果**：🟢 已解决——dotnet test 55/55 全部通过；dotnet build 0 警告 0 错误
+- **教训**：⚠️ 「重命名」式适配表头隐含全局唯一性约束，列名来自外部文件时必须改用「重建」语义；**产品 Bug 被历史版本携带数月而测试首轮即暴露**，验证了「每次任务修改功能必须配套测试」工作流的价值；防回归测试用例 `ERR014_保存含末尾空行的表_重载后行数不变` 系列 + VM 套件已永久守护
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -137,6 +147,8 @@
 6a. **命令 CanExecute 依赖属性** → 属性 setter 必须触发 RaiseCanExecuteChanged；多命令共用时用统一的全量刷新方法（ERR-013）
 7. **WinForms 绑定** → 后台线程更新控件经 `SynchronizationContext.Post` / `BeginInvoke`；重绑前 `DataBindings.Clear()`
 8. **自绘控件** → 禁用 `Color.Transparent` 背景色（ERR-001）；标注 `[DesignerSerializationVisibility(Hidden)]`
+9. **测试项目隔离** → 主项目 csproj 必须 `Compile Remove="tests\**\*.cs"`，否则 glob 误收测试代码引发 CS0246/CS0579 连环报错（2026-09-03 搭建 xUnit 时踩坑）
+10. **读外部文件建 DataTable** → 用「按文件实际表头重建列」，禁用「预置表头 + 重命名」（重名即 DuplicateNameException，ERR-015）
 
 ## 沉淀出口
 

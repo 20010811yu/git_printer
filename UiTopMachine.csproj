@@ -19,4 +19,10 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
   </ItemGroup>
 
+  <!-- 排除单元测试目录：tests 由独立测试项目编译，防止主项目 glob 误收测试代码 -->
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <None Remove="tests\**" />
+  </ItemGroup>
+
 </Project>

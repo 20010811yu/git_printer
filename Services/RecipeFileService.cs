@@ -204,24 +204,20 @@ namespace UiTopMachine.Services
                         return Result<DataTable>.OK(table);
                     }
 
-                    // 读表头（第一行）
+                    // 读表头（第一行）：按文件实际表头重建列结构（空表头用「列N」兜底）。
+                    // ⚠️ 不基于预置默认表头做「重命名」：当文件某列名与默认表头中
+                    // 其它列重名时（如文件「备注」列位于第 3 列而默认表头第 5 列也是
+                    // 「备注」），重命名会触发 DuplicateNameException 导致加载失败
+                    //（单元测试 ERR-014 回归套件发现，2026-09-03 修复）
                     var headerRow = usedRange.FirstRow();
                     int colCount = usedRange.ColumnCount();
+                    var fileTable = new DataTable("配方");
                     for (int c = 1; c <= colCount; c++)
                     {
                         string header = headerRow.Cell(c).GetString();
-                        // 保留原表头（默认表头由 CreateEmptyTable 预置，此处覆盖/追加）
-                        if (c <= table.Columns.Count)
-                        {
-                            table.Columns[c - 1].ColumnName = string.IsNullOrWhiteSpace(header)
-                                ? table.Columns[c - 1].ColumnName
-                                : header;
-                        }
-                        else
-                        {
-                            table.Columns.Add(string.IsNullOrWhiteSpace(header) ? $"列{c}" : header);
-                        }
+                        fileTable.Columns.Add(string.IsNullOrWhiteSpace(header) ? $"列{c}" : header);
                     }
+                    table = fileTable; // 后续数据行装载与返回均使用文件实际列结构
 
                     // 读数据行（⚠️ 不用 RowsUsed() 枚举：它只返回有内容的行，空行会被跳过，
                     // 导致保存的空行在重新加载时消失（详 ERR-014）。

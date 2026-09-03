@@ -50,7 +50,8 @@ d:\GitRepo\
 │   │   └── CommandManagerHelper.cs  # 命令↔控件绑定注册与刷新
 │   ├── InputRequestEventArgs.cs  # VM↔View 输入请求事件参数（纯数据载体）
 │   └── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除等危险操作二次确认）
-├── DataAccess\ / Configs\ / Resources\ / docs\ / tests\   # ⏳ 待开发
+├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；55 用例覆盖命令/三态/xlsx往返/VM业务）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -72,6 +73,8 @@ d:\GitRepo\
 - **Service 带路径重载数据源切换** ✅：`LoadAsync(path)/SaveAsync(table, path)` 成功后内部更新 `FilePath`（private set），无参重载始终作用于"当前工作文件"，ViewModel 无感切换
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
 - **工厂/策略模式** ⏳：预留（真实多协议通信接入时启用）
+- **测试桩模式** ✅：StubLogService（内存记录日志供断言）/ 事件参数回填模拟 View 弹框（VM 测试零 UI 依赖）/ 临时目录 + IDisposable 每测试隔离（xlsx 测试不污染仓库）
+- **配套测试模式** ✅：每次功能修改同步写/更新测试，用例名关联 ERR 编号（如 `ERR014_保存含末尾空行的表_重载后行数不变`），dotnet test 即自动回归全部历史修复
 
 ## 核心业务规则：抽屉三态判定
 
@@ -115,6 +118,8 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 | AntdUI Table 不接受 DataTable | View 层 `BindTable` 适配为 `AntList<AntItem[]>` | ERR-010 |
 | AntdUI `CellFocused` 鼠标单击不触发 | 跟踪鼠标选中订阅 `CellClick`（双订阅共用处理） | ERR-012 |
 | ClosedXML `RowsUsed()` 跳过空行致保存的空行蒸发 | 写端整行全空时首列写空格占位；读端 `LastRowUsed().RowNumber()` + for 循环逐行装载 | ERR-014 |
+| 读外部文件建 DataTable 用「预置表头+重命名」遇重名列崩溃 | 按文件实际表头新建 DataTable 重建列结构（空表头「列N」兜底） | ERR-015 |
+| 主项目 glob 误收 tests 目录测试代码（CS0246/CS0579） | 主 csproj 加 `Compile Remove="tests\**\*.cs"` + `<None Remove>` | 2026-09-03 测试搭建 |
 
 ## 关键实现路径（✅ 已完成 / ⏳ 待做）
 
@@ -125,6 +130,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 5. ✅ 配方文件服务多配方接口（IRecipeFileService 带路径重载 + CreateBlankAsync(recipeName, recipeId)，2026-09-02 构建修复同步补齐）
 6. ✅ VM↔View 输入请求模式（ColumnNamingRequested 事件 + InputDialog 弹框，1.3 落地）
 7. ✅ 删除行/列 + 确认弹框（DeletionConfirmRequested 事件 + ConfirmDialog + CellClick/CellFocused 双订阅焦点驱动动态参数，1.4 落地；CellFocused 单击不触发修正详 ERR-012）
-8. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
-9. ⏳ 打印/图像真实服务接入（IPrintService / VisionCameraService）
-10. ⏳ DataAccess：数据库历史存储
+8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，55 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
+9. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
+10. ⏳ 打印/图像真实服务接入（IPrintService / VisionCameraService）
+11. ⏳ DataAccess：数据库历史存储

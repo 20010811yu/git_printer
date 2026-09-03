@@ -54,7 +54,7 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 | AntdUI | 2.4.7 | ✅ 已安装（配方页 Table 展示/双击编辑） |
 | ClosedXML | 0.105.1 | ✅ 已安装（配方 xlsx 读写，MIT 免费） |
 | PLC 通信库（建议 HslCommunication / S7NetPlus） | - | ⏳ 待接入（放 Communications/） |
-| 单元测试框架（xUnit/NUnit） | - | ⏳ 待接入 |
+| xUnit | 2.9.3（Test.Sdk 17.14.1 / runner 3.1.4 / coverlet 6.0.4） | ✅ 已接入（tests/UiTopMachine.Tests） |
 
 ## 工具使用模式（Cline 环境经验）
 
@@ -65,6 +65,21 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 - 启动 GUI：`Start-Process "完整路径.exe"`；构建前确认 exe 未运行（详 ERR-006）
 - 构建排错流程：先 `dotnet build` 拿真实错误（obj/build_result.txt 可能是过期缓存，不可信）→ 按 CS 错误码定位文件行号 → 修复后重跑构建验证
 
+## 测试工作流（2026-09-03 固化，每次任务强制执行）
+
+> **约定**：每次任务修改了功能，交付前必须为修改点写/更新单元测试并全绿后才允许交付。
+
+1. **测试项目**：`tests/UiTopMachine.Tests`（xUnit，TFM=net10.0-windows + UseWindowsForms，引用主项目）
+2. **执行命令**（项目根目录）：
+   ```powershell
+   dotnet test                                # 全量测试
+   dotnet test --logger "trx"                 # 附带 trx 报告（TestResults/ 已入 .gitignore）
+   dotnet test --filter "FullyQualifiedName~类名或用例名"   # 按名过滤
+   ```
+3. **结果记录**：当场看控制台（失败: 0, 通过: N）→ trx 留档 → 摘要写入 activeContext「测试记录」表 → errorlog 记录返工级失败
+4. **测试资产**：历史修复配套用例永不过期（如 ERR-014 空行往返、ERR-013 命令恢复），每次 dotnet test 自动回归全部历史修复
+5. **结构**：测试类按被测对象分文件（RelayCommandTests / DrawerItemViewModelTests / RecipeFileServiceRoundTripTests / RecipePageViewModelTests），公共桩在 TestDoubles.cs；用例名中文自描述并关联 ERR 编号
+
 ## 开发 setup
 
 - [x] 创建 .csproj 解决方案工程（net10.0-windows）
@@ -72,4 +87,5 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 - [x] 安装 NuGet 依赖包（DI 容器、AntdUI、ClosedXML）
 - [x] 配置构建/调试流程（dotnet build + exe 直跑）
 - [x] 建立 errorlog.md 错误归档机制（2026-09-02，编码前必查防回归清单）
-- [ ] 创建 .sln（可选，多项目时再建）
+- [x] 创建解决方案 UiTopMachine.slnx（2026-09-03，.NET 10 新格式，挂载主项目 + 测试项目）
+- [x] 搭建单元测试基础设施（2026-09-03，xUnit + .gitignore，55 用例全绿）
