@@ -43,12 +43,15 @@ namespace UiTopMachine.Services.Interfaces
         /// <summary>
         /// 新建空白配方文件（不影响任何已有文件）：
         /// 文件名 = 安全化配方名_yyyyMMdd_HHmmss.xlsx（文件名后附加时间戳，重名自动追加序号），
-        /// 保存到当前配方表格所在目录（FolderPath），并写入默认表头 + 首行配方编号。
+        /// 保存到当前配方表格所在目录（FolderPath）。
+        /// 表结构与调用方传入一致（表头沿用当前配方表，保持列结构统一），
+        /// 数据区为指定行数的空白行（首列空格占位持久化，刷新/重开后不消失）。
         /// </summary>
         /// <param name="recipeName">配方名称（作为新文件名前缀）</param>
-        /// <param name="recipeId">配方编号（写入新表首行编号列，唯一性由 ViewModel 校验）</param>
+        /// <param name="headers">新表的表头列名序列（应与既有配方表一致；空序列时回退默认表头）</param>
+        /// <param name="blankRowCount">空白行数量（默认 10 行，便于页面美观与用户录入）</param>
         /// <returns>成功时返回新配方文件完整路径</returns>
-        Task<Result<string>> CreateBlankAsync(string recipeName, string recipeId);
+        Task<Result<string>> CreateBlankAsync(string recipeName, IEnumerable<string> headers, int blankRowCount = 10);
 
         /// <summary>
         /// 打开配方所在文件夹（资源管理器）

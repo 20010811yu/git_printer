@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
 using System.IO;
@@ -27,8 +28,10 @@ namespace UiTopMachine.Services
         /// <summary>默认表头（新建空白配方时使用）</summary>
         private static readonly string[] DefaultHeaders = { "配方编号", "配方名称", "参数1", "参数2", "备注" };
 
-        /// <summary>"配方编号"列名（新建配方首行写入编号的列，与 ViewModel 唯一性校验列保持一致）</summary>
-        private const string RecipeIdColumn = "配方编号";
+        /// <summary>
+        /// 默认空白行数量：新建配方时预置的空白行数（页面美观 + 用户录入起点）
+        /// </summary>
+        internal const int DefaultBlankRowCount = 10;
 
         // ══════════════ 构造 ══════════════
 
@@ -98,13 +101,37 @@ namespace UiTopMachine.Services
         }
 
         /// <inheritdoc />
-        public async Task<Result<string>> CreateBlankAsync(string recipeName, string recipeId)
+        public async Task<Result<string>> CreateBlankAsync(string recipeName, IEnumerable<string> headers, int blankRowCount = 10)
         {
             try
             {
                 if (string.IsNullOrWhiteSpace(recipeName))
                 {
                     recipeName = "新建配方"; // 缺省名兜底
+                }
+
+                // 表头处理：调用方未提供有效表头时回退默认表头（保持向后兼容）
+                var headerList = headers?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList()
+                                 ?? new List<string>();
+                if (headerList.Count == 0)
+                {
+                    headerList = DefaultHeaders.ToList();
+                }
+
+                if (blankRowCount <= 0)
+                {
+                    blankRowCount = DefaultBlankRowCount; // 非法行数回退默认
+                }
+
+                // 构造模板表：传入表头 + N 行全空数据行（数据完全由用户后续录入）
+                var template = new DataTable("配方");
+                foreach (var header in headerList)
+                {
+                    template.Columns.Add(header);
+                }
+                for (int r = 0; r < blankRowCount; r++)
+                {
+                    template.Rows.Add(template.NewRow());
                 }
 
                 var newFilePath = await Task.Run(() =>
@@ -124,26 +151,12 @@ namespace UiTopMachine.Services
                         seq++;
                     } while (File.Exists(newFile));
 
-                    using var workbook = new XLWorkbook();
-                    var ws = workbook.Worksheets.Add("配方");
-
-                    // 写默认表头
-                    for (int c = 0; c < DefaultHeaders.Length; c++)
+                    // 复用统一写盘核心：表头样式/空行空格占位（ERR-014 防空白行蒸发）全部生效
+                    var saveResult = SaveCoreAsync(template, newFile).GetAwaiter().GetResult();
+                    if (!saveResult.Success)
                     {
-                        ws.Cell(1, c + 1).Value = DefaultHeaders[c];
-                        ws.Cell(1, c + 1).Style.Font.Bold = true;
-                        ws.Cell(1, c + 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#E8F0FE");
+                        throw new InvalidOperationException(saveResult.ErrorMessage);
                     }
-
-                    // 首行配方编号（编号列存在且非空时写入；唯一性由 ViewModel 校验）
-                    var idCol = Array.IndexOf(DefaultHeaders, RecipeIdColumn);
-                    if (idCol >= 0 && !string.IsNullOrWhiteSpace(recipeId))
-                    {
-                        ws.Cell(2, idCol + 1).Value = recipeId;
-                    }
-
-                    ws.Columns().AdjustToContents();
-                    workbook.SaveAs(newFile); // 只写新文件，不影响任何已有文件
                     return newFile;
                 });
 

@@ -234,7 +234,7 @@ namespace UiTopMachine.Tests
             }
         }
 
-        // ══════════════ CreateBlankAsync：时间戳命名防覆盖 ══════════════
+        // ══════════════ CreateBlankAsync：时间戳命名防覆盖 + 表头沿用 + 空白行持久化（v1.7） ══════════════
 
         [Fact]
         public async Task 新建空白配方_文件名含配方名与时间戳_原文件保留()
@@ -247,7 +247,7 @@ namespace UiTopMachine.Tests
                 new[] { "R001", "原配方数据", "1", "2", "" }));
             Assert.True(seed.Success, $"前置创建原配方失败：{seed.ErrorMessage}");
 
-            var result = await service.CreateBlankAsync("测试配方", "R009");
+            var result = await service.CreateBlankAsync("测试配方", new[] { "编号", "名称" });
 
             Assert.True(result.Success, $"新建失败：{result.ErrorMessage}");
             Assert.NotNull(result.Data);
@@ -259,26 +259,82 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
-        public async Task 新建空白配方_首行含配方编号_表头加粗可辨()
+        public async Task 新建空白配方_表头与传入一致_数据全空为指定行数空白行()
         {
+            // v1.7 核心需求：新表表头沿用当前配方表、数据区为空白行等待录入（不再写首行编号）
             var service = CreateService();
-            var result = await service.CreateBlankAsync("编号配方", "R042");
-            Assert.True(result.Success);
+            var headers = new[] { "编号", "名称", "参数A" };
+
+            var result = await service.CreateBlankAsync("新配方", headers, blankRowCount: 10);
+            Assert.True(result.Success, $"新建失败：{result.ErrorMessage}");
 
             var loadResult = await service.LoadAsync();
+            Assert.True(loadResult.Success);
             Assert.NotNull(loadResult.Data);
-            Assert.Equal("R042", loadResult.Data!.Rows[0]["配方编号"].ToString()); // 首行编号写入
+
+            // 表头与传入完全一致（沿用当前表结构）
+            Assert.Equal(headers.Length, loadResult.Data!.Columns.Count);
+            for (int i = 0; i < headers.Length; i++)
+            {
+                Assert.Equal(headers[i], loadResult.Data.Columns[i].ColumnName);
+            }
+
+            // 数据区 = 10 空白行，全部无内容（等待用户输入）
+            Assert.Equal(10, loadResult.Data.Rows.Count);
+            Assert.All(loadResult.Data.Rows.Cast<DataRow>(), row =>
+                Assert.True(row.ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())),
+                    "新建配方的数据区应全空"));
+        }
+
+        [Fact]
+        public async Task 新建空白配方_空白行空格占位_再次保存重载后不消失_ERR014联动()
+        {
+            // 用户在空白行填入部分数据后保存：空白行（占位）与数据行往返均保留
+            var service = CreateService();
+            var headers = new[] { "编号", "名称" };
+            var create = await service.CreateBlankAsync("往返配方", headers, blankRowCount: 10);
+            Assert.True(create.Success);
+
+            // 模拟用户只填了第 1 行，其余 9 行保持空白 → 保存
+            var load = await service.LoadAsync();
+            Assert.NotNull(load.Data);
+            load.Data!.Rows[0]["编号"] = "R001";
+            load.Data.Rows[0]["名称"] = "首条配方";
+            var save = await service.SaveAsync(load.Data);
+            Assert.True(save.Success, $"保存失败：{save.ErrorMessage}");
+
+            // 重载：10 行全保留（9 空白行不蒸发），数据在原位
+            var reload = await service.LoadAsync();
+            Assert.NotNull(reload.Data);
+            Assert.Equal(10, reload.Data!.Rows.Count);
+            Assert.Equal("R001", reload.Data.Rows[0]["编号"].ToString());
+            Assert.True(reload.Data.Rows[1].ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())),
+                "第 2 行应仍为空白行");
+        }
+
+        [Fact]
+        public async Task 新建空白配方_空表头回退默认表头()
+        {
+            var service = CreateService();
+
+            var result = await service.CreateBlankAsync("兜底表头", Array.Empty<string>());
+
+            Assert.True(result.Success);
+            var load = await service.LoadAsync();
+            Assert.NotNull(load.Data);
+            Assert.Equal(5, load.Data!.Columns.Count); // 回退默认 5 列表头
+            Assert.Equal("配方编号", load.Data.Columns[0].ColumnName);
         }
 
         [Fact]
         public async Task 同名配方名_文件名不覆盖已有文件()
         {
             var service = CreateService();
-            var first = await service.CreateBlankAsync("同名", "R001");
+            var first = await service.CreateBlankAsync("同名", new[] { "编号" });
             Assert.True(first.Success);
 
             // 同一配方名再次新建（时间戳秒级可能相同）：必须生成不同文件名，不覆盖第一个
-            var second = await service.CreateBlankAsync("同名", "R002");
+            var second = await service.CreateBlankAsync("同名", new[] { "编号" });
             Assert.True(second.Success);
             Assert.NotEqual(first.Data, second.Data);
             Assert.True(File.Exists(first.Data!)); // 第一个文件仍存在
@@ -289,7 +345,7 @@ namespace UiTopMachine.Tests
         {
             var service = CreateService();
 
-            var result = await service.CreateBlankAsync("含/非法:字符*?", "R777");
+            var result = await service.CreateBlankAsync("含/非法:字符*?", new[] { "编号" });
 
             Assert.True(result.Success);
             Assert.NotNull(result.Data);
@@ -301,7 +357,7 @@ namespace UiTopMachine.Tests
         {
             var service = CreateService();
 
-            var result = await service.CreateBlankAsync("", "R001");
+            var result = await service.CreateBlankAsync("", new[] { "编号" });
 
             Assert.True(result.Success);
             Assert.Contains("新建配方", Path.GetFileName(result.Data!));

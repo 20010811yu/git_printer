@@ -38,7 +38,7 @@ d:\GitRepo\
 ├── Services\              # 业务服务层
 │   ├── Interfaces\IDrawerService.cs   # 含统一 Result<T> 定义
 │   ├── Interfaces\ILogService.cs
-│   ├── Interfaces\IRecipeFileService.cs  # 配方文件接口（多配方：带路径加载/保存 + CreateBlankAsync(recipeName, recipeId)）
+│   ├── Interfaces\IRecipeFileService.cs  # 配方文件接口（多配方：带路径加载/保存 + CreateBlankAsync(recipeName, headers, blankRowCount)）
 │   ├── MockDrawerService.cs           # 模拟实现（2 秒随机推送状态变化）
 │   ├── LogService.cs                  # 事件推送 + 文件落盘
 │   └── RecipeFileService.cs           # ClosedXML 封装（xlsx 读写全 async，SDK 对象不外泄）
@@ -52,7 +52,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；71 用例覆盖命令/三态/xlsx往返/VM业务/编号查重）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；74 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -72,6 +72,7 @@ d:\GitRepo\
 - **依赖注入** ✅：Microsoft.Extensions.DependencyInjection 构造注入
 - **Result 模式** ✅：`Result<T>` 统一成功/失败返回，Service 不抛 UI 异常
 - **Service 带路径重载数据源切换** ✅：`LoadAsync(path)/SaveAsync(table, path)` 成功后内部更新 `FilePath`（private set），无参重载始终作用于"当前工作文件"，ViewModel 无感切换
+- **新建空白配方模板模式** ✅：表头由调用方传入（沿用当前表结构，与已有数据表一致），Service 构造模板表复用统一写盘核心（空格占位机制自动保证空白行持久化，ERR-014）；VM 内存构造同构表立即显示，无需文件重载
 - **外部标识符识别模式（候选列表 + 规范化）** ✅：业务规则锚定的列名/表头来自外部文件，识别必须候选列表（配方编号/编号）+ Trim + 忽略大小写，统一入口 `FindRecipeIdColumnIndex()` 定位；配套「校验拦截 + 弹窗告知」一体交付（详 ERR-018）
 - **VM→View 消息提示请求模式** ✅：`MessageRequestEventArgs`（Title/Message 纯数据，无回填）→ View 弹 MessageBox（后台线程经 BeginInvoke 封送）；与输入请求（回填 InputText）/确认请求（回填 Confirmed）构成三类弹框交互模式
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
@@ -90,8 +91,8 @@ HasMaterial && HasRecipe   → Ready   (绿 #4CAF50)
 
 ## 核心业务规则：配方编号唯一性
 
-- **编号列识别**：候选表头 `{ "配方编号", "编号" }`，Trim + 忽略大小写匹配（用户真实表头为「编号」，新建空白配方默认表头为「配方编号」）；识别不到时编号校验不启用并记 Warn 日志
-- **三道防线**：① 单元格编辑提交（`TryCommitCellEdit` → `IsDuplicateRecipeId`，排除自身行，重复拒绝 + 弹窗 + 强制还原显示）；② 保存兜底（`ValidateRecipeIdUnique`，重复拒绝落盘，手动保存弹窗/自动保存静默日志）；③ 新增行自动编号（`GenerateUniqueRecipeId`，R001 起跳过已占用）
+- **编号列识别**：候选表头 `{ "配方编号", "编号" }`，Trim + 忽略大小写匹配（用户真实表头为「编号」，新建空白配方的表头沿用当前表）；识别不到时编号校验不启用并记 Warn 日志
+- **三道防线**：① 单元格编辑提交（`TryCommitCellEdit` → `IsDuplicateRecipeId`，排除自身行，重复拒绝 + 弹窗 + 强制还原显示）；② 保存兜底（`ValidateRecipeIdUnique`，重复拒绝落盘，手动保存弹窗/自动保存静默日志，空编号跳过不拦空白行）；③ 新增行自动编号（`GenerateUniqueRecipeId`，R001 起跳过已占用；新建配方的 R00x 仅作文件名不写入表内）
 - **规范化口径**：编号值与表头一律 Trim 后比较（详 ERR-016/018）
 
 ## 组件关系（数据流）
@@ -138,10 +139,10 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 2. ✅ 18 抽屉网格 + 三态指示灯 + 配方绑定 + Status 日志
 3. ✅ 底部 Tab 页面导航（NavigationViewModel + 页面懒创建切换）
 4. ✅ 配方单抽屉下发（RecipePageViewModel 共享主页面数据源，已被 0.9 配方 Table 化覆盖）
-5. ✅ 配方文件服务多配方接口（IRecipeFileService 带路径重载 + CreateBlankAsync(recipeName, recipeId)，2026-09-02 构建修复同步补齐）
+5. ✅ 配方文件服务多配方接口（IRecipeFileService 带路径重载 + CreateBlankAsync(recipeName, headers, blankRowCount)，2026-09-02 构建修复同步补齐；v1.7 表头参数化 + 空白行持久化）
 6. ✅ VM↔View 输入请求模式（ColumnNamingRequested 事件 + InputDialog 弹框，1.3 落地）
 7. ✅ 删除行/列 + 确认弹框（DeletionConfirmRequested 事件 + ConfirmDialog + CellClick/CellFocused 双订阅焦点驱动动态参数，1.4 落地；CellFocused 单击不触发修正详 ERR-012）
-8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，71 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
+8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，74 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
 9. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
 10. ⏳ 打印/图像真实服务接入（IPrintService / VisionCameraService）
 11. ⏳ DataAccess：数据库历史存储

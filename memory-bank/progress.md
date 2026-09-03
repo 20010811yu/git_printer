@@ -2,7 +2,16 @@
 
 ## ✅ 已完成功能
 
-### 编号查重真实表头生效 + 失败弹窗（2026-09-03）⭐ 最新
+### 新建空白配方改造（2026-09-03）⭐ 最新
+
+- [x] **接口变更**：`IRecipeFileService.CreateBlankAsync(recipeName, headers, blankRowCount=10)`——表头由调用方传入（沿用当前配方表列结构，与已有数据表一致），不再写死默认 5 列；不再写首行编号（数据全空等待录入）
+- [x] **Service 实现**：构造模板表（传入表头 + N 空白行）复用 `SaveCoreAsync` 落盘——首列空格占位持久化，空白行刷新/重开程序后不消失（ERR-014 机制自动生效）；空表头回退默认表头兜底
+- [x] **VM 流程改造**：表头取自当前表 + 内存直接构造 10 空白行立即显示（无需文件重载，界面即时切换）；配方编号 R00x（GenerateUniqueRecipeId 跳过已占用）仅作新文件名，表内编号由用户录入并受三道查重防线保护；原配方文件保留不删（既有决策），新建即切换工作区
+- [x] **测试**：新增 4 用例（表头一致+数据全空+指定行数 / 空白行占位保存重载不消失 ERR014 联动 / 空表头回退默认 / VM 端到端表头沿用+10 空行+保存往返）；既有 5 处 CreateBlankAsync 调用同步新签名（1 个旧语义用例「首行含编号」改写为「表头一致+数据全空」）
+- [x] 验证：dotnet test **74/74 PASS** + dotnet build 0 警告 0 错误
+- [x] Memory Bank 同步更新（activeContext/progress/systemPatterns/projectbrief/techContext）
+
+### 编号查重真实表头生效 + 失败弹窗（2026-09-03）
 
 - [x] **根因确证（ERR-018）**：查重列名硬编码「配方编号」，用户真实配方表表头为「编号」→ 编辑校验（`columnName == RecipeIdColumn` 恒 false）/保存兜底（`IndexOf` 返回 -1）/自动编号三道防线静默失效，重复编号照常写盘
 - [x] **编号列识别宽松化**：候选表头 `{ "配方编号", "编号" }` + Trim + 忽略大小写，`FindRecipeIdColumnIndex()` 统一入口替换 6 处硬编码调用（TryCommitCellEdit/IsDuplicateRecipeId/ValidateRecipeIdUnique/GenerateUniqueRecipeId/AddRow/DeleteRow 文案）；识别不到编号列记 Warn 明确告知
@@ -130,7 +139,8 @@
 **新增行空行可持久化**（写端空格占位 + 读端逐行装载，空行/清空行刷新后不再消失，v1.4c/ERR-014）；
 **单元格编辑/删除链路索引换算已修正**（AntdUI 行事件 1 基 INDEX → VM 0 基减 1，高亮反向 +1，v1.5d/ERR-017 二次修复）；
 **编号查重对真实表头「编号」生效**（候选表头识别 + 重复拒绝弹窗提示 + 手动保存兜底弹窗，v1.6/ERR-018）；
-配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(recipeName, recipeId)`）；全局 Status 日志跨页面共享。
+**新建配方表头沿用当前表 + 10 空白行持久化**（同表头空表即建即显、空白行刷新不消失、编号仅作文件名、原文件保留，v1.7）；
+配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(recipeName, headers, blankRowCount)`）；全局 Status 日志跨页面共享。
 
 ## ⚠️ 已知问题
 
@@ -171,3 +181,4 @@
 | 2026-09-03 | AntdUI CellEndEdit 恒返回 false + VM 提交后 TableVersion++ 重建（VM 唯一事实源，1.5c） | 返回 true 时 AntdUI 内部落值与业务数据源双写竞争必错位（ERR-017） |
 | 2026-09-03 | AntdUI 行事件索引统一减 1 换算 + 高亮反向 +1（1.5d，ERR-017 二次修复） | 二轮实证确证 CellEndEdit/CellClick/CellFocused 的 RowIndex 均为含表头 1 基 INDEX（列 0 基），未换算导致编辑偏下一行、删除偏移、末行改不动、查重被短路（首轮误诊「事件 0 基」的修正） |
 | 2026-09-03 | 编号列识别候选化（配方编号/编号 + Trim）+ 校验失败弹窗（1.6，ERR-018） | 用户真实表头「编号」≠ 硬编码「配方编号」致三道防线静默失效；校验类功能「拦截」必须配「告知」否则用户感知等于没生效 |
+| 2026-09-03 | CreateBlankAsync 表头参数化 + 数据全空 + 预置空白行（1.7） | 用户需求：新表与已有表结构一致、数据待录入、页面美观；复用 SaveCoreAsync 让空格占位机制自动保证空白行持久化（ERR-014） |

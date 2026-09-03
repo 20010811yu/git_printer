@@ -591,6 +591,49 @@ namespace UiTopMachine.Tests
             Assert.Contains("DUP", messageRequest!.Message);
         }
 
+        // ══════════════ 新建空白配方（v1.7：表头沿用当前表 + 10 空白行 + 保存往返） ══════════════
+
+        [Fact]
+        public async Task 新建空白配方_表头沿用当前表_10空白行_保存往返一致()
+        {
+            // 用户需求：新表表头与已有数据配方表一致、数据全空等待录入、显示多行空白行
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲")));
+            var versionBefore = _vm.TableVersion;
+
+            _vm.CreateBlankCommand.Execute(null);
+            while (_vm.IsLoading)
+            {
+                await Task.Delay(10);
+            }
+
+            // 表头与原表完全一致（编号/名称），不再是默认 5 列
+            Assert.Equal(2, _vm.RecipeTable.Columns.Count);
+            Assert.Equal("编号", _vm.RecipeTable.Columns[0].ColumnName);
+            Assert.Equal("名称", _vm.RecipeTable.Columns[1].ColumnName);
+
+            // 10 空白行全部无内容（等待用户输入；不再写首行编号）
+            Assert.Equal(10, _vm.RecipeTable.Rows.Count);
+            Assert.All(_vm.RecipeTable.Rows.Cast<DataRow>(), row =>
+                Assert.True(row.ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())),
+                    "新建配方的数据区应全空"));
+            Assert.Equal(versionBefore + 1, _vm.TableVersion);
+
+            // 用户在第 1 行录入编号（唯一）→ 保存 → 重载：显示即所建
+            _vm.TryCommitCellEdit(0, 0, "R900");
+            _vm.SaveCommand.Execute(null);
+            while (_vm.IsSaving)
+            {
+                await Task.Delay(10);
+            }
+
+            var reload = await _service.LoadAsync();
+            Assert.True(reload.Success);
+            Assert.NotNull(reload.Data);
+            Assert.Equal(10, reload.Data!.Rows.Count); // 空白行持久化不蒸发
+            Assert.Equal("R900", reload.Data.Rows[0]["编号"].ToString());
+            Assert.True(reload.Data.Rows[1].ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())));
+        }
+
         // ══════════════ 失败弹窗反馈（v1.6：校验失败用户必须可见） ══════════════
 
         [Fact]

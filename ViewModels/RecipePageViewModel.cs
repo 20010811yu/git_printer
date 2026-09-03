@@ -551,30 +551,49 @@ namespace UiTopMachine.ViewModels
             }
         }
 
+        /// <summary>新建配方默认预置的空白行数（页面美观 + 录入起点）</summary>
+        private const int BlankRowCount = 10;
+
         /// <summary>
-        /// 新建空白配方：文件名 = 安全化配方名 + 时间戳，保存在当前配方目录下，
-        /// 原有配方文件保留不删除；成功后加载新表并切换当前数据源
+        /// 新建空白配方：表头沿用当前配方表列结构（与已有数据表一致），数据区为空白行等待录入；
+        /// 配方编号（R00x，GenerateUniqueRecipeId 跳过已占用）仅用作新文件名，不写入表内；
+        /// 原有配方文件保留不删除，成功后切换工作区到新文件。
+        /// 内存直接构造新表立即显示（无需文件重载），落盘复用 Service 模板写入
+        /// （空白行空格占位持久化，刷新/重开后不消失，详 ERR-014）
         /// </summary>
         private async Task CreateBlankRecipeAsync()
         {
             IsLoading = true;
             try
             {
-                // 基于当前表生成唯一配方编号（R001、R002…），配方名与编号一致便于识别
+                // ① 表头沿用当前表列结构（用户需求：新表与已有数据配方表表头一致）
+                var headers = RecipeTable.Columns.Cast<DataColumn>()
+                    .Select(c => c.ColumnName)
+                    .ToList();
+
+                // ② 配方编号仅作文件名前缀（表内不写任何数据，编号由用户录入并受唯一性校验保护）
                 var recipeId = GenerateUniqueRecipeId();
-                var result = await _recipeFileService.CreateBlankAsync(recipeName: recipeId, recipeId: recipeId);
+                var result = await _recipeFileService.CreateBlankAsync(
+                    recipeName: recipeId, headers: headers, blankRowCount: BlankRowCount);
+
                 if (result.Success && result.Data is not null)
                 {
-                    // 加载新文件内容（空表 + 默认表头 + 首行编号）
-                    var loadResult = await _recipeFileService.LoadAsync();
-                    if (loadResult.Success && loadResult.Data is not null)
+                    // ③ 内存构造新表立即显示：与写入文件内容完全一致
+                    //（同表头 + N 空白行；不重载文件，界面即时切换）
+                    var newTable = new DataTable("配方");
+                    foreach (var header in headers)
                     {
-                        RecipeTable = loadResult.Data;
+                        newTable.Columns.Add(header);
+                    }
+                    for (int r = 0; r < BlankRowCount; r++)
+                    {
+                        newTable.Rows.Add(newTable.NewRow());
                     }
 
-                    TableVersion++;
+                    RecipeTable = newTable;
+                    TableVersion++; // 通知 View 重建表格显示新表
                     OnPropertyChanged(nameof(Description));
-                    _logService.Success($"新建空白配方成功：{result.Data}（原配方文件保留）");
+                    _logService.Success($"新建空白配方成功：{result.Data}（表头沿用当前表，{BlankRowCount} 空白行；原配方文件保留）");
                 }
                 else
                 {
