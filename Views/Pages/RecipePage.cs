@@ -203,10 +203,15 @@ namespace UiTopMachine.Views.Pages
             // 焦点单元格变化 → 记录索引并刷新删除命令可用态（无选中行/列时删除按钮禁用）。
             // ⚠️ 实测 CellFocused 在鼠标单击时不触发（偏向键盘焦点导航），
             // 因此 CellClick（鼠标单击，含 RowIndex/ColumnIndex）与 CellFocused 双订阅保证鼠标/键盘都能跟踪
+            // ⚠️ 二次实证（ERR-017 真根因）：两事件的 RowIndex 均为【含表头的 1 基内部 INDEX】
+            //（运行时实证：内部 rows[0]=表头 INDEX=0，首条数据行 INDEX=1，事件值与之一致），
+            // 而 ColumnIndex 为 0 基——行必须减 1 换算为 DataTable 0 基索引，列原样使用。
+            // 未换算会导致删除行/列定位到相邻行（点击首行实际删除第 2 行）
             void UpdateFocus(int rowIndex, int columnIndex)
             {
-                // 点击表头/空白区（索引 < 0）视为取消选中，删除按钮回到禁用
-                _focusedRowIndex = rowIndex >= 0 ? rowIndex : -1;
+                // 行：1 基 INDEX → 0 基数据行（INDEX<1 即表头/空白区，视为取消选中，删除按钮回到禁用）
+                _focusedRowIndex = rowIndex >= 1 ? rowIndex - 1 : -1;
+                // 列：0 基，点击表头（<0）视为取消选中
                 _focusedColumnIndex = columnIndex >= 0 ? columnIndex : -1;
                 _viewModel.DeleteRowCommand.RaiseCanExecuteChanged();
                 _viewModel.DeleteColumnCommand.RaiseCanExecuteChanged();
@@ -215,15 +220,17 @@ namespace UiTopMachine.Views.Pages
             _recipeTable.CellFocused += (_, e) => UpdateFocus(e.RowIndex, e.ColumnIndex);
 
             // 单元格编辑完成 → 转发 VM 校验提交（业务逻辑全部在 VM，View 仅转发）；
-            // ⚠️ 实证（ERR-017）：CellEndEdit 的 RowIndex 是 0 基视觉行，但 AntdUI 内部
-            // 提交写入的是含表头的 1 基 INDEX 行 → 返回 true 会把值错写到上一行（首行永远改不到）。
-            // 故一律返回 false 阻止 AntdUI 内部落值，VM 提交成功后经 TableVersion++ 重建表格
+            // ⚠️ 二次实证（ERR-017 真根因）：CellEndEdit 的 RowIndex 是【含表头的 1 基内部 INDEX】
+            //（首条数据行 = 1），直接传 VM 会把值写到 DataTable 的下一行——用户症状
+            //「修改内容跑到下一行同列」、编辑末行时索引越界静默失败、查重读错行被
+            //「未变化」分支跳过。必须减 1 换算为 0 基数据行索引；ColumnIndex 为 0 基原样传递。
+            // 恒返回 false 阻止 AntdUI 内部落值，VM 提交成功后经 TableVersion++ 重建表格
             // 同步显示（VM = 唯一事实源）；VM 返回 false（编号重复/越界）时同样由重建还原显示
             _recipeTable.CellEndEdit += (s, e) =>
             {
                 var newValue = e.Value?.ToString() ?? string.Empty;
-                _viewModel.TryCommitCellEdit(e.RowIndex, e.ColumnIndex, newValue);
-                return false; // 恒 false：阻止 AntdUI 内部错位写入，显示统一走 TableVersion 重建
+                _viewModel.TryCommitCellEdit(e.RowIndex - 1, e.ColumnIndex, newValue);
+                return false; // 恒 false：阻止 AntdUI 内部落值，显示统一走 TableVersion 重建
             };
 
             // 初始绑定（空表占位，加载完成后自动刷新）
@@ -268,7 +275,9 @@ namespace UiTopMachine.Views.Pages
             _viewModel.DeleteColumnCommand.RaiseCanExecuteChanged();
 
             // 恢复行选中高亮（AntdUI SelectedIndex 可写；-1 = 不选中）
-            _recipeTable.SelectedIndex = _focusedRowIndex;
+            // ⚠️ 二次实证（ERR-017）：SelectedIndex 与行事件同为 1 基内部 INDEX
+            //（0=表头），_focusedRowIndex 为 0 基 → 恢复高亮需 +1，否则高亮偏上一行
+            _recipeTable.SelectedIndex = _focusedRowIndex >= 0 ? _focusedRowIndex + 1 : -1;
 
             // 依 Excel 表头重建列（key 与标题同名）
             _recipeTable.Columns.Clear();

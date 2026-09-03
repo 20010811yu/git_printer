@@ -2,10 +2,18 @@
 
 ## ✅ 已完成功能
 
-### 单元格错位写入修复（2026-09-03）⭐ 最新
+### 单元格错位二次修复（2026-09-03）⭐ 最新
+
+- [x] **二次实证**（bin/inspect/InspectRowIndex.cs 双实验对照）：AntdUI 2.4.7 `CellEndEdit`/`CellClick`/`CellFocused` 三事件 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头 INDEX=0，首条数据行 INDEX=1，事件值与之一致），ColumnIndex 为 0 基，`SelectedIndex` 亦为 1 基——推翻首轮「事件 0 基」误判
+- [x] **修复（ERR-017 复现，v1.5d）**：`RecipePage` 三处索引换算——① `CellEndEdit` 传 VM 前行减 1（修正「内容跑到下一行同列/末行越界静默失败/查重读错行被短路」三症状）；② `UpdateFocus`（CellClick/CellFocused 共用，删除行/列链路）同样减 1；③ `BindTable` 高亮 `SelectedIndex = 行 + 1` 反向换算；保持恒返回 false + VM 提交 + TableVersion++ 重建
+- [x] **新增 2 个边界用例**：编号列重输自身原值不误报（查重错行症状回归）/ 末行可编辑且落在末行（越界静默失败症状回归）
+- [x] 验证：dotnet test **65/65 PASS**（63 + 2 新用例）+ dotnet build 0 警告 0 错误
+- [x] Memory Bank 同步更新（errorlog ERR-017 更新为真根因 + 防回归清单 #12 重写 + activeContext/progress/systemPatterns/techContext）
+
+### 单元格错位写入修复（2026-09-03）
 
 - [x] **运行时实证**（bin/inspect/InspectRowIndex.cs，临时工具）：AntdUI 2.4.7 `CellEndEdit` 事件 RowIndex/ColumnIndex 为 0 基视觉索引（与 CellClick 一致）、e.Value 为新值；但事件返回 true 时 AntdUI 内部把值提交到**含表头的 1 基 INDEX 行** → 用户编辑视觉行 N 被写到内部行 N（视觉行 N-1）→ 整体错位一行；返回 false 时内部**完全零写入**
-- [x] **修复（ERR-017，VM 唯一事实源）**：`RecipePage.CellEndEdit` 恒返回 false 阻止内部错位落值；VM `TryCommitCellEdit` 提交成功后 TableVersion++ 驱动 View 重建表格同步显示
+- [x] **修复（ERR-017 首轮，VM 唯一事实源）**：`RecipePage.CellEndEdit` 恒返回 false 阻止内部错位落值；VM `TryCommitCellEdit` 提交成功后 TableVersion++ 驱动 View 重建表格同步显示（⚠️ 当时误诊「事件索引 0 基」未做行号换算 → 二次修复见上一节 v1.5d）
 - [x] **新增 4 个位置正确性测试**：多单元格乱序编辑逐格断言 / 首行可改（ERR-017 症状回归）/ 编辑提交 TableVersion 自增 / 修改后保存重载各值仍在原位置
 - [x] 附带：测试 Dispose 加固（后台自动保存与清理竞态重试）
 - [x] 验证：dotnet test **63/63 PASS**（59 + 4 新用例）+ dotnet build 0 警告 0 错误
@@ -110,6 +118,7 @@
 **新增列为弹框交互**（InputDialog 收集列名 + 空列名校验失败，v1.3）；
 **删除行/列带确认弹框**（ConfirmDialog 二次确认 + 单元格单击选中驱动按钮可用态，v1.4）；
 **新增行空行可持久化**（写端空格占位 + 读端逐行装载，空行/清空行刷新后不再消失，v1.4c/ERR-014）；
+**单元格编辑/删除链路索引换算已修正**（AntdUI 行事件 1 基 INDEX → VM 0 基减 1，高亮反向 +1，v1.5d/ERR-017 二次修复）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(recipeName, recipeId)`）；全局 Status 日志跨页面共享。
 
 ## ⚠️ 已知问题
@@ -148,4 +157,5 @@
 | 2026-09-03 | 搭建 xUnit 单元测试 + 固化「每次任务修改功能必须配套测试并全绿」工作流 | 历史修复需永久回归守护；首轮测试即暴露潜伏产品 Bug（ERR-015）验证其价值 |
 | 2026-09-03 | LoadCoreAsync 表头改「按文件实际列重建」 | 「预置+重命名」遇重名列抛 DuplicateNameException（ERR-015） |
 | 2026-09-03 | VM 修改链路四处对齐 Trim 口径（提交/编辑校验/保存校验/自动编号） | 读端 Trim 写端无 → 带空格编号绕过唯一性校验、重载后撞车（ERR-016） |
-| 2026-09-03 | AntdUI CellEndEdit 恒返回 false + VM 提交后 TableVersion++ 重建（VM 唯一事实源） | AntdUI 内部提交按 1 基 INDEX 写行 vs 事件 0 基 RowIndex，返回 true 必错位一行（ERR-017） |
+| 2026-09-03 | AntdUI CellEndEdit 恒返回 false + VM 提交后 TableVersion++ 重建（VM 唯一事实源，1.5c） | 返回 true 时 AntdUI 内部落值与业务数据源双写竞争必错位（ERR-017） |
+| 2026-09-03 | AntdUI 行事件索引统一减 1 换算 + 高亮反向 +1（1.5d，ERR-017 二次修复） | 二轮实证确证 CellEndEdit/CellClick/CellFocused 的 RowIndex 均为含表头 1 基 INDEX（列 0 基），未换算导致编辑偏下一行、删除偏移、末行改不动、查重被短路（首轮误诊「事件 0 基」的修正） |

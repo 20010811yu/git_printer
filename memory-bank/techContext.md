@@ -43,7 +43,7 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 3. **自绘控件**：需标注 `[DesignerSerializationVisibility(Hidden)]` 消除设计器序列化警告
 4. **无 WPF CommandManager**：命令状态刷新需手动调 `RaiseCanExecuteChanged()`
 5. **UI 线程**：硬件 IO 全 async/await；后台事件禁止直接操作绑定控件
-6. **AntdUI Table 事件语义**：`CellFocused` 鼠标单击不触发（键盘焦点用），跟踪鼠标选中必须订阅 `CellClick`（详 ERR-012）；第三方事件勿望文生义，先反射实证
+6. **AntdUI Table 事件语义**：`CellFocused` 鼠标单击不触发（键盘焦点用），跟踪鼠标选中必须订阅 `CellClick`（详 ERR-012）；第三方事件勿望文生义，先反射实证。**索引基准（二轮运行时实证，ERR-017）**：`CellEndEdit`/`CellClick`/`CellFocused` 的 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头，首条数据行=1），**ColumnIndex 为 0 基**；`SelectedIndex` 亦为 1 基——传 0 基数据源（DataTable）前行必须减 1，恢复高亮反向 +1；编辑与删除链路共用此换算
 7. **ClosedXML 空行语义**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端整行全空时首列空格占位 + 读端 `LastRowUsed().RowNumber()` 行号循环逐行装载」，不要依赖 RowsUsed 枚举（详 ERR-014）
 
 ## 依赖清单

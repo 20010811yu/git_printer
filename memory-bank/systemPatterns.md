@@ -34,7 +34,7 @@ d:\GitRepo\
 │       ├── FeedDrawersPage.cs  # 进料抽屉监控页（18 抽屉网格）
 │       ├── PrintPage.cs        # 打印管理页（占位）
 │       ├── ImagePage.cs        # 图像管理页（占位）
-│       └── RecipePage.cs       # 配方管理页（AntdUI Table 编辑 + 删除行/列确认弹框 + CellClick/CellFocused 焦点跟踪）
+│       └── RecipePage.cs       # 配方管理页（AntdUI Table 编辑 + 删除行/列确认弹框 + CellClick/CellFocused 焦点跟踪 + 行事件索引 1 基→0 基换算）
 ├── Services\              # 业务服务层
 │   ├── Interfaces\IDrawerService.cs   # 含统一 Result<T> 定义
 │   ├── Interfaces\ILogService.cs
@@ -117,6 +117,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 | PowerShell 环境 `&&` / `mkdir` 多参数不可用 | 单命令或 `;` 分隔；`New-Item -ItemType Directory` | ERR-008/011 |
 | AntdUI Table 不接受 DataTable | View 层 `BindTable` 适配为 `AntList<AntItem[]>` | ERR-010 |
 | AntdUI `CellFocused` 鼠标单击不触发 | 跟踪鼠标选中订阅 `CellClick`（双订阅共用处理） | ERR-012 |
+| AntdUI 行事件索引传 0 基数据源偏移 +1（编辑写到下一行/删除删错行/末行改不动/查重被短路） | `CellEndEdit`/`CellClick`/`CellFocused` 的 RowIndex 均为含表头 1 基 INDEX（ColumnIndex 0 基）：传 DataTable 前行减 1；恢复高亮 SelectedIndex 反向 +1；第三方索引基准必须对照实验实证 | ERR-017 |
 | ClosedXML `RowsUsed()` 跳过空行致保存的空行蒸发 | 写端整行全空时首列写空格占位；读端 `LastRowUsed().RowNumber()` + for 循环逐行装载 | ERR-014 |
 | 读外部文件建 DataTable 用「预置表头+重命名」遇重名列崩溃 | 按文件实际表头新建 DataTable 重建列结构（空表头「列N」兜底） | ERR-015 |
 | 主项目 glob 误收 tests 目录测试代码（CS0246/CS0579） | 主 csproj 加 `Compile Remove="tests\**\*.cs"` + `<None Remove>` | 2026-09-03 测试搭建 |

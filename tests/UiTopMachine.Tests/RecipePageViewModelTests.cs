@@ -442,6 +442,36 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
+        public async Task 编号列_重输自身原值_视为未变化不误报拒绝()
+        {
+            // ERR-017 连带症状守护：索引错位时 excludeRowIndex 排除错行，
+            // 重输自身原编号会被误报「已存在」。修复后必须放行（未变化短路）
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲"), ("R002", "乙")));
+
+            var committed = _vm.TryCommitCellEdit(1, 0, "R002");
+
+            Assert.True(committed); // 自身原值 = 未变化，放行
+            Assert.Equal("R002", _vm.RecipeTable.Rows[1]["配方编号"].ToString());
+            Assert.DoesNotContain(_log.Entries, e =>
+                e.Level == "Error" && e.Message.Contains("已存在"));
+        }
+
+        [Fact]
+        public async Task 位置正确性_末行单元格修改_提交成功且落在末行()
+        {
+            // ERR-017 真根因症状守护：RowIndex 未减 1 换算时，末行编辑
+            // （e.RowIndex = 行数）传 VM 越界 → 静默失败「改不动」；
+            // View 换算修正后末行必须可正常编辑（VM 契约：rowIndex=Count-1 有效）
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲"), ("R002", "乙")));
+
+            var committed = _vm.TryCommitCellEdit(1, 1, "末行改名");
+
+            Assert.True(committed);
+            Assert.Equal("末行改名", _vm.RecipeTable.Rows[1]["配方名称"].ToString());
+            Assert.Equal("甲", _vm.RecipeTable.Rows[0]["配方名称"].ToString()); // 首行不被误写
+        }
+
+        [Fact]
         public async Task 位置正确性_编辑提交后TableVersion自增驱动UI重建()
         {
             await LoadTableIntoVmAsync(BuildTable(("R001", "甲")));

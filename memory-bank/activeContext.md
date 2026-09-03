@@ -2,7 +2,7 @@
 
 ## 当前工作焦点
 
-**单元格错位写入修复（v1.5c，ERR-017）** —— 用户反馈「修改不保存到对应单元格，刷新后位置错乱」。运行时实证（bin/inspect/InspectRowIndex.cs）锁定根因：AntdUI 2.4.7 `CellEndEdit` 事件索引 0 基正确，但其内部提交按含表头的 1 基 INDEX 写行 → 返回 true 必错位一行。修复 = 「VM 唯一事实源」：View 恒返回 false 阻止内部落值 + VM 提交后 TableVersion++ 重建表格。新增 4 个位置正确性测试，dotnet test 63/63 全绿 + 构建 0 警告 0 错误。测试基建与工作流详 techContext.md。
+**单元格错位二次修复（v1.5d，ERR-017 复现修正）** —— 首轮修复（v1.5c）后用户二次反馈「修改内容跑到下一行同列 + 编号查重未生效」。第二轮运行时实证（bin/inspect/InspectRowIndex.cs 双实验对照）确认真根因：AntdUI 2.4.7 `CellEndEdit`/`CellClick`/`CellFocused` 三事件 **RowIndex 均为含表头的 1 基内部 INDEX（ColumnIndex 为 0 基）**，首轮误判事件为 0 基 → VM 收到 +1 偏移行号（写到下一行、末行越界静默失败、查重读错行被短路）。修复 = 三处换算：CellEndEdit 传 VM 前行减 1；UpdateFocus（删除链路）同样减 1；BindTable 高亮 SelectedIndex 加 1 反向换算；保持恒返回 false + VM 提交 + TableVersion++ 重建。新增 2 个边界用例（65/65 全绿），构建 0 警告 0 错误。教训详 errorlog ERR-017。
 
 ## 测试记录
 
@@ -11,6 +11,7 @@
 | 2026-09-03 | 搭建单元测试基础设施（v1.5） | 首批 55 用例（RelayCommand/AsyncRelayCommand、三态判定、xlsx 往返 ERR-014 回归、删除行列/列校验/编号唯一/ERR-013 回归）；暴露并修复 ERR-015 | ✅ 55/55 PASS（trx 留档） |
 | 2026-09-03 | 配方页修改功能测试与修复（v1.5b） | 新增 4 个空格规范化用例（编号 Trim 提交/带空格重复拒绝/保存校验/普通列 Trim）；暴露并修复 ERR-016 | ✅ 59/59 PASS（trx 留档） |
 | 2026-09-03 | 单元格错位写入修复（v1.5c） | 新增 4 个位置正确性用例（乱序编辑逐格断言/首行可改/TableVersion 重建/保存重载原位）；运行时实证并修复 ERR-017 | ✅ 63/63 PASS（trx 留档） |
+| 2026-09-03 | 单元格错位二次修复（v1.5d） | 新增 2 个边界用例（编号列重输自身原值不误报/末行可编辑）；二轮实证确证 1 基真根因并三处换算修复 ERR-017 复现 | ✅ 65/65 PASS（trx 留档） |
 
 ## 当前处理中的错误
 
@@ -22,7 +23,7 @@
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 
-> 其余历史错误（ERR-001~007、ERR-010~017）均已 🟢 解决，详见 errorlog.md
+> 其余历史错误（ERR-001~007、ERR-010~017，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-02）
 
@@ -151,7 +152,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 内部 1 基 INDEX vs 事件 0 基索引）
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正）
 
 ### API 知识与技巧（保留本体）
 
@@ -165,7 +166,8 @@ ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数
 - ⚠️ **ClosedXML 空行语义（ERR-014）**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端空行占位 + 读端自己维护行号循环」，不要依赖 RowsUsed 枚举
 - **VM↔View 输入请求模式（1.3 落地）**：VM 触发事件（携带 Title/Prompt）→ View 弹模态 InputDialog → 结果回填事件参数（Confirmed/InputText）→ VM 按结果继续业务；VM 全程不接触 UI 控件，适合弹框收集输入类交互
 - **VM↔View 确认请求模式（1.4 落地）**：同输入请求模式，ConfirmRequestEventArgs（Title/Message/Confirmed）→ View 弹 ConfirmDialog；适合删除等危险操作二次确认
-- ⚠️ **AntdUI 2.4.7 Table 焦点/点击 API（反射实证）**：`CellFocused` 事件鼠标单击**不触发**（偏向键盘焦点导航），跟踪鼠标选中必须订阅 `CellClick`（`TableClickEventArgs` 含 `RowIndex/ColumnIndex/Button/Clicks`，继承 MouseEventArgs）；两者签名一致可共用处理逻辑双订阅；`FocusedCell` 是嵌套类型 `Table+CELL`（外部不可直接用）；`SelectedIndex`/`SelectedIndexs` 为行选中（int/int[]），删除单格所在列需用 ColumnIndex；点击表头时 RowIndex/ColumnIndex 为 -1（可作取消选中依据）
+- ⚠️ **AntdUI 2.4.7 Table 焦点/点击 API（反射实证）**：`CellFocused` 事件鼠标单击**不触发**（偏向键盘焦点导航），跟踪鼠标选中必须订阅 `CellClick`（`TableClickEventArgs` 含 `RowIndex/ColumnIndex/Button/Clicks`，继承 MouseEventArgs）；两者签名一致可共用处理逻辑双订阅；`FocusedCell` 是嵌套类型 `Table+CELL`（外部不可直接用）；`SelectedIndex`/`SelectedIndexs` 为行选中（int/int[]），删除单格所在列需用 ColumnIndex
+- ⚠️ **AntdUI 2.4.7 Table 索引基准（第二轮运行时实证，ERR-017）**：`CellEndEdit`/`CellClick`/`CellFocused` 三事件的 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头，首条数据行=1；点击表头时行索引为 0 或 -1），**ColumnIndex 为 0 基**；`SelectedIndex` 亦为 1 基 INDEX。传给 0 基数据源（DataTable）前行索引必须减 1，恢复高亮反向 +1；删除行/列与编辑共用此换算规则
 
 ### 模式沉淀（详见 systemPatterns.md）
 
