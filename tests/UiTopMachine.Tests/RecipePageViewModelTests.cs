@@ -340,5 +340,59 @@ namespace UiTopMachine.Tests
             Assert.NotNull(reload.Data);
             Assert.Equal(_vm.RecipeTable.Rows.Count, reload.Data!.Rows.Count); // 空行保留
         }
+
+        // ══════════════ 修改功能·空格规范化（ERR-016 回归：Trim 口径必须与重载一致） ══════════════
+
+        [Fact]
+        public async Task 单元格修改_编号带首尾空格_提交后规范化为去空格值()
+        {
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲")));
+
+            var committed = _vm.TryCommitCellEdit(0, 0, "  R009  ");
+
+            Assert.True(committed);
+            // LoadCoreAsync 重载时对全部单元格 Trim，内存值必须与重载结果一致，否则往返后数据漂移
+            Assert.Equal("R009", _vm.RecipeTable.Rows[0]["配方编号"].ToString());
+        }
+
+        [Fact]
+        public async Task 单元格修改_编号带空格但与现有编号重复_拒绝提交()
+        {
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲"), ("R002", "乙")));
+
+            // " R001 " 去空格后与 R001 相同 → 必须拒绝（否则重载 Trim 后产生重复编号）
+            var committed = _vm.TryCommitCellEdit(1, 0, " R001 ");
+
+            Assert.False(committed);
+            Assert.Equal("R002", _vm.RecipeTable.Rows[1]["配方编号"].ToString()); // 原值保留
+        }
+
+        [Fact]
+        public async Task 保存校验_带空格的重复编号_拒绝落盘()
+        {
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲"), ("R002", "乙")));
+            // 直接在数据源制造带空格的"伪不同"编号（模拟历史数据绕过单元格校验）
+            _vm.RecipeTable.Rows[1]["配方编号"] = " R001 ";
+
+            _vm.SaveCommand.Execute(null);
+            while (_vm.IsSaving)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.Contains(_log.Entries, e =>
+                e.Level == "Error" && e.Message.Contains("重复"));
+        }
+
+        [Fact]
+        public async Task 单元格修改_普通文本列带空格_提交后规范化与重载一致()
+        {
+            await LoadTableIntoVmAsync(BuildTable(("R001", "甲")));
+
+            var committed = _vm.TryCommitCellEdit(0, 1, "  新名字  ");
+
+            Assert.True(committed);
+            Assert.Equal("新名字", _vm.RecipeTable.Rows[0]["配方名称"].ToString());
+        }
     }
 }

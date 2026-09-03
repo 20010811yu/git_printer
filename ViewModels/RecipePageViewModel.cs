@@ -287,7 +287,9 @@ namespace UiTopMachine.ViewModels
                 }
 
                 var oldValue = RecipeTable.Rows[rowIndex][columnIndex]?.ToString() ?? string.Empty;
-                var text = newValue ?? string.Empty;
+                // 提交前 Trim 规范化：与 LoadCoreAsync 重载时的 Trim 口径保持一致，
+                // 避免内存值带首尾空格而重载后被裁剪造成数据漂移（详 ERR-016）
+                var text = (newValue ?? string.Empty).Trim();
 
                 // 未变化：跳过写盘
                 if (string.Equals(oldValue, text, StringComparison.Ordinal))
@@ -297,7 +299,7 @@ namespace UiTopMachine.ViewModels
 
                 var columnName = RecipeTable.Columns[columnIndex].ColumnName;
 
-                // 配方编号唯一性校验（大小写敏感按工业惯例保持原样比较）
+                // 配方编号唯一性校验（大小写敏感按工业惯例保持原样比较；校验值已 Trim）
                 if (columnName == RecipeIdColumn && IsDuplicateRecipeId(text, excludeRowIndex: rowIndex))
                 {
                     _logService.Error($"配方编号「{text}」已存在，修改被拒绝（编号必须唯一）");
@@ -635,7 +637,8 @@ namespace UiTopMachine.ViewModels
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (DataRow row in RecipeTable.Rows)
             {
-                var value = row[idCol]?.ToString() ?? string.Empty;
+                // Trim 后比较：消除「 R001 」与「R001」的伪不同（重载后 Trim 会使其撞车，详 ERR-016）
+                var value = (row[idCol]?.ToString() ?? string.Empty).Trim();
                 if (string.IsNullOrWhiteSpace(value))
                 {
                     continue; // 空编号不参与唯一性校验
@@ -675,7 +678,8 @@ namespace UiTopMachine.ViewModels
                     continue;
                 }
 
-                var other = RecipeTable.Rows[r][idCol]?.ToString() ?? string.Empty;
+                // Trim 后比较：与重载 Trim 口径一致（详 ERR-016）
+                var other = (RecipeTable.Rows[r][idCol]?.ToString() ?? string.Empty).Trim();
                 if (string.Equals(other, value, StringComparison.Ordinal))
                 {
                     return true;
@@ -695,7 +699,7 @@ namespace UiTopMachine.ViewModels
             {
                 foreach (DataRow row in RecipeTable.Rows)
                 {
-                    existing.Add(row[idCol]?.ToString() ?? string.Empty);
+                    existing.Add((row[idCol]?.ToString() ?? string.Empty).Trim());
                 }
             }
 
