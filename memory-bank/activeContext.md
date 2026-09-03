@@ -2,7 +2,7 @@
 
 ## 当前工作焦点
 
-**新建空白配方改造（v1.7）** —— 用户需求：新建配方表头与已有数据配方表一致、数据全空等待录入、显示多行空白行（页面美观）、保存后显示即所建。改造：① `IRecipeFileService.CreateBlankAsync(recipeName, headers, blankRowCount=10)` 接口变更（表头由调用方传入，不再写死默认 5 列；不再写首行编号）；② Service 构造模板表复用 `SaveCoreAsync` 落盘（空格占位持久化，空白行刷新/重开不消失，ERR-014 机制自动生效）；③ VM 表头取自当前表 + 内存构造 10 空白行立即显示（无需文件重载）+ 配方编号 R00x 仅作文件名（表内编号由用户录入，受唯一性校验保护）；原配方文件保留不删（既有决策）。dotnet test **74/74** 全绿，构建 0 警告 0 错误。
+**新建配方备份轮转 + 行序整理 + 自动补空白行（v1.7b，ERR-019）** —— 用户指出 v1.7「另存副本」语义不对，正确流程为**备份轮转**：原配方 `File.Move` 改名（原名+时间戳）备份 → 新空白配方**沿用原文件名**（Recipe.xlsx）→ 页面立即显示新配方。改造：① 接口 `CreateBlankAsync(headers, blankRowCount)` 移除 recipeName；② Service 轮转（同秒递增 `_2/_3` 防覆盖）；③ VM 经通用 `ConfirmationRequested`（替换 DeletionConfirmRequested，删除行/列迁移共用）确认后轮转 + 内存构造立即显示；④ 同批需求：`CompactRows` 行序整理（加载/编辑/删除后数据连续、空白垫底）+ `EnsureMinRows`（依表格可见高度补**真实可编辑**空白行）+ `RowHeight=36/RowHeightHeader=40`。教训详 errorlog ERR-019（文件生命周期需求必须先对齐文件流转语义）。dotnet test **79/79** 全绿。
 
 ## 测试记录
 
@@ -14,6 +14,7 @@
 | 2026-09-03 | 单元格错位二次修复（v1.5d） | 新增 2 个边界用例（编号列重输自身原值不误报/末行可编辑）；二轮实证确证 1 基真根因并三处换算修复 ERR-017 复现 | ✅ 65/65 PASS（trx 留档） |
 | 2026-09-03 | 编号查重生效 + 失败弹窗（v1.6） | 新增 6 用例（「编号」表头重复拒绝+弹窗/唯一不弹窗/新增行自动编号/手改重复拒绝/保存兜底+弹窗/候选兼容）；候选表头识别 + MessageRequested 弹窗修复 ERR-018 | ✅ 71/71 PASS（trx 留档） |
 | 2026-09-03 | 新建空白配方改造（v1.7） | 新增 4 用例（表头一致+数据全空+指定行数/空白行占位保存重载不消失/空表头回退默认/VM 端到端表头沿用+10空行+保存往返）；CreateBlankAsync 接口变更同步 5 处调用 | ✅ 74/74 PASS（trx 留档） |
+| 2026-09-03 | 备份轮转+行序整理+补空白行（v1.7b） | 改写 CreateBlank 7 个 Service 用例（备份轮转/数据完整/不覆盖/无原文件/取消不变）+ VM 3 个（确认轮转/取消不变/保存往返）+ 行序整理/补行 4 个；DeletionConfirmRequested→ConfirmationRequested 迁移 | ✅ 79/79 PASS（trx 留档） |
 
 ## 当前处理中的错误
 
@@ -25,7 +26,7 @@
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 
-> 其余历史错误（ERR-001~007、ERR-010~018，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
+> 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-02）
 
@@ -154,7 +155,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗）
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗） · ERR-019 新建配方文件流转语义偏差（另存副本 vs 备份轮转，返工）
 
 ### API 知识与技巧（保留本体）
 

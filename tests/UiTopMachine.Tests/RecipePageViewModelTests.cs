@@ -120,7 +120,7 @@ namespace UiTopMachine.Tests
             var versionBefore = _vm.TableVersion;
 
             ConfirmRequestEventArgs? confirmRequest = null;
-            _vm.DeletionConfirmRequested += (_, e) =>
+            _vm.ConfirmationRequested += (_, e) =>
             {
                 confirmRequest = e;
                 e.Confirmed = true; // 模拟用户点击"确定"
@@ -141,7 +141,7 @@ namespace UiTopMachine.Tests
         {
             await LoadTableIntoVmAsync(BuildTable(("R001", "甲"), ("R002", "乙")));
 
-            _vm.DeletionConfirmRequested += (_, e) => e.Confirmed = false; // 模拟取消
+            _vm.ConfirmationRequested += (_, e) => e.Confirmed = false; // 模拟取消
 
             _vm.DeleteRowCommand.Execute(0);
 
@@ -153,7 +153,7 @@ namespace UiTopMachine.Tests
         {
             await LoadTableIntoVmAsync(BuildTable(("R001", "甲")));
 
-            _vm.DeletionConfirmRequested += (_, e) => e.Confirmed = true;
+            _vm.ConfirmationRequested += (_, e) => e.Confirmed = true;
 
             _vm.DeleteColumnCommand.Execute(2); // 删除"备注"列
 
@@ -591,14 +591,22 @@ namespace UiTopMachine.Tests
             Assert.Contains("DUP", messageRequest!.Message);
         }
 
-        // ══════════════ 新建空白配方（v1.7：表头沿用当前表 + 10 空白行 + 保存往返） ══════════════
+        // ══════════════ 新建空白配方（v1.7b：备份轮转 + 表头沿用 + 10 空白行 + 保存往返） ══════════════
 
         [Fact]
-        public async Task 新建空白配方_表头沿用当前表_10空白行_保存往返一致()
+        public async Task 新建空白配方_确认后_原文件备份轮转_新配方沿用原文件名()
         {
-            // 用户需求：新表表头与已有数据配方表一致、数据全空等待录入、显示多行空白行
+            // 用户需求 v1.7b：原配方保留（改名+时间戳备份），新配方沿用 Recipe.xlsx 原名，页面显示新配方
             await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲")));
             var versionBefore = _vm.TableVersion;
+            var originalPath = _service.FilePath;
+
+            ConfirmRequestEventArgs? confirmRequest = null;
+            _vm.ConfirmationRequested += (_, e) =>
+            {
+                confirmRequest = e;
+                e.Confirmed = true; // 模拟用户确认新建
+            };
 
             _vm.CreateBlankCommand.Execute(null);
             while (_vm.IsLoading)
@@ -606,19 +614,62 @@ namespace UiTopMachine.Tests
                 await Task.Delay(10);
             }
 
-            // 表头与原表完全一致（编号/名称），不再是默认 5 列
+            Assert.NotNull(confirmRequest);
+            Assert.Contains("备份", confirmRequest!.Message); // 确认文案说明备份轮转
+
+            // 新配方沿用原文件名（FilePath 不变），原数据已备份到新路径
+            Assert.Equal(originalPath, _service.FilePath);
+            Assert.True(File.Exists(originalPath)); // 原路径 = 新配方文件，存在且为空白表
+
+            // 表头与原表一致 + 10 空白行全空（不写首行编号）
             Assert.Equal(2, _vm.RecipeTable.Columns.Count);
             Assert.Equal("编号", _vm.RecipeTable.Columns[0].ColumnName);
             Assert.Equal("名称", _vm.RecipeTable.Columns[1].ColumnName);
-
-            // 10 空白行全部无内容（等待用户输入；不再写首行编号）
             Assert.Equal(10, _vm.RecipeTable.Rows.Count);
             Assert.All(_vm.RecipeTable.Rows.Cast<DataRow>(), row =>
                 Assert.True(row.ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())),
                     "新建配方的数据区应全空"));
             Assert.Equal(versionBefore + 1, _vm.TableVersion);
+        }
 
-            // 用户在第 1 行录入编号（唯一）→ 保存 → 重载：显示即所建
+        [Fact]
+        public async Task 新建空白配方_用户取消_表格与文件一切不变()
+        {
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲")));
+            var originalPath = _service.FilePath;
+            var versionBefore = _vm.TableVersion;
+
+            _vm.ConfirmationRequested += (_, e) => e.Confirmed = false; // 模拟取消
+
+            _vm.CreateBlankCommand.Execute(null);
+            while (_vm.IsLoading)
+            {
+                await Task.Delay(10);
+            }
+
+            // 表格数据不变（原配方数据仍在）
+            Assert.Equal(1, _vm.RecipeTable.Rows.Count);
+            Assert.Equal("R001", _vm.RecipeTable.Rows[0]["编号"].ToString());
+            Assert.Equal(versionBefore, _vm.TableVersion);
+            // 文件不变（仍是原配方内容，无备份产生）
+            Assert.True(File.Exists(originalPath));
+            var files = Directory.GetFiles(Path.GetDirectoryName(originalPath)!);
+            Assert.Equal(1, files.Length); // 目录中只有原文件，没有备份
+        }
+
+        [Fact]
+        public async Task 新建空白配方_确认后_保存往返_10行全保留且新数据在原位()
+        {
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲")));
+
+            _vm.ConfirmationRequested += (_, e) => e.Confirmed = true;
+            _vm.CreateBlankCommand.Execute(null);
+            while (_vm.IsLoading)
+            {
+                await Task.Delay(10);
+            }
+
+            // 用户录入第 1 行编号 → 保存 → 重载：10 行全保留，数据在原位
             _vm.TryCommitCellEdit(0, 0, "R900");
             _vm.SaveCommand.Execute(null);
             while (_vm.IsSaving)
@@ -632,6 +683,70 @@ namespace UiTopMachine.Tests
             Assert.Equal(10, reload.Data!.Rows.Count); // 空白行持久化不蒸发
             Assert.Equal("R900", reload.Data.Rows[0]["编号"].ToString());
             Assert.True(reload.Data.Rows[1].ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())));
+        }
+
+        // ══════════════ 行序整理 + 自动补空白行（v1.7b） ══════════════
+
+        [Fact]
+        public async Task 加载时_中间空行_自动整理到末尾_数据连续排列()
+        {
+            // 用户需求：数据与数据之间不存在空行，空白行只在末尾垫底
+            var table = BuildTableWithIdHeader(("R001", "甲"), ("R002", "乙"));
+            var empty = table.NewRow();
+            table.Rows.InsertAt(empty, 1); // 中间插入空行：R001 → [空] → R002
+
+            await LoadTableIntoVmAsync(table);
+
+            // 加载完成即自动整理：数据连续 + 空白垫底
+            Assert.Equal(3, _vm.RecipeTable.Rows.Count);
+            Assert.Equal("R001", _vm.RecipeTable.Rows[0]["编号"].ToString());
+            Assert.Equal("R002", _vm.RecipeTable.Rows[1]["编号"].ToString());
+            Assert.True(_vm.RecipeTable.Rows[2].ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())),
+                "空行应整理到末尾");
+
+            // 整理后自动保存为 fire-and-forget：等待落盘后重载，文件与显示一致
+            await Task.Delay(300);
+            var reload = await _service.LoadAsync();
+            Assert.True(reload.Success);
+            Assert.NotNull(reload.Data);
+            Assert.Equal("R001", reload.Data!.Rows[0]["编号"].ToString());
+            Assert.Equal("R002", reload.Data.Rows[1]["编号"].ToString());
+            Assert.True(reload.Data.Rows[2].ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())),
+                "重载后空行仍在末尾（文件与显示一致）");
+        }
+
+        [Fact]
+        public async Task 自动补空白行_不足补足_可正常编辑()
+        {
+            // EnsureMinRows：真实可编辑空白行（双击可录入数据）
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲")));
+
+            _vm.EnsureMinRows(6); // 当前 1 行 → 补 5 行
+
+            Assert.Equal(6, _vm.RecipeTable.Rows.Count);
+
+            // 补的空白行可正常编辑（走正常编辑/查重链路）
+            var committed = _vm.TryCommitCellEdit(3, 0, "R099");
+            Assert.True(committed);
+
+            // 编辑触发行序整理：R099 从第 4 行移到数据区末尾（index 1，紧跟 R001），空白垫底
+            Assert.Equal(6, _vm.RecipeTable.Rows.Count);
+            Assert.Equal("R001", _vm.RecipeTable.Rows[0]["编号"].ToString());
+            Assert.Equal("R099", _vm.RecipeTable.Rows[1]["编号"].ToString());
+            Assert.All(_vm.RecipeTable.Rows.Cast<DataRow>().Skip(2), row =>
+                Assert.True(row.ItemArray.All(c => string.IsNullOrEmpty(c?.ToString())),
+                    "其余行应仍为空白行垫底"));
+        }
+
+        [Fact]
+        public async Task 自动补空白行_行数已足够_不重复补()
+        {
+            await LoadTableIntoVmAsync(BuildTableWithIdHeader(("R001", "甲"), ("R002", "乙")));
+            var rowsBefore = _vm.RecipeTable.Rows.Count;
+
+            _vm.EnsureMinRows(2); // 已有 2 行 → 不补
+
+            Assert.Equal(rowsBefore, _vm.RecipeTable.Rows.Count);
         }
 
         // ══════════════ 失败弹窗反馈（v1.6：校验失败用户必须可见） ══════════════

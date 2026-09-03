@@ -39,6 +39,6 @@
   - ✅ 弹框交互：新增列经 InputDialog 收集列名；删除行/列经 ConfirmDialog 二次确认（VM↔View 事件模式，零 UI 耦合）
   - ✅ 配方服务：ClosedXML 多配方接口（带路径加载/保存 + CreateBlankAsync 带配方名/编号）
   - ✅ DI 组装（Microsoft.Extensions.DependencyInjection）+ Mock 模拟服务 + errorlog.md 错误归档机制
-   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，74 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
+   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，79 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
   - ⏳ 待办：真实 PLC 通信实现、打印/图像真实服务接入
   

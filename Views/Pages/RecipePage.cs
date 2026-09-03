@@ -133,7 +133,10 @@ namespace UiTopMachine.Views.Pages
                 // 双击进入编辑（Click 模式易误触；None 为只读）
                 EditMode = AntdUI.TEditMode.DoubleClick,
                 // 失焦自动提交编辑（工业操作习惯：点击别处即确认）
-                EditLostFocus = true
+                EditLostFocus = true,
+                // 行高调整（v1.7b）：数据行与表头行更舒展，页面显示和谐
+                RowHeight = 36,
+                RowHeightHeader = 40
             };
 
             // 组装（WinForms Dock 布局：Fill 先加占剩余，Top 后加停靠顶部）
@@ -186,9 +189,9 @@ namespace UiTopMachine.Views.Pages
             // 结果回填事件参数交由 VM 校验与处理，本页零业务逻辑）
             _viewModel.ColumnNamingRequested += (_, request) => ShowInputDialog(request);
 
-            // VM 请求删除确认 → 弹出确认弹框（纯 UI 转发：确认框展示与用户选择回填，
-            // 删除执行与业务校验全部在 VM）
-            _viewModel.DeletionConfirmRequested += (_, request) => ShowConfirmDialog(request);
+            // VM 请求用户确认（删除行/列、新建配方备份轮转等）→ 弹出确认弹框
+            //（纯 UI 转发：确认框展示与用户选择回填，业务执行与校验全部在 VM）
+            _viewModel.ConfirmationRequested += (_, request) => ShowConfirmDialog(request);
 
             // VM 请求消息提示（编号重复拒绝/保存校验失败等）→ 弹出消息框
             //（纯 UI 转发；VM 事件可能在后台自动保存线程触发，经 BeginInvoke 封送到 UI 线程）
@@ -213,6 +216,9 @@ namespace UiTopMachine.Views.Pages
                     BindTable(_viewModel.RecipeTable);
                 }
             };
+
+            // 首次布局/尺寸变化 → 依表格可见高度重算期望行数（v1.7b：页面始终填满）
+            _recipeTable.Resize += (_, _) => EnsureFillRows();
 
             // 焦点单元格变化 → 记录索引并刷新删除命令可用态（无选中行/列时删除按钮禁用）。
             // ⚠️ 实测 CellFocused 在鼠标单击时不触发（偏向键盘焦点导航），
@@ -249,6 +255,22 @@ namespace UiTopMachine.Views.Pages
 
             // 初始绑定（空表占位，加载完成后自动刷新）
             BindTable(_viewModel.RecipeTable);
+        }
+
+        /// <summary>
+        /// 依表格可见高度计算期望的最小总行数并请求 VM 补空白行（v1.7b）：
+        /// 行数 = 可用高度 / 行高（扣表头 40px；留 1 行余量防滚动条闪烁）。
+        /// VM 不足时在末尾补真实可编辑空白行（加载/新建/删除行后均会触发本方法链）
+        /// </summary>
+        private void EnsureFillRows()
+        {
+            if (_recipeTable.Height <= 40 || _viewModel.RecipeTable.Columns.Count == 0)
+            {
+                return; // 未完成布局或无列结构
+            }
+
+            int minRows = Math.Max(1, (_recipeTable.Height - 40) / 36);
+            _viewModel.EnsureMinRows(minRows);
         }
 
         /// <summary>

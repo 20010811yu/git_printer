@@ -101,15 +101,10 @@ namespace UiTopMachine.Services
         }
 
         /// <inheritdoc />
-        public async Task<Result<string>> CreateBlankAsync(string recipeName, IEnumerable<string> headers, int blankRowCount = 10)
+        public async Task<Result<string>> CreateBlankAsync(IEnumerable<string> headers, int blankRowCount = 10)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(recipeName))
-                {
-                    recipeName = "新建配方"; // 缺省名兜底
-                }
-
                 // 表头处理：调用方未提供有效表头时回退默认表头（保持向后兼容）
                 var headerList = headers?.Where(h => !string.IsNullOrWhiteSpace(h)).ToList()
                                  ?? new List<string>();
@@ -134,35 +129,44 @@ namespace UiTopMachine.Services
                     template.Rows.Add(template.NewRow());
                 }
 
-                var newFilePath = await Task.Run(() =>
+                var backupPath = await Task.Run(() =>
                 {
                     Directory.CreateDirectory(FolderPath);
 
-                    // 生成唯一文件名：安全化配方名 + 时间戳（同一秒重复创建时自动递增序号，保证不覆盖任何已有文件）
-                    var baseName = SanitizeFileName(recipeName);
-                    string newFile;
-                    int seq = 1;
-                    do
+                    // ① 备份轮转：当前文件存在 → 重命名为「原名_时间戳.xlsx」（原数据完整保留；
+                    // 同一秒连续新建自动追加 _2/_3 序号，绝不覆盖任何已有文件）
+                    string? backup = null;
+                    if (File.Exists(FilePath))
                     {
-                        var suffix = seq == 1
-                            ? DateTime.Now.ToString("_yyyyMMdd_HHmmss")
-                            : $"{DateTime.Now:yyyyMMdd_HHmmss}_{seq}";
-                        newFile = Path.Combine(FolderPath, $"{baseName}{suffix}.xlsx");
-                        seq++;
-                    } while (File.Exists(newFile));
+                        var dir = Path.GetDirectoryName(FilePath) ?? FolderPath;
+                        var name = Path.GetFileNameWithoutExtension(FilePath);
+                        string candidate;
+                        int seq = 1;
+                        do
+                        {
+                            var suffix = seq == 1
+                                ? DateTime.Now.ToString("_yyyyMMdd_HHmmss")
+                                : $"{DateTime.Now:yyyyMMdd_HHmmss}_{seq}";
+                            candidate = Path.Combine(dir, $"{name}{suffix}.xlsx");
+                            seq++;
+                        } while (File.Exists(candidate));
 
+                        File.Move(FilePath, candidate);
+                        backup = candidate;
+                    }
+
+                    // ② 模板表写入原路径（新配方沿用原文件名，FilePath 不变）
                     // 复用统一写盘核心：表头样式/空行空格占位（ERR-014 防空白行蒸发）全部生效
-                    var saveResult = SaveCoreAsync(template, newFile).GetAwaiter().GetResult();
+                    var saveResult = SaveCoreAsync(template, FilePath).GetAwaiter().GetResult();
                     if (!saveResult.Success)
                     {
                         throw new InvalidOperationException(saveResult.ErrorMessage);
                     }
-                    return newFile;
+                    return backup ?? string.Empty;
                 });
 
-                // 创建成功后当前数据源切换为新文件（后续加载/保存均指向新配方）
-                FilePath = newFilePath;
-                return Result<string>.OK(newFilePath);
+                // 成功：返回备份文件路径（无备份时为空字符串，供 VM 日志提示）
+                return Result<string>.OK(backupPath);
             }
             catch (Exception ex)
             {

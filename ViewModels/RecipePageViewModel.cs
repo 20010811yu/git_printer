@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using UiTopMachine.Common;
@@ -11,7 +12,8 @@ namespace UiTopMachine.ViewModels
 {
     /// <summary>
     /// 配方管理页视图模型：Excel 配方的展示、单元格编辑（编号唯一校验）、
-    /// 新增行/列、删除行/列（删除前经确认弹框）、新建空白配方（带时间戳不删原文件）、保存、打开文件夹
+    /// 新增行/列、删除行/列（删除前经确认弹框）、新建空白配方（备份轮转：原文件改名+时间戳，新配方沿用原文件名）、
+    /// 行序整理（数据连续、空白垫底）、自动补空白行、保存、打开文件夹
     /// ViewModel 不接触 ClosedXML 对象，仅持有 Service 返回的 DataTable 数据源
     /// </summary>
     public class RecipePageViewModel : ObservableObject
@@ -114,10 +116,11 @@ namespace UiTopMachine.ViewModels
         public event EventHandler<InputRequestEventArgs>? ColumnNamingRequested;
 
         /// <summary>
-        /// 删除确认请求事件：VM 执行删除行/列前向 View 请求用户确认（参数为纯数据，不接触任何 UI 控件），
-        /// View 订阅此事件弹出确认弹框，并把用户选择（是否确认删除）回填到事件参数
+        /// 通用确认请求事件：VM 执行删除行/列、新建配方（当前配方将备份轮转）等
+        /// 危险/重要操作前向 View 请求用户确认（参数为纯数据，不接触任何 UI 控件），
+        /// View 订阅此事件弹出确认弹框，并把用户选择（是否确认）回填到事件参数
         /// </summary>
-        public event EventHandler<ConfirmRequestEventArgs>? DeletionConfirmRequested;
+        public event EventHandler<ConfirmRequestEventArgs>? ConfirmationRequested;
 
         /// <summary>
         /// 消息提示请求事件：VM 需要向用户展示校验失败等重要提示时触发（参数为纯数据，不接触 UI 控件），
@@ -152,8 +155,8 @@ namespace UiTopMachine.ViewModels
         public RelayCommand DeleteColumnCommand { get; }
 
         /// <summary>
-        /// 新建空白配方命令：在当前配方目录创建"原文件名+时间戳.xlsx"的新空白配方，
-        /// 原有配方文件保留不删除，创建成功后自动切换数据源到新文件
+        /// 新建空白配方命令：用户确认后原配方自动备份（原文件名+时间戳），
+        /// 新空白配方沿用原文件名（同表头 + 空白行），页面立即显示新配方
         /// </summary>
         public AsyncRelayCommand CreateBlankCommand { get; }
 
@@ -268,6 +271,7 @@ namespace UiTopMachine.ViewModels
                     RecipeTable = result.Data;
                     TableVersion++; // 通知 View 重建表格
                     OnPropertyChanged(nameof(Description));
+                    CompactRows(); // 行序整理：外部文件中间空行也连续排列（v1.7b）
                     _logService.Success($"配方加载完成：{result.Data.Rows.Count} 行 / {result.Data.Columns.Count} 列");
                 }
                 else
@@ -354,6 +358,9 @@ namespace UiTopMachine.ViewModels
                 // 通知 View 重建表格：AntdUI 内部提交与事件 RowIndex 错位（ERR-017），
                 // View 已改为返回 false 阻止其内部写入，UI 显示必须由本表数据重建（VM = 唯一事实源）
                 TableVersion++;
+
+                // 清空中间行会留下空行 → 行序整理：数据连续、空白垫底（v1.7b）
+                CompactRows();
 
                 // 修改后自动后台保存（不阻塞 UI；失败仅记日志，用户可手动保存重试）
                 _ = AutoSaveAsync();
@@ -458,7 +465,7 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// 删除行：向 View 发起确认请求（弹框由 View 弹出，业务执行全部在 VM）——
-        /// 用户取消 → 静默放弃；确认 → 移除指定行并通知 View 重建表格 + 自动保存。
+        /// 用户取消 → 静默放弃；确认 → 移除指定行 + 行序整理 + 通知 View 重建表格 + 自动保存。
         /// 索引无效（未选中行）时记录警告日志
         /// </summary>
         /// <param name="parameter">行索引（View 动态参数提供器传入的 int）</param>
@@ -486,16 +493,18 @@ namespace UiTopMachine.ViewModels
                     Title = "删除行",
                     Message = $"确定删除{rowDesc}吗？\r\n删除后该行所有数据不可恢复。"
                 };
-                DeletionConfirmRequested?.Invoke(this, request);
+                ConfirmationRequested?.Invoke(this, request);
                 if (!request.Confirmed)
                 {
                     return; // 用户取消：静默放弃
                 }
 
-                // ④ 确认通过：移除行并通知 View 重建表格
+                // ④ 确认通过：移除行 + 行序整理（v1.7b）+ 通知 View 重建表格
                 RecipeTable.Rows.RemoveAt(rowIndex);
                 TableVersion++;
                 _logService.Success($"已删除{rowDesc}");
+
+                CompactRows();
 
                 _ = AutoSaveAsync();
             }
@@ -531,14 +540,14 @@ namespace UiTopMachine.ViewModels
                     Title = "删除列",
                     Message = $"确定删除列「{columnName}」吗？\r\n该列的所有数据将被移除且不可恢复。"
                 };
-                DeletionConfirmRequested?.Invoke(this, request);
+                ConfirmationRequested?.Invoke(this, request);
                 if (!request.Confirmed)
                 {
                     return; // 用户取消：静默放弃
                 }
 
                 // ④ 确认通过：移除列并通知 View 重建表格
-                //（配方编号列被删时编号唯一校验自动跳过，见 ValidateRecipeIdUnique 的列存在性检查）
+                //（编号列被删时编号唯一校验自动跳过，见 ValidateRecipeIdUnique 的列存在性检查）
                 RecipeTable.Columns.RemoveAt(columnIndex);
                 TableVersion++;
                 _logService.Success($"已删除列「{columnName}」");
@@ -555,31 +564,42 @@ namespace UiTopMachine.ViewModels
         private const int BlankRowCount = 10;
 
         /// <summary>
-        /// 新建空白配方：表头沿用当前配方表列结构（与已有数据表一致），数据区为空白行等待录入；
-        /// 配方编号（R00x，GenerateUniqueRecipeId 跳过已占用）仅用作新文件名，不写入表内；
-        /// 原有配方文件保留不删除，成功后切换工作区到新文件。
-        /// 内存直接构造新表立即显示（无需文件重载），落盘复用 Service 模板写入
-        /// （空白行空格占位持久化，刷新/重开后不消失，详 ERR-014）
+        /// 新建空白配方（备份轮转模式，v1.7b）：
+        /// ① 向用户确认（当前配方将自动备份）；
+        /// ② Service 轮转：原文件重命名为「原名_时间戳.xlsx」备份（原数据完整保留），
+        ///    模板表（表头沿用当前表 + N 空白行）写入原路径——新配方沿用原文件名；
+        /// ③ 内存构造同构空白表立即显示（无需文件重载）。
+        /// 空白行首列空格占位持久化（ERR-014），刷新/重开后不消失
         /// </summary>
         private async Task CreateBlankRecipeAsync()
         {
             IsLoading = true;
             try
             {
-                // ① 表头沿用当前表列结构（用户需求：新表与已有数据配方表表头一致）
+                // ① 用户确认（当前配方将被备份轮转）
+                var confirm = new ConfirmRequestEventArgs
+                {
+                    Title = "新建配方",
+                    Message = "确定新建空白配方吗？\r\n当前配方将自动备份（原文件名+时间戳），新配方沿用当前文件名。"
+                };
+                ConfirmationRequested?.Invoke(this, confirm);
+                if (!confirm.Confirmed)
+                {
+                    return; // 用户取消：一切不变
+                }
+
+                // ② 表头沿用当前表列结构（新表与已有数据配方表一致）
                 var headers = RecipeTable.Columns.Cast<DataColumn>()
                     .Select(c => c.ColumnName)
                     .ToList();
 
-                // ② 配方编号仅作文件名前缀（表内不写任何数据，编号由用户录入并受唯一性校验保护）
-                var recipeId = GenerateUniqueRecipeId();
+                // ③ Service 轮转：原文件备份 + 模板表写入原路径（新配方沿用原文件名）
                 var result = await _recipeFileService.CreateBlankAsync(
-                    recipeName: recipeId, headers: headers, blankRowCount: BlankRowCount);
+                    headers: headers, blankRowCount: BlankRowCount);
 
-                if (result.Success && result.Data is not null)
+                if (result.Success)
                 {
-                    // ③ 内存构造新表立即显示：与写入文件内容完全一致
-                    //（同表头 + N 空白行；不重载文件，界面即时切换）
+                    // ④ 内存构造同构空白表立即显示（与写入文件内容完全一致）
                     var newTable = new DataTable("配方");
                     foreach (var header in headers)
                     {
@@ -593,7 +613,11 @@ namespace UiTopMachine.ViewModels
                     RecipeTable = newTable;
                     TableVersion++; // 通知 View 重建表格显示新表
                     OnPropertyChanged(nameof(Description));
-                    _logService.Success($"新建空白配方成功：{result.Data}（表头沿用当前表，{BlankRowCount} 空白行；原配方文件保留）");
+
+                    var backupInfo = string.IsNullOrEmpty(result.Data)
+                        ? "无原文件，直接新建"
+                        : $"原配方已备份：{Path.GetFileName(result.Data)}";
+                    _logService.Success($"新建空白配方成功（{BlankRowCount} 空白行；{backupInfo}）");
                 }
                 else
                 {
@@ -620,6 +644,36 @@ namespace UiTopMachine.ViewModels
             }
         }
 
+        /// <summary>
+        /// 自动补空白行（v1.7b）：总行数不足 minRows 时在末尾补全**真实可编辑的空白行**——
+        /// 双击即可录入数据（走正常编辑/查重/自动保存链路），空格占位持久化，刷新不消失。
+        /// minRows 由 View 依表格可见高度计算传入，让表格页面始终填满、显示和谐美观
+        /// </summary>
+        /// <param name="minRows">期望的最小总行数（数据行 + 空白行）</param>
+        public void EnsureMinRows(int minRows)
+        {
+            try
+            {
+                if (RecipeTable.Columns.Count == 0 || minRows <= RecipeTable.Rows.Count)
+                {
+                    return;
+                }
+
+                int addCount = minRows - RecipeTable.Rows.Count;
+                for (int i = 0; i < addCount; i++)
+                {
+                    RecipeTable.Rows.Add(RecipeTable.NewRow());
+                }
+
+                TableVersion++; // 通知 View 重建显示
+                _logService.Info($"已自动补 {addCount} 行空白行（页面填满，双击可录入数据）");
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"补空白行异常：{ex.Message}");
+            }
+        }
+
         // ══════════════ 私有辅助 ══════════════
 
         /// <summary>
@@ -634,6 +688,68 @@ namespace UiTopMachine.ViewModels
             catch (Exception ex)
             {
                 _logService.Warn($"自动保存异常：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 判断一行是否为全空行（所有单元格 Trim 后均为空白）
+        /// </summary>
+        private static bool IsRowEmpty(DataRow row)
+            => row.ItemArray.All(c => string.IsNullOrWhiteSpace(c?.ToString()));
+
+        /// <summary>
+        /// 行序整理（v1.7b）：将中间的全空行稳定移到表格末尾——
+        /// 数据行保持原有相对顺序连续排列，数据与数据之间不存在空行，空白行只垫底。
+        /// 触发点：加载完成 / 单元格修改后 / 删除行后。
+        /// 有实际移动时通知 View 重建 + 自动保存（文件与显示一致，下次打开仍整齐）
+        /// </summary>
+        private void CompactRows()
+        {
+            try
+            {
+                var rows = RecipeTable.Rows.Cast<DataRow>().ToList();
+                var dataRows = rows.Where(r => !IsRowEmpty(r)).ToList();
+                var emptyRows = rows.Where(IsRowEmpty).ToList();
+
+                // 无需整理：无空行、或全是空行（顺序无关）
+                if (emptyRows.Count == 0 || dataRows.Count == 0)
+                {
+                    return;
+                }
+
+                // 已是「数据在前连续 + 空白垫底」则跳过
+                bool changed = false;
+                for (int i = 0; i < dataRows.Count; i++)
+                {
+                    if (!ReferenceEquals(rows[i], dataRows[i]))
+                    {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (!changed)
+                {
+                    return;
+                }
+
+                // 重建行序：数据行（原顺序）在前 + 空白行垫底。
+                // ⚠️ 用「新表整体替换」而非原表 Remove+ImportRow：后者在异常时
+                // 会留下「全部行已移除但未回填」的空表中间态（防御性设计）
+                var newTable = RecipeTable.Clone();
+                foreach (var row in dataRows.Concat(emptyRows))
+                {
+                    newTable.ImportRow(row);
+                }
+                newTable.AcceptChanges();
+                RecipeTable = newTable; // setter 内刷新全部命令可用态
+
+                TableVersion++; // 通知 View 重建显示
+                _logService.Info($"行序已整理：{dataRows.Count} 行数据连续排列，{emptyRows.Count} 行空白垫底");
+                _ = AutoSaveAsync(); // 整理结果落盘（文件与显示一致）
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"行序整理异常：{ex.Message}");
             }
         }
 
