@@ -2,7 +2,15 @@
 
 ## ✅ 已完成功能
 
-### 修复 UI 状态不更新 + 退出进程残留（2026-09-04）⭐ 最新
+### 托盘默认状态改为无料无配方（2026-09-04）⭐ 最新
+
+- [x] **需求（v1.17）**：18 个托盘启动默认"无料无配方"（空闲灰态），不再使用 Mock 随机初始状态（原 60% 有料）
+- [x] **实现**：`MockDrawerService` 构造 `HasMaterial = false`；顺手清空 `StartMonitoring` 随机演示逻辑为空操作（v1.12 起 PLC 物料轮询为唯一真值源，随机推送与其冲突且已不被调用）；删除随机/定时器死代码
+- [x] **测试**：新增 MockDrawerServiceTests 2 用例（初始全无料无配方共 18 个含编号连续 / StartMonitoring 空操作不推送）
+- [x] 验证：dotnet test **130/130 PASS** + dotnet build **0 警告 0 错误**；重启截图验证托盘默认灰、PLC 真实有料位（模拟器）正常联动黄色
+- [x] Memory Bank 同步更新（activeContext/progress/projectbrief；systemPatterns 模式无变化）
+
+### 修复 UI 状态不更新 + 退出进程残留（2026-09-04）
 
 - [x] **问题（v1.16/ERR-023）**：用户反馈「plc 还是显示未连接」——实际程序已连接（日志连续"已连接"、TCP ESTABLISHED），UI 状态行/消息流/抽屉联动全部静默失效；且点退出后进程残留（无窗口僵尸仍持连接）
 - [x] **根因**：① 后台事件现取 `SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext()`——后台线程 Current 为 null，新建上下文无消息泵，**Post 回调永不执行**；② `OnFormClosing` 在 UI 线程 `Wait` 异步停止任务 → 死锁
@@ -254,7 +262,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **128 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
+单元测试 **130 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
 
 ## ⚠️ 已知问题
 

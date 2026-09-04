@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using UiTopMachine.Models;
 using UiTopMachine.Services.Interfaces;
@@ -9,22 +8,24 @@ using UiTopMachine.Services.Interfaces;
 namespace UiTopMachine.Services
 {
     /// <summary>
-    /// 模拟抽屉服务：定时随机改变 18 个抽屉的物料/配方状态（演示用）
-    /// 真实设备时替换为 PLC 实现即可，UI/VM 层无需改动
+    /// 模拟抽屉服务：提供 18 个抽屉的初始数据（默认无料无配方 = 空闲灰态）。
+    /// 有料状态由 PLC 物料轮询推送（v1.12 起 PLC 为唯一真值源，随机演示已停用），
+    /// 配方由用户输入驱动
     /// </summary>
     public class MockDrawerService : IDrawerService
     {
         private readonly List<DrawerModel> _drawers = new();
-        private readonly Random _random = new();
         private readonly object _lock = new();
-        private System.Threading.Timer? _timer;
-        private static readonly string[] _recipeNames = { "R-101", "R-205", "R-330", "R-415", "R-508" };
-
-        /// <inheritdoc />
-        public event EventHandler<DrawerModel>? DrawerChanged;
 
         /// <summary>
-        /// 初始化：生成 18 个抽屉的随机初始状态
+        /// 保留接口事件（v1.12 起 PLC 物料轮询为真值源，Mock 不再触发推送）
+        /// </summary>
+#pragma warning disable CS0067 // 接口要求实现；Mock 已停用随机推送，不触发该事件
+        public event EventHandler<DrawerModel>? DrawerChanged;
+#pragma warning restore CS0067
+
+        /// <summary>
+        /// 初始化：生成 18 个抽屉的默认状态（无料无配方 = 空闲）
         /// </summary>
         public MockDrawerService()
         {
@@ -35,8 +36,8 @@ namespace UiTopMachine.Services
                     _drawers.Add(new DrawerModel
                     {
                         Index = i,
-                        HasMaterial = _random.NextDouble() > 0.4,   // 60% 有料
-                        Recipe = string.Empty                        // 初始配方为空（由用户输入驱动状态灯）
+                        HasMaterial = false,         // 默认无料（PLC 连接后由物料轮询推送真实状态）
+                        Recipe = string.Empty        // 默认无配方（由用户输入驱动状态灯）
                     });
                 }
             }
@@ -93,26 +94,8 @@ namespace UiTopMachine.Services
         /// <inheritdoc />
         public void StartMonitoring()
         {
-            if (_timer is not null)
-            {
-                return; // 防止重复启动
-            }
-
-            // 每 2 秒随机改变一个抽屉的物料状态，并抛出变化事件（模拟真实设备状态推送）
-            _timer = new System.Threading.Timer(_ =>
-            {
-                int index;
-                DrawerModel changed;
-                lock (_lock)
-                {
-                    var drawer = _drawers[_random.Next(_drawers.Count)];
-                    drawer.HasMaterial = !drawer.HasMaterial;
-                    index = drawer.Index;
-                    changed = new DrawerModel { Index = drawer.Index, HasMaterial = drawer.HasMaterial, Recipe = drawer.Recipe };
-                }
-
-                DrawerChanged?.Invoke(this, changed);
-            }, null, 1000, 2000);
+            // 空操作：v1.12 起 PLC 物料轮询为有料状态唯一真值源，
+            // 随机演示推送已停用（与 PLC 真值互相覆盖会造成状态跳动）
         }
     }
 }
