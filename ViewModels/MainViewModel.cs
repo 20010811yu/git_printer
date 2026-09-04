@@ -13,7 +13,7 @@ namespace UiTopMachine.ViewModels
     /// <summary>
     /// 主界面视图模型：抽屉集合、命令、日志、状态汇总
     /// </summary>
-    public class MainViewModel : ObservableObject
+    public class MainViewModel : ObservableObject, IPanelStatusPublisher
     {
         private readonly IDrawerService _drawerService;
         private readonly ILogService _logService;
@@ -231,13 +231,13 @@ namespace UiTopMachine.ViewModels
             {
                 case PlcConnectionState.Connected:
                     _logService.Success($"PLC：{e.Message}");
-                    AddPlcPanelEntry(LogLevel.Success, e.Message);
+                    PublishPanelEntry(LogLevel.Success, e.Message);
                     break;
 
                 case PlcConnectionState.HeartbeatLost:
                 case PlcConnectionState.Disconnected:
                     _logService.Error($"PLC：{e.Message}");
-                    AddPlcPanelEntry(LogLevel.Error, e.Message);
+                    PublishPanelEntry(LogLevel.Error, e.Message);
                     break;
 
                 case PlcConnectionState.Connecting:
@@ -247,24 +247,26 @@ namespace UiTopMachine.ViewModels
             }
         }
 
-        /// <summary>
-        /// 将 PLC 对接信息插入面板集合（事件来自后台线程，经 SynchronizationContext 调度至 UI 线程）
-        /// </summary>
-        private void AddPlcPanelEntry(LogLevel level, string message)
+        /// <inheritdoc />
+        public void PublishPanelEntry(LogLevel level, string message)
         {
-            var context = _uiContext;
-            context.Post(_ =>
-            {
-                var vm = new LogEntryViewModel(new LogEntryModel { Level = level, Message = $"PLC：{message}" });
-                Logs.Insert(0, vm);
-                LatestLog = vm;
+            _uiContext.Post(_ => InsertPanelEntry(level, $"PLC：{message}"), null);
+        }
 
-                // 限制面板条数，防止内存膨胀
-                while (Logs.Count > 200)
-                {
-                    Logs.RemoveAt(Logs.Count - 1);
-                }
-            }, null);
+        /// <summary>
+        /// 面板条目插入（必须已经由 PublishPanelEntry 调度到 UI 线程后执行）
+        /// </summary>
+        private void InsertPanelEntry(LogLevel level, string message)
+        {
+            var vm = new LogEntryViewModel(new LogEntryModel { Level = level, Message = message });
+            Logs.Insert(0, vm);
+            LatestLog = vm;
+
+            // 限制面板条数，防止内存膨胀
+            while (Logs.Count > 200)
+            {
+                Logs.RemoveAt(Logs.Count - 1);
+            }
         }
 
         /// <summary>

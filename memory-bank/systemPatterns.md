@@ -59,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；152 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护/线程调度守护/Mock默认态/输入框编辑权限/配方分组/图像检测服务与VM）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；155 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护/线程调度守护/Mock默认态/输入框编辑权限/配方分组/图像检测服务与VM）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -84,6 +84,7 @@ d:\GitRepo\
 - **ZPL 打印服务封装模式** ✅：Socket/winspool 句柄全私有封装在 Service 内部；双通道（TCP 直连带超时 / Spooler RAW）可配置（构造参数），**生产当前走 Spooler 通道**（TCP 备用，v1.8b 切换）；全 async（Task.Run）；流水号持久化（保留位数补零）由 VM 调度递增
 - **外部标识符识别模式（候选列表 + 规范化）** ✅：业务规则锚定的列名/表头来自外部文件，识别必须候选列表（配方编号/编号）+ Trim + 忽略大小写，统一入口 `FindRecipeIdColumnIndex()` 定位；配套「校验拦截 + 弹窗告知」一体交付（详 ERR-018）
 - **VM→View 消息提示请求模式** ✅：`MessageRequestEventArgs`（Title/Message 纯数据，无回填）→ View 弹 MessageBox（后台线程经 BeginInvoke 封送）；与输入请求（回填 InputText）/确认请求（回填 Confirmed）构成三类弹框交互模式
+- **设备对接状态面板发布模式** ✅（v1.21）：Status 面板定位 = PLC 连接状态与失败原因 / 心跳错误 / 视觉方案加载 / 程序运行时错误（全局异常 ThreadException+UnhandledException 弹窗同时发布）；跨页 VM 经 `IPanelStatusPublisher` 接口发布（MainViewModel 实现并指向自身注册），面板插入统一 _uiContext 调度；过程性信息（连接中/每次检测完成）只落文件防刷屏
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
 - **工厂/策略模式** ⏳：预留（真实多协议通信接入时启用）
 - **PLC 传输抽象 + 心跳模式** ✅（v1.10→v1.15 仿参考程序重构）：`IPlcTransport` 屏蔽协议实现（InovanceTcpNet/ModbusTcpNet 可构造切换，OperateResult 不上抛），Service 依赖抽象可注入 Fake 测试；连接循环（自动连接/失败延时重试/断线重连/幂等启动，仿 ConnectToPLCAsync）；**心跳与物料合一循环**（周期读 M1000×19：读成功=通讯正常+失败计数清零+变化推送抽屉；连续 `maxRetryCount=3` 次失败判心跳丢失→断开→10 秒重连，重连后计数/基线天然重置，仿 StartHeartbeatMonitoring/CheckHeartbeatAsync）；手动 StartHeartbeatAsync/StopHeartbeatAsync 对应参考的 Start/StopHeartbeatMonitoring；单条长连接 IO 经 `SemaphoreSlim(1,1)` 串行化；CancellationTokenSource 驱动循环启停（避开 Timer 歧义坑）

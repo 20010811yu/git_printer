@@ -22,6 +22,7 @@ namespace UiTopMachine.ViewModels
         // ══════════════ 依赖 ══════════════
         private readonly ILogService _logService;
         private readonly IImageInspectionService _inspectionService;
+        private readonly IPanelStatusPublisher _panelPublisher;
 
         /// <summary>构造时捕获的 UI 线程同步上下文（后台检测事件经它调度 UI 更新，ERR-023）</summary>
         private readonly SynchronizationContext _uiContext;
@@ -130,12 +131,13 @@ namespace UiTopMachine.ViewModels
         // ══════════════ 构造 / 业务方法 ══════════════
 
         /// <summary>
-        /// 构造：注入日志与视觉检测服务
+        /// 构造：注入日志、视觉检测服务与面板发布器
         /// </summary>
-        public ImagePageViewModel(ILogService logService, IImageInspectionService inspectionService)
+        public ImagePageViewModel(ILogService logService, IImageInspectionService inspectionService, IPanelStatusPublisher panelPublisher)
         {
             _logService = logService ?? throw new ArgumentNullException(nameof(logService));
             _inspectionService = inspectionService ?? throw new ArgumentNullException(nameof(inspectionService));
+            _panelPublisher = panelPublisher ?? throw new ArgumentNullException(nameof(panelPublisher));
 
             // 捕获 UI 线程同步上下文（构造发生在 UI 线程），后台检测结果经它调度 UI 更新（ERR-023）
             _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
@@ -182,10 +184,13 @@ namespace UiTopMachine.ViewModels
                 OnPropertyChanged(nameof(SolutionStatusText));
                 RefreshAllCommandStates();
                 _logService.Success("检测方案加载成功");
+                _panelPublisher.PublishPanelEntry(LogLevel.Success, "视觉方案加载成功");
             }
             else
             {
-                _logService.Error($"检测方案加载失败：{result.ErrorMessage}");
+                var message = $"视觉方案加载失败：{result.ErrorMessage}";
+                _logService.Error(message);
+                _panelPublisher.PublishPanelEntry(LogLevel.Error, message);
             }
         }
 
@@ -254,7 +259,8 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 连续检测循环（后台线程）：周期运行检测，结果经 _uiContext 调度 UI 更新
+        /// 连续检测循环（后台线程）：周期运行检测，结果经 _uiContext 调度 UI 更新；
+        /// 单轮运行失败 → 面板报错误（检测完成的信息只落文件，防刷屏）
         /// </summary>
         private async Task ContinuousLoopAsync(CancellationToken token)
         {
@@ -270,7 +276,9 @@ namespace UiTopMachine.ViewModels
                     }
                     else
                     {
-                        _logService.Error($"连续检测失败：{result.ErrorMessage}");
+                        var message = $"视觉检测失败：{result.ErrorMessage}";
+                        _logService.Error(message);
+                        _panelPublisher.PublishPanelEntry(LogLevel.Error, message);
                     }
                 }, null);
 

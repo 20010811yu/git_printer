@@ -2,6 +2,7 @@ using System;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using UiTopMachine.Communications.Plc;
+using UiTopMachine.Models;
 using UiTopMachine.Services;
 using UiTopMachine.Services.Interfaces;
 using UiTopMachine.ViewModels;
@@ -29,14 +30,28 @@ namespace UiTopMachine
 
             using var provider = services.BuildServiceProvider();
 
-            // 全局异常捕获（工业软件不允许崩溃，记录后优雅处理）
+            // 主界面 VM 单例（提前解析：全局异常处理需要向面板发布运行时错误）
+            var mainViewModel = provider.GetRequiredService<MainViewModel>();
+
+            // 全局异常捕获（工业软件不允许崩溃，记录后优雅处理）：
+            // 异常信息写入 Status 面板（v1.21 面板含"程序运行时错误"）并弹窗提示
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (_, e) =>
+            {
+                mainViewModel.PublishPanelEntry(LogLevel.Error, $"程序运行时错误：{e.Exception.Message}");
                 MessageBox.Show($"发生未处理异常：{e.Exception.Message}", "错误",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+            };
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                if (e.ExceptionObject is Exception ex)
+                {
+                    mainViewModel.PublishPanelEntry(LogLevel.Error, $"程序致命异常：{ex.Message}");
+                }
+
                 MessageBox.Show($"发生致命异常：{e.ExceptionObject}", "错误",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+            };
 
             // 启动主窗体（构造注入 ViewModel）
             var mainForm = provider.GetRequiredService<MainForm>();
@@ -64,6 +79,8 @@ namespace UiTopMachine
                 new PlcCommunicationService(
                     sp.GetRequiredService<IPlcTransport>(),
                     target: "127.0.0.1:502 站号1"));
+            // 设备对接状态面板发布器（MainViewModel 单例实现；图像页等通过接口发布状态，避免依赖具体 VM）
+            services.AddSingleton<IPanelStatusPublisher>(sp => sp.GetRequiredService<MainViewModel>());
 
             // ViewModel 层
             // MainViewModel 单例：RecipePageViewModel 与 FeedDrawersPage 需共享同一抽屉集合

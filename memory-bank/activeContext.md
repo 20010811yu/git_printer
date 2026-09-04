@@ -2,7 +2,15 @@
 
 ## 当前工作焦点
 
-**仿参考程序编写图像页（v1.20）✅ 已完成（待人工查看图像页效果）** —— 用户需求：「仿照form.txt文件，编写图像页面」。参照其视觉流程：方案加载（Form1_Shown 删旧 sol→复制→VmSolution.Load）→ 加载成功回调（nStatus==0 → _vmConnected）→ 定时采集运行（Timer→SyncRun）→ 结果图渲染（vmRenderControl1.ModuleSource）→ 退出停止。**落地方式（服务抽象 + Mock）**：`IImageInspectionService`（IsSolutionLoaded/SolutionLoaded 事件/LoadSolutionAsync/RunInspectionAsync/Shutdown）+ Mock 实现（GDI+ 生成 640×480 模拟检测图、检测框+十字线+OK绿/NG红+随机缺陷圈、~20% NG、1s 间隔）——真机 VisionMaster SDK（本地 dll 依赖）就绪后仅替换实现；`ImagePageViewModel` 重写（自动加载/单次检测/连续启停/OK·NG 计数/CurrentImage 替换释放旧图，_uiContext 调度——ERR-023 修复后模式）；`ImagePage` 重写（方案状态+PictureBox 结果区+OK/NG 角标+统计+控制按钮；Load → InitializeAsync 自动加载；Disposed → Shutdown）；**AsyncRelayCommand 增补 ExecuteAsync**（可等待版，异常上抛不弹窗，供测试/编程调用）。测试：ImageInspectionServiceTests 5 + ImagePageViewModelTests 5（Immediate 上下文环境）；dotnet test **152/152 PASS**、构建 **0 警告 0 错误**；程序已重启。**下一步：人工切换图像页确认效果**（加载方案→单次/连续检测看模拟图）；真机 VisionMaster 接入时替换 IImageInspectionService 实现
+**面板重定义为设备对接与运行错误状态（v1.21）✅ 已完成** —— 用户需求：「重新定义listbox 的作用，listbox用于与plc对接时的状态显示，例如连接成功或连接失败，失败的具体原因；心跳错误相关的内容，vision方案的加载等」+「加入程序运行时发生的错误」。落地：
+- **面板定位（四类信息）**：① PLC 连接成功（绿）/连接失败含原因（红）② 心跳丢失/检测连续失败/物料读取失败（红）③ **视觉方案加载成功（绿）/失败含原因（红）**（新增）④ **程序运行时错误**——全局异常处理（ThreadException/UnhandledException）在弹窗同时发布面板 Error 条目（新增）；检测完成的 Info 与"连接中"过程信息仍只落文件防刷屏
+- **实现**：新增 `IPanelStatusPublisher.PublishPanelEntry(level, message)` 接口（MainViewModel 实现，内部 _uiContext.Post + InsertPanelEntry，任意线程可调）；ImagePageViewModel 注入发布者（方案加载成功/失败、连续检测失败发布）；Program.cs 提前解析 MainViewModel 并在全局异常处理器中发布
+- **测试**：StubPanelPublisher 桩；新增 3 用例（加载成功发布 Success/加载失败发布含原因 Error/连续检测失败发布含原因 Error）；dotnet test **155/155 PASS**、构建 **0 警告 0 错误**；重启程序连接正常
+- **下一步：真机联调**（Program.cs IP 改 192.168.1.88；真机若按参考程序 MX9002/AM 约定需同步调 series/地址基准）
+
+### 上一焦点（v1.20 已完成的背景）
+
+**仿参考程序编写图像页（v1.20）✅ 已完成** —— 仿 Form.txt 视觉流程：方案加载 → 加载成功回调 → 采集运行 → 结果图渲染 → 连续轮询 → 退出停止。落地：`IImageInspectionService`（IsSolutionLoaded/SolutionLoaded 事件/LoadSolutionAsync/RunInspectionAsync/Shutdown）+ Mock 实现（GDI+ 生成 640×480 模拟检测图、检测框+十字线+OK绿/NG红+随机缺陷圈、~20% NG、1s 间隔）——真机 VisionMaster SDK（本地 dll 依赖）就绪后仅替换实现；`ImagePageViewModel` 重写（自动加载/单次检测/连续启停/OK·NG 计数/CurrentImage 替换释放旧图，_uiContext 调度——ERR-023 修复后模式）；`ImagePage` 重写（方案状态+PictureBox 结果区+OK/NG 角标+统计+控制按钮；Load → InitializeAsync 自动加载；Disposed → Shutdown）；**AsyncRelayCommand 增补 ExecuteAsync**（可等待版，异常上抛不弹窗，供测试/编程调用）。测试：ImageInspectionServiceTests 5 + ImagePageViewModelTests 5（Immediate 上下文环境）；dotnet test **152/152 PASS**、构建 **0 警告 0 错误**；程序已重启。**下一步：人工切换图像页确认效果**（加载方案→单次/连续检测看模拟图）；真机 VisionMaster 接入时替换 IImageInspectionService 实现
 
 ### 上一焦点（v1.19 已完成的背景）
 

@@ -2,7 +2,15 @@
 
 ## ✅ 已完成功能
 
-### 图像页编写（2026-09-04）⭐ 最新
+### 面板重定义为设备对接与运行错误状态（2026-09-04）⭐ 最新
+
+- [x] **需求（v1.21）**：重新定义 listbox 作用——显示 ① PLC 连接成功/失败（含具体原因）② 心跳错误 ③ Vision 方案加载（成功/失败含原因）④ 程序运行时发生的错误（全局异常）
+- [x] **实现**：新增 `IPanelStatusPublisher.PublishPanelEntry(level, message)` 接口（MainViewModel 实现，_uiContext 调度 + InsertPanelEntry，任意线程可调）；ImagePageViewModel 注入发布者——方案加载成功/失败、连续检测失败进面板（检测完成 Info 只落文件防刷屏）；Program.cs 全局异常处理器（ThreadException/UnhandledException）弹窗同时发布面板 Error 条目
+- [x] **测试**：StubPanelPublisher 桩 + 新增 3 用例（加载成功发布 Success/加载失败发布含原因 Error/连续检测失败发布含原因 Error）
+- [x] 验证：dotnet test **155/155 PASS** + dotnet build **0 警告 0 错误**；程序重启连接正常
+- [x] Memory Bank 同步更新（activeContext/progress/projectbrief/systemPatterns）
+
+### 图像页编写（2026-09-04）
 
 - [x] **需求（v1.20）**：仿照参考程序（D:\OneDrive\桌面\Form.txt）的视觉流程编写图像页：方案加载 → 加载成功回调 → 采集运行 → 结果图渲染 → 连续轮询 → 退出停止
 - [x] **服务抽象 + Mock**：`IImageInspectionService`（IsSolutionLoaded/SolutionLoaded 事件/LoadSolutionAsync/RunInspectionAsync/Shutdown）+ Mock 实现（GDI+ 生成 640×480 模拟检测图：检测框+十字线+OK绿/NG红大字+NG 随机缺陷圈，约 20% NG）；真机 VisionMaster SDK 就绪后仅替换实现类
@@ -291,7 +299,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **152 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
+单元测试 **155 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
 
 ## ⚠️ 已知问题
 
