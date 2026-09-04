@@ -59,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；127 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；128 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护/线程调度守护）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -171,6 +171,7 @@ MainViewModel.InitializeAsync ▶ PlcCommunicationService.StartAsync ▶ 自动�
 | 编号查重对真实文件静默失效（列名硬编码「配方编号」vs 用户表头「编号」） | 业务规则关联外部标识符（表头/列名）必须候选列表 + Trim + 忽略大小写匹配（`FindRecipeIdColumnIndex` 统一入口）；校验失败必须弹窗告知（`MessageRequested` 事件），拒绝提交同时 TableVersion++ 强制还原显示；识别不到编号列记 Warn 不静默 | ERR-018 |
 | 新建配方文件流转语义错（另存副本 vs 备份轮转，返工） | 涉及文件生命周期（重命名/移动/删除/覆盖）的需求，动手前先列出「原文件去向 × 新文件命名」候选矩阵让用户确认 | ERR-019 |
 | 生产代码换实现通道后测试桩脱节（VM 打印用例静默失效） | 换通道/方法/服务时全局搜索测试桩对应方法并同步迁移桩逻辑（双通道桩行为不对称必须注释标明）；交付硬门槛 = dotnet test 全绿，构建通过 ≠ 验证通过 | ERR-020 |
+| 后台事件现取 SynchronizationContext（Post 静默丢失，UI 永远初始状态）+ UI 线程 Wait 异步任务死锁（进程残留） | 上下文构造时捕获存字段 `_uiContext`，后台事件统一用它 Post；UI 线程等异步用 `Task.Run(...).Wait(timeout)` 包裹；测试用 new Thread（无上下文）触发事件守护 | ERR-023 |
 | 数值型流水号 ToString 丢失前导零（打印内容 1 而非 000001） | 递增用 ulong、显示/打印前按原始位数 `PadLeft(digits, '0')` 还原；进位（999999→1000000）自然扩展 | 2026-09-03 v1.8 |
 | ClosedXML `RowsUsed()` 跳过空行致保存的空行蒸发 | 写端整行全空时首列写空格占位；读端 `LastRowUsed().RowNumber()` + for 循环逐行装载 | ERR-014 |
 | 读外部文件建 DataTable 用「预置表头+重命名」遇重名列崩溃 | 按文件实际表头新建 DataTable 重建列结构（空表头「列N」兜底） | ERR-015 |

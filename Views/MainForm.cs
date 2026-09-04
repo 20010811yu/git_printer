@@ -58,15 +58,15 @@ namespace UiTopMachine.Views
         }
 
         /// <summary>
-        /// 窗体关闭：停止 PLC 服务（关闭心跳并断开连接），短超时兜底避免退出卡住
+        /// 窗体关闭：停止 PLC 服务（关闭心跳并断开连接），短超时兜底避免退出卡住。
+        /// ⚠️ 必须 Task.Run 包裹：直接 Wait 会死锁——异步延续需回 UI 线程，而 UI 线程正被 Wait 阻塞（ERR-023）
         /// </summary>
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             base.OnFormClosing(e);
-            var shutdown = _mainViewModel.ShutdownAsync();
             try
             {
-                shutdown.Wait(TimeSpan.FromSeconds(3));
+                Task.Run(() => _mainViewModel.ShutdownAsync()).Wait(TimeSpan.FromSeconds(3));
             }
             catch
             {

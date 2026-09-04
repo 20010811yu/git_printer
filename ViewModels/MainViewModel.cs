@@ -19,6 +19,13 @@ namespace UiTopMachine.ViewModels
         private readonly ILogService _logService;
         private readonly IPlcCommunicationService _plcService;
 
+        /// <summary>
+        /// 构造时捕获的 UI 线程同步上下文：后台线程事件必须用它调度回 UI 线程。
+        /// ⚠️ 不能在后台事件里现取 SynchronizationContext.Current（后台线程为 null，
+        /// 新建的 WindowsFormsSynchronizationContext 无消息泵，Post 的回调永远不执行，ERR-023）
+        /// </summary>
+        private readonly SynchronizationContext _uiContext;
+
         private string _companyTitle = "上海寅铠精密机械制造有限公司";
         private string _pageTitle = "进料抽屉状态";
         private bool _isBusy;
@@ -122,6 +129,9 @@ namespace UiTopMachine.ViewModels
             SendCommand = new AsyncRelayCommand(_ => SendAllRecipesAsync(), _ => !IsBusy);
             ExitCommand = new RelayCommand(_ => ExitApplication());
 
+            // 捕获 UI 线程同步上下文（构造发生在 UI 线程），供后台事件调度 UI 更新（ERR-023）
+            _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+
             // 订阅抽屉状态变化推送（Mock 服务已不再启动随机监控，PLC 物料为真值源，订阅保留兼容）
             _drawerService.DrawerChanged += OnDrawerChanged;
 
@@ -184,7 +194,7 @@ namespace UiTopMachine.ViewModels
         /// </summary>
         private void OnPlcConnectionStateChanged(object? sender, PlcConnectionEventArgs e)
         {
-            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            var context = _uiContext;
             context.Post(_ =>
             {
                 (PlcStatusText, PlcStatusLevel) = e.State switch
@@ -221,7 +231,7 @@ namespace UiTopMachine.ViewModels
         /// </summary>
         private void AddPlcPanelEntry(LogLevel level, string message)
         {
-            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            var context = _uiContext;
             context.Post(_ =>
             {
                 var vm = new LogEntryViewModel(new LogEntryModel { Level = level, Message = $"PLC：{message}" });
@@ -289,7 +299,7 @@ namespace UiTopMachine.ViewModels
         /// </summary>
         private void OnDrawerMaterialsChanged(object? sender, DrawerMaterialsChangedEventArgs e)
         {
-            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            var context = _uiContext;
             context.Post(_ =>
             {
                 for (int i = 1; i < e.Values.Count; i++)
@@ -308,7 +318,7 @@ namespace UiTopMachine.ViewModels
         private void OnDrawerChanged(object? sender, DrawerModel model)
         {
             // WinForms 控件绑定要求 UI 线程，通过 WindowsFormsSynchronizationContext 调度
-            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            var context = _uiContext;
             context.Post(_ =>
             {
                 var drawer = Drawers.FirstOrDefault(d => d.Index == model.Index);

@@ -238,6 +238,30 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
+        public void 后台线程触发PLC事件_状态行仍更新_守护ERR023()
+        {
+            var log = new StubLogService();
+            var plc = new StubPlcCommunicationService();
+            var vm = new MainViewModel(new StubDrawerService(), log, plc);
+
+            // 模拟生产场景：PLC 事件从后台线程触发（后台线程 SynchronizationContext.Current 为 null）。
+            // 回归守护：VM 必须用构造时捕获的上下文调度，而不是在事件线程现取（现取会新建无消息泵的
+            // WindowsFormsSynchronizationContext，Post 回调永远不执行，界面永远显示初始"未连接"，ERR-023）
+            SynchronizationContext? observed = SynchronizationContext.Current;
+            var thread = new Thread(() =>
+            {
+                observed = SynchronizationContext.Current;
+                plc.Raise(PlcConnectionState.Connected, "PLC 已连接，心跳已启动");
+            });
+            thread.Start();
+            thread.Join();
+
+            Assert.Null(observed); // 前置确认：事件确实来自无上下文的后台线程
+            Assert.Contains("已连接", vm.PlcStatusText);
+            Assert.Equal(LogLevel.Success, vm.PlcStatusLevel);
+        }
+
+        [Fact]
         public async Task PLC物料推送_更新对应抽屉有料状态_配方保留()
         {
             var log = new StubLogService();

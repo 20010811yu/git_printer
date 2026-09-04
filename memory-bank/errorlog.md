@@ -203,6 +203,16 @@
 - **教训**：⚠️ **协议类的地址格式必须离线实证（TranslateToModbusAddress 一行即可验证），不能按基类/文档印象假设**；「连接成功」不等于「通讯正常」——TCP 握手成功后首个读写才会暴露地址问题；涉及 SDK 行为的测试桩无法守护的路径，用 SDK 自身的离线 API 写守护测试
 - **状态**：🟢 已解决
 
+### ERR-023：后台事件现取 SynchronizationContext 导致 UI 永远显示初始状态 + OnFormClosing 退出死锁
+- **错误现象**：① 用户反馈「plc 还是显示未连接」——程序实际已连接（日志连续记录"已连接"、TCP ESTABLISHED），但 Status 面板状态行/消息流永远停留初始"未连接/暂无消息"；② 用户点退出后窗体关闭但进程残留（无窗口僵尸进程，PLC 服务与 TCP 连接仍存活）
+- **发生上下文**：2026-09-04 v1.13（状态行）上线后即存在，v1.15 后用户再报才深挖发现
+- **根本原因**：**两个独立的线程调度错误**——① PLC 状态事件来自后台线程，事件处理里现取 `SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext()`：后台线程 Current 为 null，**新建的 WindowsFormsSynchronizationContext 绑定在无消息泵的后台线程上，Post 的回调永远不执行**（PlcStatusText/面板条目/抽屉物料推送全部静默丢失；日志是同步写文件所以正常，形成"日志正常 UI 不动"的假象）；② `OnFormClosing` 在 UI 线程直接 `Wait` 异步停止任务——任务延续需回 UI 线程 SynchronizationContext，而 UI 线程正被 Wait 阻塞 → 死锁 3 秒超时后窗体已关、进程未退
+- **解决方式**：① `MainViewModel` **构造时捕获** UI 上下文存字段 `_uiContext`（构造发生在 UI 线程），全部后台事件处理改用 `_uiContext.Post`（4 处）；② `OnFormClosing` 改 `Task.Run(() => ShutdownAsync()).Wait(3s)`（延续在线程池，不回 UI 线程，无死锁）；③ **守护测试**：`后台线程触发PLC事件_状态行仍更新`——用 `new Thread` 在无上下文的后台线程触发事件（断言 Current 为 null 前置），回归可测
+- **解决时间**：2026-09-04
+- **验证结果**：🟢 已解决——dotnet test **128/128 PASS**；重启程序截图实证：状态行绿色「PLC：已连接 127.0.0.1:502 站号1」、消息流恢复显示、抽屉物料联动正常
+- **教训**：⚠️ **SynchronizationContext 必须在 UI 线程构造时捕获存字段，严禁后台事件里现取**（`Current ?? new ...` 模式在后台线程是静默丢失，无异常无日志，只能靠"日志正常 UI 不动"的反常推断）；**同类 UI 更新点要成批排查**（本次 4 处全错）；UI 假死/进程残留先查 UI 线程 Wait 异步任务的死锁；测试须还原生产的线程环境（事件来自无上下文的后台线程），否则测试全绿带病上线
+- **状态**：🟢 已解决
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -232,6 +242,7 @@
 13. **生产代码换实现通道** → 全局搜索测试桩中对应方法的桩逻辑并同步迁移（桩双通道行为不对称必须注释标明）；**交付硬门槛 = dotnet test 全绿**，只构建不测试的交付视为未验证（ERR-020）
 14. **第三方库大版本接入/升级** → 先以 NuGet 包内 XML 文档核对 API 签名、命名空间与过时标记（如 Hsl V12 默认长连接、InovanceTcpNet 迁至 Profinet 命名空间，ERR-021）
 15. **协议类地址格式** → 离线实证（`TranslateToModbusAddress`），不做前缀剥离等转换；InovanceTcpNet 用软元件格式且必须显式系列（H5U），ModbusTcpNet 用纯数字（ERR-022）
+16. **后台线程更新 UI** → SynchronizationContext 必须构造时捕获存字段，严禁后台事件里现取 `Current ?? new`（Post 静默丢失）；UI 线程 Wait 异步任务用 `Task.Run` 包裹防死锁（ERR-023）
 
 ## 沉淀出口
 
