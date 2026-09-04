@@ -121,8 +121,16 @@ namespace UiTopMachine.Tests
         private const int MaterialPollPeriodMs = 20;
 
         private static PlcCommunicationService CreateService(FakePlcTransport transport) =>
-            new(transport, WriteAddress, ReadAddress, HeartbeatPeriodMs, MaxMissedCycles, ReconnectDelayMs,
-                MaterialAddress, MaterialLength, MaterialPollPeriodMs);
+            new(transport,
+                target: "127.0.0.1:502 站号1",
+                writeAddress: WriteAddress,
+                readAddress: ReadAddress,
+                heartbeatPeriodMs: HeartbeatPeriodMs,
+                maxMissedCycles: MaxMissedCycles,
+                reconnectDelayMs: ReconnectDelayMs,
+                materialAddress: MaterialAddress,
+                materialLength: MaterialLength,
+                materialPollPeriodMs: MaterialPollPeriodMs);
 
         private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
         {

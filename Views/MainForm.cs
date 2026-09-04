@@ -258,6 +258,17 @@ namespace UiTopMachine.Views
             // 日志面板绑定（全局）
             _logPanel.Bind(_mainViewModel.Logs);
 
+            // PLC 连接状态 → 面板顶部常驻状态行（VM 经 SynchronizationContext 更新，此处已在 UI 线程）
+            _mainViewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MainViewModel.PlcStatusText)
+                    || e.PropertyName == nameof(MainViewModel.PlcStatusLevel))
+                {
+                    _logPanel.UpdatePlcStatus(_mainViewModel.PlcStatusText, _mainViewModel.PlcStatusLevel);
+                }
+            };
+            _logPanel.UpdatePlcStatus(_mainViewModel.PlcStatusText, _mainViewModel.PlcStatusLevel);
+
             // 导航状态变化 → 页面切换（VM 属性驱动 View 表现）
             _navigation.PropertyChanged += (_, e) =>
             {

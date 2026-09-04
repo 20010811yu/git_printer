@@ -70,6 +70,27 @@ namespace UiTopMachine.ViewModels
             private set => SetProperty(ref _latestLog, value);
         }
 
+        private string _plcStatusText = "未连接";
+        private LogLevel _plcStatusLevel = LogLevel.Error;
+
+        /// <summary>
+        /// PLC 当前连接状态文字（显示在 Status 面板顶部状态行，如「已连接 192.168.1.88:502 站号1」）
+        /// </summary>
+        public string PlcStatusText
+        {
+            get => _plcStatusText;
+            private set => SetProperty(ref _plcStatusText, value);
+        }
+
+        /// <summary>
+        /// PLC 当前连接状态级别（决定状态行颜色：Success=绿/Warning=橙/Error=红）
+        /// </summary>
+        public LogLevel PlcStatusLevel
+        {
+            get => _plcStatusLevel;
+            private set => SetProperty(ref _plcStatusLevel, value);
+        }
+
         /// <summary>就绪（绿）抽屉数</summary>
         public int ReadyCount => Drawers.Count(d => d.Status == DrawerStatus.Ready);
 
@@ -157,11 +178,24 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// PLC 连接状态变化处理：
-        /// 面板（Status 列表）只存 PLC 对接信息——连接成功提示（绿）与错误（红）；
-        /// 连接中等过程信息只写文件日志，不进面板；全部状态均经 LogService 落文件留痕
+        /// ① 刷新面板顶部常驻状态行（PlcStatusText/PlcStatusLevel，一眼可见当前连接状态）
+        /// ② 消息流（Status 列表）只存 PLC 对接信息——连接成功提示（绿）与错误（红）；
+        ///    连接中等过程信息只写文件日志，不进面板；全部状态均经 LogService 落文件留痕
         /// </summary>
         private void OnPlcConnectionStateChanged(object? sender, PlcConnectionEventArgs e)
         {
+            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            context.Post(_ =>
+            {
+                (PlcStatusText, PlcStatusLevel) = e.State switch
+                {
+                    PlcConnectionState.Connected => ($"已连接 {_plcService.Target}", LogLevel.Success),
+                    PlcConnectionState.Connecting => ("连接中…", LogLevel.Warning),
+                    PlcConnectionState.HeartbeatLost => ("心跳丢失，自动重连中", LogLevel.Error),
+                    _ => ("未连接（自动重连中）", LogLevel.Error)
+                };
+            }, null);
+
             switch (e.State)
             {
                 case PlcConnectionState.Connected:

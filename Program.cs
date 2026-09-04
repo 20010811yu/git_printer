@@ -55,10 +55,11 @@ namespace UiTopMachine
             services.AddSingleton<IRecipeFileService, RecipeFileService>();
             // ZPL 打印服务（打印页走 Spooler RAW 连接打印机名 "zpl"，TCP 直连 192.168.1.200:9100 为备用通道；流水号持久化 D:\Printer\Data\SerialNumber.txt）
             services.AddSingleton<IPrintService, ZplPrinterService>();
-            // PLC 传输层（InovanceTcpNet 走 Modbus TCP 192.168.1.88:502 站号 1，长连接；可切标准 ModbusTcpNet）
+            // PLC 传输层（InovanceTcpNet 走 Modbus TCP 502 站号 1，长连接；可切标准 ModbusTcpNet；IP 当前为本地调试 127.0.0.1，真机改 192.168.1.88）
             services.AddSingleton<IPlcTransport>(new HslModbusTransport("127.0.0.1", 502, 1, useInovance: true));
-            // PLC 通讯服务（后台自动连接 + 双向心跳：写寄存器 100 递增 / 读寄存器 101 监测，停滞 5 周期判丢失并重连）
-            services.AddSingleton<IPlcCommunicationService, PlcCommunicationService>();
+            // PLC 通讯服务（后台自动连接 + 双向心跳：写寄存器 D100 递增 / 读寄存器 D101 监测，停滞 5 周期判丢失并重连；连续读取物料位区 M1000×19）
+            services.AddSingleton<IPlcCommunicationService>(sp =>
+                new PlcCommunicationService(sp.GetRequiredService<IPlcTransport>(), target: "127.0.0.1:502 站号1"));
 
             // ViewModel 层
             // MainViewModel 单例：RecipePageViewModel 与 FeedDrawersPage 需共享同一抽屉集合

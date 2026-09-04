@@ -2,7 +2,16 @@
 
 ## 当前工作焦点
 
-**PLC 地址格式修复 + 连接实证（v1.12b）✅ 已完成** —— 用户要求「检查运行程序当前plc的连接状态」后发现连接失败循环，确认修复。根因与修复（ERR-022）：
+**Status 面板常驻展示 PLC 连接状态（v1.13）✅ 已完成** —— 用户需求：「在listbox 展示plc的连接状态」。落地：
+- **面板顶部常驻状态行**：LogPanelControl 自绘（颜色圆点 + 粗体文字）——已连接=绿「已连接 {Target}」/连接中=橙/心跳丢失与未连接=红；下方消息流保持 v1.11 语义
+- **实现链**：`IPlcCommunicationService` 加 `Target` 描述（IP:端口 站号，Program.cs 显式传）→ MainViewModel 加 `PlcStatusText`/`PlcStatusLevel`（事件内 SynchronizationContext.Post 刷新）→ MainForm 订阅 PropertyChanged 转发 → `LogPanelControl.UpdatePlcStatus`（UI 线程直接 Invalidate）
+- **运行实测**（截图验证）：状态行正确渲染红色「PLC：未连接」（本地模拟器不动 D101，10 秒周期在已连接/未连接间切换为预期行为）；真机上将是稳定绿色
+- **测试**：新增状态行流转用例（未连接→连接中→已连接含 Target→心跳丢失→未连接，级别断言）；dotnet test **128/128 PASS**、构建 **0 警告 0 错误**
+- **下一步：真机联调**（Program.cs IP 改回 192.168.1.88；PLC 侧 D101 周期变化约定；Hsl 授权观察）
+
+### 上一焦点（v1.12b 已完成的背景）
+
+**PLC 地址格式修复 + 连接实证 ✅（ERR-022）** —— 检查运行程序连接状态发现失败循环，根因与修复：
 - **根因（三层地址假设全错）**：① InovanceTcpNet 要求汇川软元件格式（位 "M1000"/字 "D100"），纯数字解析失败——v1.10 心跳地址 "100"/"101" 从未真正可用；② 默认构造（AM 系列）不支持 D 字地址，必须显式 `InovanceSeries.H5U`；③ v1.12 的 ResolveBitAddress 剥 M 前缀方向相反
 - **修复**：删 ResolveBitAddress 地址原样透传；心跳默认地址 "D100"/"D101"；transport 显式 `InovanceSeries.H5U`；**离线实证工具 `TranslateToModbusAddress` 固化为 HslModbusAddressTests 6 守护用例**
 - **全链路实证（本机模拟器 127.0.0.1:502）**：连接 ✓、写 D101=567 回读 567 ✓、读 M1000×19 返回 19 位 ✓；修复后程序日志不再有地址解析失败
@@ -58,6 +67,7 @@
 | 2026-09-04 | Status 面板改 PLC 专用（v1.11） | 新增 MainViewModelPlcPanelTests 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext：一般日志不进面板/连接成功进面板成功级/失败与心跳丢失进面板错误级/连接中不进面板/混合日志面板仅 PLC 文件全留痕/Initialize 启动 Shutdown 停止） | ✅ 116/116 PASS |
 | 2026-09-04 | PLC 连续读取 M1000 物料数组（v1.12） | 新增 4 服务用例（FakePlcTransport 位读桩：自动连续读取 M1000×19 断言/变化触发事件下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 VM 用例（物料推送更新抽屉 HasMaterial、配方保留、三态汇总正确） | ✅ 121/121 PASS |
 | 2026-09-04 | PLC 地址格式修复（v1.12b，ERR-022） | 新增 HslModbusAddressTests 6 守护用例（离线实证 TranslateToModbusAddress：H5U 翻译 M1000→1000/D100→100/D101→101 各功能码/纯数字失败/默认系列 D 失败必须显式 H5U）；本机模拟器全链路实证（D100/D101 写读、M1000×19）；更新服务测试地址常量为 D100/D101 | ✅ 127/127 PASS |
+| 2026-09-04 | 面板常驻 PLC 状态行（v1.13） | 新增 1 用例（状态行流转：未连接→连接中→已连接含 Target→心跳丢失→未连接 + 级别断言）；运行截图验证状态行渲染 | ✅ 128/128 PASS |
 
 ## 当前处理中的错误
 
@@ -72,6 +82,11 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.13 ✅ **Status 面板常驻展示 PLC 连接状态**（用户需求：「在listbox 展示plc的连接状态」）：
+    - **LogPanelControl**：顶部自绘状态行（圆点+粗体，绿=已连接/橙=连接中/红=心跳丢失与未连接）+ `UpdatePlcStatus`；消息流下移不变
+    - **链路**：Service 加 `Target`（Program.cs 传 "127.0.0.1:502 站号1"）→ MainViewModel `PlcStatusText`/`PlcStatusLevel`（Post 刷新）→ MainForm PropertyChanged 转发 → 控件 Invalidate
+    - **测试**：新增状态流转 1 用例；**128/128 PASS、0 警告 0 错误**；运行截图验证渲染正常
 
 1.12b ✅ **PLC 地址格式修复 + 连接实证（ERR-022）**（用户要求检查运行程序连接状态 → 发现连接失败循环）：
     - **修复**：删 ResolveBitAddress（地址原样透传）；心跳默认地址 "D100"/"D101"；transport 显式 `InovanceSeries.H5U`（默认 AM 系列不支持 D 字地址）

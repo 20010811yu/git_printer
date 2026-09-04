@@ -2,7 +2,16 @@
 
 ## ✅ 已完成功能
 
-### PLC 地址格式修复 + 连接实证（2026-09-04）⭐ 最新
+### Status 面板常驻展示 PLC 连接状态（2026-09-04）⭐ 最新
+
+- [x] **需求（v1.13）**：在 listbox（Status 列表面板）展示 PLC 的连接状态——面板顶部常驻状态行，一眼可见当前连接状态
+- [x] **实现**：LogPanelControl 顶部自绘状态行（颜色圆点 + 粗体文字：绿=已连接 {Target} / 橙=连接中 / 红=心跳丢失与未连接）+ `UpdatePlcStatus` 方法；消息流保持 v1.11 语义（只存 PLC 成功提示与对接错误）
+- [x] **链路**：`IPlcCommunicationService` 加 `Target` 描述（"IP:端口 站号1"，Program.cs 显式传）→ MainViewModel `PlcStatusText`/`PlcStatusLevel`（事件内 SynchronizationContext.Post 刷新）→ MainForm 订阅 PropertyChanged 转发 → 控件刷新
+- [x] **测试**：新增状态行流转用例（未连接→连接中→已连接→心跳丢失→未连接 + 级别断言）
+- [x] 验证：dotnet test **128/128 PASS** + dotnet build **0 警告 0 错误**；运行截图验证状态行渲染正常
+- [x] Memory Bank 同步更新（activeContext/systemPatterns/progress/projectbrief）
+
+### PLC 地址格式修复 + 连接实证（2026-09-04）
 
 - [x] **问题（v1.12b/ERR-022）**：运行程序检查连接状态发现无限循环——TCP 连上 → 0.5 秒心跳丢失 → 断开 → 5 秒重连；日志报「写入寄存器 100 失败：输入的地址解析失败」
 - [x] **根因**：InovanceTcpNet 要求汇川软元件格式地址（位 "M1000"/字 "D100"，纯数字解析失败）；默认构造（AM 系列）不支持 D 字地址，必须显式 `InovanceSeries.H5U`；v1.12 的 ResolveBitAddress 剥 M 前缀方向相反
@@ -216,7 +225,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **127 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
+单元测试 **128 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
 
 ## ⚠️ 已知问题
 

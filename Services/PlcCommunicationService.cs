@@ -30,6 +30,7 @@ namespace UiTopMachine.Services
         private readonly string _materialAddress;
         private readonly ushort _materialLength;
         private readonly int _materialPollPeriodMs;
+        private readonly string _target;
 
         /// <summary>Modbus IO 串行化锁：心跳与业务读写共用一条长连接，必须排队（防回归清单 #3 精神）</summary>
         private readonly SemaphoreSlim _ioSemaphore = new(1, 1);
@@ -61,6 +62,9 @@ namespace UiTopMachine.Services
         public event EventHandler<DrawerMaterialsChangedEventArgs>? DrawerMaterialsChanged;
 
         /// <inheritdoc />
+        public string Target => _target;
+
+        /// <inheritdoc />
         public PlcConnectionState State { get; private set; } = PlcConnectionState.Disconnected;
 
         /// <summary>
@@ -69,6 +73,7 @@ namespace UiTopMachine.Services
         /// </summary>
         public PlcCommunicationService(
             IPlcTransport transport,
+            string target = "192.168.1.88:502 站号1",
             string writeAddress = "D100",
             string readAddress = "D101",
             int heartbeatPeriodMs = 1000,
@@ -79,6 +84,7 @@ namespace UiTopMachine.Services
             int materialPollPeriodMs = 1000)
         {
             _transport = transport ?? throw new ArgumentNullException(nameof(transport));
+            _target = target;
             _writeAddress = writeAddress;
             _readAddress = readAddress;
             _heartbeatPeriodMs = heartbeatPeriodMs;

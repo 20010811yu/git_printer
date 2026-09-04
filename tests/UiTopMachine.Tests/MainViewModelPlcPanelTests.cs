@@ -46,6 +46,8 @@ namespace UiTopMachine.Tests
 
         public PlcConnectionState State { get; set; } = PlcConnectionState.Disconnected;
 
+        public string Target { get; set; } = "127.0.0.1:502 站号1";
+
         public int StartCalls { get; private set; }
 
         public int StopCalls { get; private set; }
@@ -205,6 +207,34 @@ namespace UiTopMachine.Tests
 
             await vm.ShutdownAsync();
             Assert.Equal(1, plc.StopCalls);
+        }
+
+        [Fact]
+        public async Task PLC连接状态变化_刷新面板顶部状态行()
+        {
+            var (vm, _, plc) = Create();
+            await vm.InitializeAsync();
+
+            // 初始：未连接（红）
+            Assert.Equal("未连接", vm.PlcStatusText);
+            Assert.Equal(LogLevel.Error, vm.PlcStatusLevel);
+
+            plc.Raise(PlcConnectionState.Connecting, "PLC 连接中…");
+            Assert.Equal("连接中…", vm.PlcStatusText);
+            Assert.Equal(LogLevel.Warning, vm.PlcStatusLevel);
+
+            plc.Raise(PlcConnectionState.Connected, "PLC 已连接，心跳已启动");
+            Assert.Contains(plc.Target, vm.PlcStatusText);
+            Assert.StartsWith("已连接", vm.PlcStatusText);
+            Assert.Equal(LogLevel.Success, vm.PlcStatusLevel);
+
+            plc.Raise(PlcConnectionState.HeartbeatLost, "PLC 心跳丢失，即将断开重连");
+            Assert.Equal("心跳丢失，自动重连中", vm.PlcStatusText);
+            Assert.Equal(LogLevel.Error, vm.PlcStatusLevel);
+
+            plc.Raise(PlcConnectionState.Disconnected, "PLC 连接失败，5 秒后自动重试");
+            Assert.Equal("未连接（自动重连中）", vm.PlcStatusText);
+            Assert.Equal(LogLevel.Error, vm.PlcStatusLevel);
         }
 
         [Fact]

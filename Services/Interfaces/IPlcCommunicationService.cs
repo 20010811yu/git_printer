@@ -62,6 +62,11 @@ namespace UiTopMachine.Services.Interfaces
         event EventHandler<PlcConnectionEventArgs>? ConnectionStateChanged;
 
         /// <summary>
+        /// 目标设备描述（如 "192.168.1.88:502 站号1"，用于界面展示连接状态）
+        /// </summary>
+        string Target { get; }
+
+        /// <summary>
         /// 抽屉物料状态变化事件（后台线程触发，仅数值有变化时推送，订阅方自行调度 UI 线程）
         /// </summary>
         event EventHandler<DrawerMaterialsChangedEventArgs>? DrawerMaterialsChanged;
