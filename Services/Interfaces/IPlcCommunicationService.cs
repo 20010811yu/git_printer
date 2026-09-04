@@ -48,10 +48,9 @@ namespace UiTopMachine.Services.Interfaces
 
     /// <summary>
     /// PLC 通讯服务（Modbus TCP）：
-    /// 启动后后台自动连接（断线自动重连），连接成功后自动启动心跳——
-    /// PC 侧周期向写心跳寄存器递增写数（证明 PC 在线）；
-    /// monitorPlcAlive=true 时同时监听读心跳寄存器变化（证明 PLC 在线，停滞触发重连），默认单向只写不读。
-    /// 同时持续轮询抽屉物料位区（M1000 起 19 个 bool，下标 i 对应抽屉 i），变化时推送事件。
+    /// 启动后后台自动连接（断线自动重连），连接成功后自动开启心跳——
+    /// 心跳与抽屉物料合一：周期读抽屉物料位区（M1000 起 19 个 bool，下标 i 对应抽屉 i），
+    /// 读成功即通讯正常并推送物料变化事件，读失败计连续次数，连续达到阈值判心跳丢失并触发重连。
     /// 退出时 StopAsync 关闭心跳并断开连接
     /// </summary>
     public interface IPlcCommunicationService

@@ -15,8 +15,8 @@ namespace UiTopMachine.Communications.Plc
     /// </summary>
     public class HslModbusTransport : IPlcTransport
     {
-        private const int ConnectTimeoutMs = 3000;
-        private const int ReceiveTimeoutMs = 3000;
+        private const int ConnectTimeoutMs = 10000;
+        private const int ReceiveTimeoutMs = 5000;
 
         private readonly ModbusTcpNet _plc;
 

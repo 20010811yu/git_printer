@@ -59,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；129 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；127 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -86,7 +86,7 @@ d:\GitRepo\
 - **VM→View 消息提示请求模式** ✅：`MessageRequestEventArgs`（Title/Message 纯数据，无回填）→ View 弹 MessageBox（后台线程经 BeginInvoke 封送）；与输入请求（回填 InputText）/确认请求（回填 Confirmed）构成三类弹框交互模式
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
 - **工厂/策略模式** ⏳：预留（真实多协议通信接入时启用）
-- **PLC 传输抽象 + 心跳模式** ✅（v1.10，v1.14 单向化）：`IPlcTransport` 屏蔽协议实现（InovanceTcpNet/ModbusTcpNet 可构造切换，OperateResult 不上抛），Service 依赖抽象可注入 Fake 测试；心跳 = 连接循环（自动连接/断线重连/幂等启动）+ 心跳循环（周期写寄存器递增证 PC 活）；**monitorPlcAlive 开关**（默认 false 单向只写不读——本地模拟器/PLC 无心跳程序时用；true 恢复读监测停滞判 HeartbeatLost）；单条长连接 IO 经 `SemaphoreSlim(1,1)` 串行化；CancellationTokenSource 驱动循环启停（避开 Timer 歧义坑）
+- **PLC 传输抽象 + 心跳模式** ✅（v1.10→v1.15 仿参考程序重构）：`IPlcTransport` 屏蔽协议实现（InovanceTcpNet/ModbusTcpNet 可构造切换，OperateResult 不上抛），Service 依赖抽象可注入 Fake 测试；连接循环（自动连接/失败延时重试/断线重连/幂等启动，仿 ConnectToPLCAsync）；**心跳与物料合一循环**（周期读 M1000×19：读成功=通讯正常+失败计数清零+变化推送抽屉；连续 `maxRetryCount=3` 次失败判心跳丢失→断开→10 秒重连，重连后计数/基线天然重置，仿 StartHeartbeatMonitoring/CheckHeartbeatAsync）；手动 StartHeartbeatAsync/StopHeartbeatAsync 对应参考的 Start/StopHeartbeatMonitoring；单条长连接 IO 经 `SemaphoreSlim(1,1)` 串行化；CancellationTokenSource 驱动循环启停（避开 Timer 歧义坑）
 - **PLC 物料轮询推送模式** ✅（v1.12）：连接成功后与心跳并列自动启动轮询循环（连续读 M1000 起 19 个 bool）；与上次快照按抽屉位（下标 1 起，下标 0 非抽屉位不参与）比对，**仅变化时触发 DrawerMaterialsChanged（首读即推送用真值覆盖初始状态）**；读失败 → 断开重连（报一条对接错误，不刷屏）；**断开重连前必须 StopCyclesAsync 取消并等待心跳/物料任务退出**（防旧任务重连后报失败造成误断开）；VM 侧订阅事件批量更新抽屉（UpdateFromModel 只同步物料、配方保留用户输入），PLC 为物料唯一真值源（Mock 随机监控停用）
 - **PLC 地址格式规则** ✅（v1.12b ERR-022 实证）：地址**原样透传不转换**——InovanceTcpNet 要求汇川软元件格式（位 "M1000"、字 "D100"，纯数字解析失败）且**必须显式指定 InovanceSeries.H5U**（默认 AM 系列不支持 D 字地址）；标准 ModbusTcpNet 才用纯数字。实证工具 = `TranslateToModbusAddress(address, functionCode)`（离线可测，HslModbusAddressTests 守护）
 - **双向心跳的 PLC 侧要求** ✅（v1.12b 实测，v1.14 默认关闭）：读心跳寄存器 D101 必须**由 PLC 程序周期改变**（翻转/递增）才能证明 PLC 侧存活——被动模拟器不会动 D101；`monitorPlcAlive=true` 时才启用该监测，真机 PLC 配好心跳程序后再打开

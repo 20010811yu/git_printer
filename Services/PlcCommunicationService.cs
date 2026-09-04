@@ -8,32 +8,25 @@ namespace UiTopMachine.Services
 {
     /// <summary>
     /// PLC 通讯服务实现（Modbus TCP，经 IPlcTransport 屏蔽协议细节）：
-    /// ① 后台自动连接循环——启动即连，失败按间隔重试，断线自动重连
-    /// ② 双向心跳——连接成功后自动启动：周期向写心跳寄存器递增写数 + 读读心跳寄存器监测变化，
-    ///    PLC 侧连续停滞达到阈值判定心跳丢失，触发断开重连；支持手动 启动/关闭 心跳
-    /// ③ 所有 Modbus IO 经 SemaphoreSlim 串行化，异常统一转 Result，事件在后台线程触发
+    /// ① 后台自动连接循环——启动即连，失败延时重试，断线自动重连（仿参考程序 ConnectToPLCAsync）
+    /// ② 心跳与物料合一循环（仿参考程序 StartHeartbeatMonitoring/CheckHeartbeatAsync）——
+    ///    连接成功后自动开启：周期读抽屉物料位区（读成功即通讯正常，同时推送抽屉物料变化），
+    ///    读失败计连续次数，连续达到阈值判定心跳丢失并触发断开重连，读成功清零计数
+    /// ③ 支持手动 启动/关闭 心跳；退出时 StopAsync 关闭心跳并断开连接（仿参考 FormClosing）
+    /// ④ 所有 Modbus IO 经 SemaphoreSlim 串行化，事件在后台线程触发
     /// </summary>
     public class PlcCommunicationService : IPlcCommunicationService
     {
-        /// <summary>连接循环的状态轮询间隔（检查心跳启停请求与心跳异常标志）</summary>
+        /// <summary>连接保持段的轮询间隔（检查心跳启停请求与心跳失败标志）</summary>
         private const int LoopPollIntervalMs = 500;
 
-        /// <summary>心跳写寄存器计数值上限（递增到此后回到 1，避免溢出为负数）</summary>
-        private const ushort HeartbeatCounterMax = (ushort)short.MaxValue;
-
         private readonly IPlcTransport _transport;
-        private readonly string _writeAddress;
-        private readonly string _readAddress;
+        private readonly string _target;
         private readonly int _heartbeatPeriodMs;
-        private readonly int _maxMissedCycles;
+        private readonly int _maxRetryCount;
         private readonly int _reconnectDelayMs;
         private readonly string _materialAddress;
         private readonly ushort _materialLength;
-        private readonly int _materialPollPeriodMs;
-        private readonly string _target;
-
-        /// <summary>是否监测 PLC 侧存活（读读心跳寄存器变化）；false=单向心跳只写不读（本地调试/PLC 侧无心跳程序时）</summary>
-        private readonly bool _monitorPlcAlive;
 
         /// <summary>Modbus IO 串行化锁：心跳与业务读写共用一条长连接，必须排队（防回归清单 #3 精神）</summary>
         private readonly SemaphoreSlim _ioSemaphore = new(1, 1);
@@ -42,21 +35,14 @@ namespace UiTopMachine.Services
         private Task? _runTask;
         private Task? _heartbeatTask;
         private CancellationTokenSource? _heartbeatCts;
-        private Task? _materialTask;
-        private CancellationTokenSource? _materialCts;
 
         /// <summary>心跳期望状态（手动关闭后置 false，连接循环不再拉起）</summary>
         private volatile bool _heartbeatRequested;
 
-        /// <summary>心跳异常结束标志（PLC 停滞或通讯异常，由连接循环消费并触发重连）</summary>
+        /// <summary>心跳异常结束标志（连续检测失败，由连接循环消费并触发重连）</summary>
         private volatile bool _heartbeatFailed;
 
         private string _heartbeatFailureMessage = string.Empty;
-
-        /// <summary>物料轮询异常结束标志（读失败，由连接循环消费并触发重连）</summary>
-        private volatile bool _materialFailed;
-
-        private string _materialFailureMessage = string.Empty;
 
         /// <inheritdoc />
         public event EventHandler<PlcConnectionEventArgs>? ConnectionStateChanged;
@@ -71,34 +57,26 @@ namespace UiTopMachine.Services
         public PlcConnectionState State { get; private set; } = PlcConnectionState.Disconnected;
 
         /// <summary>
-        /// 构造：注入传输层与心跳/物料轮询参数（参数默认值可被测试覆盖以缩短等待）。
-        /// 地址默认值按生产所用 InovanceTcpNet 的汇川软元件格式（字地址 D 区、位地址 M 区，ERR-022）；
-        /// monitorPlcAlive=false 为单向心跳（只写不读，本地调试/PLC 侧无心跳程序时用），true 恢复双向监测
+        /// 构造：注入传输层与心跳参数（参数默认值可被测试覆盖以缩短等待）。
+        /// 物料位区地址按生产所用 InovanceTcpNet 的汇川软元件格式（位地址 M 区，ERR-022）；
+        /// 心跳即读该位区：读成功=通讯正常+驱动抽屉，连续失败达到 maxRetryCount 判心跳丢失并重连
         /// </summary>
         public PlcCommunicationService(
             IPlcTransport transport,
             string target = "127.0.0.1:502 站号1",
-            string writeAddress = "D100",
-            string readAddress = "D101",
             int heartbeatPeriodMs = 1000,
-            int maxMissedCycles = 5,
-            int reconnectDelayMs = 5000,
+            int maxRetryCount = 3,
+            int reconnectDelayMs = 10000,
             string materialAddress = "M1000",
-            ushort materialLength = 19,
-            int materialPollPeriodMs = 1000,
-            bool monitorPlcAlive = false)
+            ushort materialLength = 19)
         {
             _transport = transport ?? throw new ArgumentNullException(nameof(transport));
             _target = target;
-            _writeAddress = writeAddress;
-            _readAddress = readAddress;
             _heartbeatPeriodMs = heartbeatPeriodMs;
-            _maxMissedCycles = maxMissedCycles;
+            _maxRetryCount = maxRetryCount;
             _reconnectDelayMs = reconnectDelayMs;
             _materialAddress = materialAddress;
             _materialLength = materialLength;
-            _materialPollPeriodMs = materialPollPeriodMs;
-            _monitorPlcAlive = monitorPlcAlive;
         }
 
         /// <inheritdoc />
@@ -129,7 +107,7 @@ namespace UiTopMachine.Services
                 }
                 catch
                 {
-                    // 超时/取消：循环内有 3 秒收发超时兜底，退出路径已尽力
+                    // 超时/取消：循环内有收发超时兜底，退出路径已尽力
                 }
             }
 
@@ -229,7 +207,8 @@ namespace UiTopMachine.Services
         }
 
         /// <summary>
-        /// 自动连接主循环：连接成功后进入连接保持段（管理心跳启停），心跳丢失则断开重连
+        /// 自动连接主循环（仿参考 ConnectToPLCAsync）：未连接则尝试连接，
+        /// 失败记事件并延时重试；连接成功进入连接保持段（管理心跳启停），心跳丢失则断开重连
         /// </summary>
         private async Task RunLoopAsync(CancellationToken token)
         {
@@ -261,26 +240,17 @@ namespace UiTopMachine.Services
 
                 while (!token.IsCancellationRequested)
                 {
-                    // 心跳/物料轮询异常结束（PLC 停滞/通讯异常）→ 断开重连
-                    if (_heartbeatFailed || _materialFailed)
+                    // 心跳异常结束（连续检测失败）→ 断开重连
+                    if (_heartbeatFailed)
                     {
-                        var isHeartbeatLost = _heartbeatFailed;
-                        var reason = isHeartbeatLost ? _heartbeatFailureMessage : _materialFailureMessage;
+                        var reason = _heartbeatFailureMessage;
 
-                        // 先取消并等待心跳/物料任务退出，防止旧任务在重连后报失败造成误断开
+                        // 先取消并等待心跳/物料任务退出，防止旧任务在重连后报失败造成误断开；
+                        // 重连后心跳为新循环，失败计数/基线天然重置（仿参考 ReconnectPLCAsync 的状态重置）
                         await StopCyclesAsync();
                         _heartbeatFailed = false;
-                        _materialFailed = false;
 
-                        if (isHeartbeatLost)
-                        {
-                            SetState(PlcConnectionState.HeartbeatLost, $"PLC 心跳丢失：{reason}，即将断开重连");
-                        }
-                        else
-                        {
-                            SetState(PlcConnectionState.Disconnected, $"PLC 抽屉物料读取失败（{_materialAddress}）：{reason}，即将断开重连");
-                        }
-
+                        SetState(PlcConnectionState.HeartbeatLost, $"PLC 心跳丢失：{reason}，即将断开重连");
                         await _transport.CloseAsync();
                         if (!await SafeDelayAsync(_reconnectDelayMs, token))
                         {
@@ -294,12 +264,6 @@ namespace UiTopMachine.Services
                     if (_heartbeatRequested && (_heartbeatTask is null || _heartbeatTask.IsCompleted))
                     {
                         StartHeartbeatCore();
-                    }
-
-                    // 物料轮询未运行 → 拉起（连续一直读取）
-                    if (_materialTask is null || _materialTask.IsCompleted)
-                    {
-                        StartMaterialPollCore();
                     }
 
                     await SafeDelayAsync(LoopPollIntervalMs, token);
@@ -317,32 +281,17 @@ namespace UiTopMachine.Services
         }
 
         /// <summary>
-        /// 拉起物料轮询循环（连接保持段内调用，保证同一时刻至多一个轮询任务）
-        /// </summary>
-        private void StartMaterialPollCore()
-        {
-            _materialCts = CancellationTokenSource.CreateLinkedTokenSource(_serviceCts?.Token ?? CancellationToken.None);
-            _materialTask = Task.Run(() => MaterialPollLoopAsync(_materialCts.Token));
-        }
-
-        /// <summary>
-        /// 取消并等待心跳/物料循环退出（断开重连与服务停止时调用），清空任务引用防旧任务误报
+        /// 取消并等待心跳循环退出（断开重连与服务停止时调用），清空任务引用防旧任务误报
         /// </summary>
         private async Task StopCyclesAsync()
         {
             _heartbeatCts?.Cancel();
-            _materialCts?.Cancel();
 
-            foreach (var task in new[] { _heartbeatTask, _materialTask })
+            if (_heartbeatTask is not null)
             {
-                if (task is null)
-                {
-                    continue;
-                }
-
                 try
                 {
-                    await task;
+                    await _heartbeatTask;
                 }
                 catch
                 {
@@ -351,43 +300,68 @@ namespace UiTopMachine.Services
             }
 
             _heartbeatTask = null;
-            _materialTask = null;
             _heartbeatCts = null;
-            _materialCts = null;
         }
 
         /// <summary>
-        /// 抽屉物料轮询循环：连续读取物料位区（M1000 起 19 个 bool，下标 0 不使用，1~18 对应抽屉 1~18），
-        /// 与上次快照按抽屉位比对，有变化才触发事件；首读即推送（用 PLC 真值覆盖初始状态）；
-        /// 读取异常时置失败标志退出（由连接循环处理断开重连）
+        /// 心跳循环（心跳与物料合一，仿参考 CheckHeartbeatAsync）：
+        /// 周期读抽屉物料位区——读成功即通讯正常（失败计数清零），同时推送物料变化（首读即推送）；
+        /// 读失败计连续次数，连续达到 maxRetryCount 判心跳丢失并退出（由连接循环处理断开重连）；
+        /// 重连后心跳为新循环，失败计数与基线天然重置
         /// </summary>
-        private async Task MaterialPollLoopAsync(CancellationToken token)
+        private async Task HeartbeatLoopAsync(CancellationToken token)
         {
             bool[]? last = null;
+            int consecutiveFailures = 0;
 
             try
             {
                 while (!token.IsCancellationRequested)
                 {
-                    bool[] values;
+                    bool[]? values = null;
+                    string failureMessage = string.Empty;
+
                     await _ioSemaphore.WaitAsync(token);
                     try
                     {
-                        values = await _transport.ReadBoolsAsync(_materialAddress, _materialLength);
+                        try
+                        {
+                            values = await _transport.ReadBoolsAsync(_materialAddress, _materialLength);
+                        }
+                        catch (Exception ex)
+                        {
+                            failureMessage = ex.Message;
+                        }
                     }
                     finally
                     {
                         _ioSemaphore.Release();
                     }
 
-                    if (last is null || HasDrawerChange(last, values))
+                    if (values is not null)
                     {
-                        RaiseMaterialsChanged(values);
+                        // 读成功：清零失败计数，推送物料变化（首读即推送，用 PLC 真值覆盖初始状态）
+                        consecutiveFailures = 0;
+                        if (last is null || HasDrawerChange(last, values))
+                        {
+                            RaiseMaterialsChanged(values);
+                        }
+
+                        last = values;
+                    }
+                    else
+                    {
+                        // 读失败：连续失败达到阈值 → 判心跳丢失，退出由连接循环断开重连
+                        consecutiveFailures++;
+                        if (consecutiveFailures >= _maxRetryCount)
+                        {
+                            _heartbeatFailureMessage = $"心跳检测连续 {_maxRetryCount} 次失败：{failureMessage}";
+                            _heartbeatFailed = true;
+                            return;
+                        }
                     }
 
-                    last = values;
-
-                    if (!await SafeDelayAsync(_materialPollPeriodMs, token))
+                    if (!await SafeDelayAsync(_heartbeatPeriodMs, token))
                     {
                         return;
                     }
@@ -395,12 +369,7 @@ namespace UiTopMachine.Services
             }
             catch (OperationCanceledException)
             {
-                // 断开重连或服务停止，正常退出
-            }
-            catch (Exception ex)
-            {
-                _materialFailureMessage = ex.Message;
-                _materialFailed = true;
+                // 手动关闭心跳或服务停止，正常退出
             }
         }
 
@@ -437,73 +406,6 @@ namespace UiTopMachine.Services
             catch
             {
                 // 事件订阅方异常不中断轮询循环
-            }
-        }
-
-        /// <summary>
-        /// 心跳循环：周期向写心跳寄存器递增写数（证明 PC 在线）；
-        /// monitorPlcAlive=true 时同时读读心跳寄存器监测变化（证明 PLC 在线，连续停滞达阈值置失败退出）；
-        /// 通讯异常时置 _heartbeatFailed 退出（由连接循环处理重连）
-        /// </summary>
-        private async Task HeartbeatLoopAsync(CancellationToken token)
-        {
-            ushort counter = 0;
-            short? lastPlcValue = null;
-            int missed = 0;
-
-            try
-            {
-                while (!token.IsCancellationRequested)
-                {
-                    await _ioSemaphore.WaitAsync(token);
-                    try
-                    {
-                        // 写心跳：PC 侧计数递增，证明 PC 在线
-                        counter = counter >= HeartbeatCounterMax ? (ushort)1 : (ushort)(counter + 1);
-                        await _transport.WriteShortAsync(_writeAddress, (short)counter);
-
-                        // 读心跳：监测 PLC 侧寄存器变化，证明 PLC 在线（单向心跳模式下跳过）
-                        if (_monitorPlcAlive)
-                        {
-                            var plcValue = await _transport.ReadShortAsync(_readAddress);
-                            if (lastPlcValue.HasValue && plcValue == lastPlcValue.Value)
-                            {
-                                missed++;
-                            }
-                            else
-                            {
-                                missed = 0;
-                            }
-
-                            lastPlcValue = plcValue;
-
-                            if (missed >= _maxMissedCycles)
-                            {
-                                _heartbeatFailureMessage = $"读心跳寄存器 {_readAddress} 连续 {_maxMissedCycles} 个周期无变化";
-                                _heartbeatFailed = true;
-                                return;
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        _ioSemaphore.Release();
-                    }
-
-                    if (!await SafeDelayAsync(_heartbeatPeriodMs, token))
-                    {
-                        return;
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // 手动关闭心跳或服务停止，正常退出
-            }
-            catch (Exception ex)
-            {
-                _heartbeatFailureMessage = ex.Message;
-                _heartbeatFailed = true;
             }
         }
 

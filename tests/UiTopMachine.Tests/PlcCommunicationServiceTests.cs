@@ -13,8 +13,7 @@ namespace UiTopMachine.Tests
 {
     /// <summary>
     /// 测试桩：IPlcTransport 假实现 —— 模拟 PLC 行为供服务层测试：
-    /// 连接成功/失败可编程；记录全部读写；读心跳寄存器可编程返回
-    /// （回显最近写入值 = PLC 活着；固定不变 = PLC 心跳停滞）
+    /// 连接成功/失败可编程；记录全部读写；位读（心跳+物料合一）可编程返回值与失败注入
     /// </summary>
     public class FakePlcTransport : IPlcTransport
     {
@@ -106,32 +105,26 @@ namespace UiTopMachine.Tests
     }
 
     /// <summary>
-    /// PLC 通讯服务测试：自动连接、双向心跳启停、心跳丢失告警与重连、幂等
+    /// PLC 通讯服务测试（v1.15 仿参考程序重构：心跳=读物料位区合一，连续失败计数重连）：
+    /// 自动连接、心跳轮询、连续失败阈值重连、心跳启停、幂等
     /// </summary>
     public class PlcCommunicationServiceTests
     {
         /// <summary>缩短等待的心跳参数（覆盖构造默认值；地址格式与生产一致为汇川软元件格式）</summary>
-        private const string WriteAddress = "D100";
-        private const string ReadAddress = "D101";
-        private const int HeartbeatPeriodMs = 20;
-        private const int MaxMissedCycles = 2;
-        private const int ReconnectDelayMs = 20;
         private const string MaterialAddress = "M1000";
         private const ushort MaterialLength = 19;
-        private const int MaterialPollPeriodMs = 20;
+        private const int HeartbeatPeriodMs = 20;
+        private const int MaxRetryCount = 3;
+        private const int ReconnectDelayMs = 20;
 
-        private static PlcCommunicationService CreateService(FakePlcTransport transport, bool monitorPlcAlive = false) =>
+        private static PlcCommunicationService CreateService(FakePlcTransport transport) =>
             new(transport,
                 target: "127.0.0.1:502 站号1",
-                writeAddress: WriteAddress,
-                readAddress: ReadAddress,
                 heartbeatPeriodMs: HeartbeatPeriodMs,
-                maxMissedCycles: MaxMissedCycles,
+                maxRetryCount: MaxRetryCount,
                 reconnectDelayMs: ReconnectDelayMs,
                 materialAddress: MaterialAddress,
-                materialLength: MaterialLength,
-                materialPollPeriodMs: MaterialPollPeriodMs,
-                monitorPlcAlive: monitorPlcAlive);
+                materialLength: MaterialLength);
 
         private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
         {
@@ -149,72 +142,128 @@ namespace UiTopMachine.Tests
             Assert.True(condition(), "等待条件超时");
         }
 
-        private static int WriteCount(FakePlcTransport transport)
+        private static int BitReadCount(FakePlcTransport transport)
         {
-            lock (transport.Writes)
+            lock (transport.BitReads)
             {
-                return transport.Writes.Count;
+                return transport.BitReads.Count;
+            }
+        }
+
+        private static List<(string Address, ushort Length)> SnapshotBitReads(FakePlcTransport transport)
+        {
+            lock (transport.BitReads)
+            {
+                return new List<(string, ushort)>(transport.BitReads);
             }
         }
 
         [Fact]
-        public async Task StartAsync_AutoConnects_AndStartsIncrementalHeartbeat()
+        public async Task StartAsync_AutoConnects_AndStartsHeartbeatPolling()
         {
             var transport = new FakePlcTransport();
             var service = CreateService(transport);
 
             await service.StartAsync();
 
-            // 等待连接成功并产生多次心跳写
-            await WaitUntilAsync(() => WriteCount(transport) >= 3);
+            // 等待连接成功并产生多轮心跳（读物料位区）
+            await WaitUntilAsync(() => BitReadCount(transport) >= 3);
 
             Assert.Equal(PlcConnectionState.Connected, service.State);
             Assert.Equal(1, transport.ConnectCount);
 
-            List<(string Address, short Value)> writes;
-            lock (transport.Writes)
+            // 心跳与物料合一：只读物料位区，不再有心跳写
+            Assert.All(SnapshotBitReads(transport), r =>
             {
-                writes = new List<(string, short)>(transport.Writes);
-            }
-
-            // 写心跳：全部写到写寄存器，且计数严格递增（证明 PC 在线）
-            Assert.All(writes, w => Assert.Equal(WriteAddress, w.Address));
-            for (int i = 1; i < writes.Count; i++)
-            {
-                Assert.True(writes[i].Value > writes[i - 1].Value, $"心跳计数值应递增：{writes[i - 1].Value} -> {writes[i].Value}");
-            }
+                Assert.Equal(MaterialAddress, r.Address);
+                Assert.Equal(MaterialLength, r.Length);
+            });
+            Assert.Empty(transport.Writes);
 
             await service.StopAsync();
         }
 
         [Fact]
-        public async Task 连接后_自动连续读取物料位区_地址与长度正确()
+        public async Task 心跳读失败_连续达到阈值_判丢失并重连()
+        {
+            var transport = new FakePlcTransport { BitReadShouldFail = true };
+            var service = CreateService(transport);
+
+            var heartbeatLost = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            service.ConnectionStateChanged += (_, e) =>
+            {
+                if (e.State == PlcConnectionState.HeartbeatLost)
+                {
+                    heartbeatLost.TrySetResult(e);
+                }
+            };
+
+            await service.StartAsync();
+
+            // 连续 3 次读失败：应触发 HeartbeatLost（消息含连续次数）并自动断开重连
+            var lost = await heartbeatLost.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Contains($"连续 {MaxRetryCount} 次失败", lost.Message);
+
+            await WaitUntilAsync(() => transport.ConnectCount >= 2);
+            await WaitUntilAsync(() => service.State == PlcConnectionState.Connected);
+
+            await service.StopAsync();
+        }
+
+        [Fact]
+        public async Task 心跳读失败_未达阈值_恢复后不断连()
         {
             var transport = new FakePlcTransport();
             var service = CreateService(transport);
 
+            // 前 2 次（< 阈值 3）失败，之后恢复成功
+            int readCount = 0;
+            transport.BitReadHandler = (_, length) =>
+            {
+                var value = Interlocked.Increment(ref readCount);
+                if (value <= 2)
+                {
+                    throw new InvalidOperationException($"前 2 次模拟失败（第 {value} 次）");
+                }
+
+                var values = new bool[length];
+                values[5] = true;
+                return values;
+            };
+
+            var heartbeatLost = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            service.ConnectionStateChanged += (_, e) =>
+            {
+                if (e.State == PlcConnectionState.HeartbeatLost)
+                {
+                    heartbeatLost.TrySetResult(e);
+                }
+            };
+
             await service.StartAsync();
 
-            // 连接成功后应自动开始连续读取（多轮轮询）
+            // 恢复成功且推送物料（下标 5 = 抽屉 5 有料），期间不应触发心跳丢失
+            var events = new List<DrawerMaterialsChangedEventArgs>();
+            var eventsLock = new object();
+            service.DrawerMaterialsChanged += (_, e) =>
+            {
+                lock (eventsLock)
+                {
+                    events.Add(e);
+                }
+            };
+
             await WaitUntilAsync(() =>
             {
-                lock (transport.BitReads)
+                lock (eventsLock)
                 {
-                    return transport.BitReads.Count >= 3;
+                    return events.Count > 0 && events[^1].Values[5];
                 }
             });
 
-            List<(string Address, ushort Length)> bitReads;
-            lock (transport.BitReads)
-            {
-                bitReads = new List<(string, ushort)>(transport.BitReads);
-            }
-
-            Assert.All(bitReads, r =>
-            {
-                Assert.Equal(MaterialAddress, r.Address);
-                Assert.Equal(MaterialLength, r.Length);
-            });
+            Assert.False(heartbeatLost.Task.IsCompleted, "连续失败未达阈值且已恢复，不应判心跳丢失");
+            Assert.Equal(PlcConnectionState.Connected, service.State);
+            Assert.Equal(1, transport.ConnectCount);
 
             await service.StopAsync();
         }
@@ -267,7 +316,7 @@ namespace UiTopMachine.Tests
                 Assert.Equal(MaterialLength, events[1].Values.Count);
             }
 
-            // 再等若干轮轮询，确认无变化时不重复触发
+            // 再等若干轮，确认无变化时不重复触发
             await Task.Delay(200);
             lock (eventsLock)
             {
@@ -299,13 +348,7 @@ namespace UiTopMachine.Tests
             await service.StartAsync();
 
             // 跑若干轮后：仅首读推送 1 次，后续下标 0 变化不应触发
-            await WaitUntilAsync(() =>
-            {
-                lock (transport.BitReads)
-                {
-                    return transport.BitReads.Count >= 5;
-                }
-            });
+            await WaitUntilAsync(() => BitReadCount(transport) >= 5);
             await Task.Delay(100);
 
             Assert.Equal(1, eventCount);
@@ -314,119 +357,27 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
-        public async Task 物料读取失败_报错误状态并断开重连()
-        {
-            var transport = new FakePlcTransport { BitReadShouldFail = true };
-            var service = CreateService(transport);
-
-            var disconnected = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
-            service.ConnectionStateChanged += (_, e) =>
-            {
-                if (e.State == PlcConnectionState.Disconnected && e.Message.Contains("物料读取失败"))
-                {
-                    disconnected.TrySetResult(e);
-                }
-            };
-
-            await service.StartAsync();
-
-            // 首轮位读取即失败：应报"物料读取失败"错误并自动重连
-            var failure = await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Contains(MaterialAddress, failure.Message);
-
-            await WaitUntilAsync(() => transport.ConnectCount >= 2);
-            await WaitUntilAsync(() => service.State == PlcConnectionState.Connected);
-
-            await service.StopAsync();
-        }
-
-        [Fact]
-        public async Task PlcHeartbeatStall_RaisesHeartbeatLost_AndReconnects()
-        {
-            var transport = new FakePlcTransport { PlcEchoesHeartbeat = false, StaleHeartbeatValue = 0 };
-            var service = CreateService(transport, monitorPlcAlive: true); // 双向心跳：开启 PLC 侧存活监测
-
-            var heartbeatLost = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
-            service.ConnectionStateChanged += (_, e) =>
-            {
-                if (e.State == PlcConnectionState.HeartbeatLost)
-                {
-                    heartbeatLost.TrySetResult(e);
-                }
-            };
-
-            await service.StartAsync();
-
-            // PLC 侧寄存器停滞：应触发 HeartbeatLost 事件并自动断开重连
-            var lost = await heartbeatLost.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Contains(ReadAddress, lost.Message);
-
-            // 双向模式确实在读寄存器上监测
-            lock (transport.Reads)
-            {
-                Assert.Contains(ReadAddress, transport.Reads);
-            }
-
-            await WaitUntilAsync(() => transport.ConnectCount >= 2);
-            await WaitUntilAsync(() => service.State == PlcConnectionState.Connected);
-
-            await service.StopAsync();
-        }
-
-        [Fact]
-        public async Task 单向心跳_只写不读_PLC停滞不判丢失()
-        {
-            var transport = new FakePlcTransport { PlcEchoesHeartbeat = false, StaleHeartbeatValue = 0 };
-            var service = CreateService(transport, monitorPlcAlive: false); // 单向：默认，取消双向
-
-            var heartbeatLost = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
-            service.ConnectionStateChanged += (_, e) =>
-            {
-                if (e.State == PlcConnectionState.HeartbeatLost)
-                {
-                    heartbeatLost.TrySetResult(e);
-                }
-            };
-
-            await service.StartAsync();
-
-            // PLC 侧寄存器停滞也不应触发 HeartbeatLost：连接持续保持
-            await WaitUntilAsync(() => WriteCount(transport) >= 8);
-            Assert.False(heartbeatLost.Task.IsCompleted, "单向心跳不应判 PLC 心跳丢失");
-            Assert.Equal(PlcConnectionState.Connected, service.State);
-            Assert.Equal(1, transport.ConnectCount);
-
-            // 不读读心跳寄存器（只写 D100）
-            lock (transport.Reads)
-            {
-                Assert.DoesNotContain(ReadAddress, transport.Reads);
-            }
-
-            await service.StopAsync();
-        }
-
-        [Fact]
-        public async Task StopHeartbeatAsync_StopsWrites_ButKeepsConnection()
+        public async Task StopHeartbeatAsync_StopsReads_ButKeepsConnection()
         {
             var transport = new FakePlcTransport();
             var service = CreateService(transport);
 
             await service.StartAsync();
-            await WaitUntilAsync(() => WriteCount(transport) >= 3);
+            await WaitUntilAsync(() => BitReadCount(transport) >= 3);
 
             var stopResult = await service.StopHeartbeatAsync();
             Assert.True(stopResult.Success);
             Assert.Equal(PlcConnectionState.Connected, service.State);
 
-            // 心跳关闭后不再写寄存器（StopHeartbeatAsync 已等待心跳任务退出，此处计数应冻结）
-            var frozenCount = WriteCount(transport);
+            // 心跳关闭后不再读寄存器（StopHeartbeatAsync 已等待心跳任务退出，此处计数应冻结）
+            var frozenCount = BitReadCount(transport);
             await Task.Delay(300);
-            Assert.Equal(frozenCount, WriteCount(transport));
+            Assert.Equal(frozenCount, BitReadCount(transport));
 
-            // 手动重启心跳恢复写入
+            // 手动重启心跳恢复读取
             var restartResult = await service.StartHeartbeatAsync();
             Assert.True(restartResult.Success);
-            await WaitUntilAsync(() => WriteCount(transport) > frozenCount);
+            await WaitUntilAsync(() => BitReadCount(transport) > frozenCount);
 
             await service.StopAsync();
         }
@@ -438,17 +389,17 @@ namespace UiTopMachine.Tests
             var service = CreateService(transport);
 
             await service.StartAsync();
-            await WaitUntilAsync(() => WriteCount(transport) >= 3);
+            await WaitUntilAsync(() => BitReadCount(transport) >= 3);
 
             await service.StopAsync();
 
             Assert.Equal(1, transport.CloseCount);
             Assert.Equal(PlcConnectionState.Disconnected, service.State);
 
-            // 停止后心跳写入冻结
-            var frozenCount = WriteCount(transport);
+            // 停止后心跳读取冻结
+            var frozenCount = BitReadCount(transport);
             await Task.Delay(300);
-            Assert.Equal(frozenCount, WriteCount(transport));
+            Assert.Equal(frozenCount, BitReadCount(transport));
         }
 
         [Fact]
@@ -460,7 +411,7 @@ namespace UiTopMachine.Tests
             await service.StartAsync();
             await service.StartAsync(); // 重复调用应被忽略
 
-            await WaitUntilAsync(() => WriteCount(transport) >= 3);
+            await WaitUntilAsync(() => BitReadCount(transport) >= 3);
 
             // 若存在两个连接循环，会各自发起连接，ConnectCount 将大于 1
             Assert.Equal(1, transport.ConnectCount);
@@ -486,8 +437,8 @@ namespace UiTopMachine.Tests
             var transport = new FakePlcTransport();
             var service = CreateService(transport);
 
-            var readResult = await service.ReadRegisterAsync("200");
-            var writeResult = await service.WriteRegisterAsync("200", 5);
+            var readResult = await service.ReadRegisterAsync("D200");
+            var writeResult = await service.WriteRegisterAsync("D200", 5);
 
             Assert.False(readResult.Success);
             Assert.False(writeResult.Success);
