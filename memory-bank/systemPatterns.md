@@ -59,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；142 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护/线程调度守护/Mock默认态/输入框编辑权限/配方分组）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；152 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护/线程调度守护/Mock默认态/输入框编辑权限/配方分组/图像检测服务与VM）
 └── memory-bank\           # 项目记忆文档
 ```
 

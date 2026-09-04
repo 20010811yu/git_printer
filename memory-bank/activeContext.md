@@ -2,6 +2,10 @@
 
 ## 当前工作焦点
 
+**仿参考程序编写图像页（v1.20）✅ 已完成（待人工查看图像页效果）** —— 用户需求：「仿照form.txt文件，编写图像页面」。参照其视觉流程：方案加载（Form1_Shown 删旧 sol→复制→VmSolution.Load）→ 加载成功回调（nStatus==0 → _vmConnected）→ 定时采集运行（Timer→SyncRun）→ 结果图渲染（vmRenderControl1.ModuleSource）→ 退出停止。**落地方式（服务抽象 + Mock）**：`IImageInspectionService`（IsSolutionLoaded/SolutionLoaded 事件/LoadSolutionAsync/RunInspectionAsync/Shutdown）+ Mock 实现（GDI+ 生成 640×480 模拟检测图、检测框+十字线+OK绿/NG红+随机缺陷圈、~20% NG、1s 间隔）——真机 VisionMaster SDK（本地 dll 依赖）就绪后仅替换实现；`ImagePageViewModel` 重写（自动加载/单次检测/连续启停/OK·NG 计数/CurrentImage 替换释放旧图，_uiContext 调度——ERR-023 修复后模式）；`ImagePage` 重写（方案状态+PictureBox 结果区+OK/NG 角标+统计+控制按钮；Load → InitializeAsync 自动加载；Disposed → Shutdown）；**AsyncRelayCommand 增补 ExecuteAsync**（可等待版，异常上抛不弹窗，供测试/编程调用）。测试：ImageInspectionServiceTests 5 + ImagePageViewModelTests 5（Immediate 上下文环境）；dotnet test **152/152 PASS**、构建 **0 警告 0 错误**；程序已重启。**下一步：人工切换图像页确认效果**（加载方案→单次/连续检测看模拟图）；真机 VisionMaster 接入时替换 IImageInspectionService 实现
+
+### 上一焦点（v1.19 已完成的背景）
+
 **抽屉配方分组数据层（v1.19）✅ 已完成** —— 用户需求：「对已有配方的抽屉进行分组，分组依据为配方类型；同组内编号按填入先后顺序；编号不重复；同抽屉多次写入只保留最后一次配方」。确认决策：**仅数据层**（不显示）、发送按钮暂不改（分组供后续按组下发 PLC）。落地：
 - **Models/RecipeGroupModel**：`RecipeName`（Trim 后配方值）+ `DrawerIndexes`（填入顺序，编号不重复）
 - **MainViewModel**：`_recipeSequences`（编号→次序，重写即刷新）+ `RecipeGroups` 派生属性——有配方（Trim 非空）抽屉 GroupBy 配方值；组内次序升序=填入顺序；组间组内最小次序=形成顺序；空白=无配方移出
@@ -120,6 +124,7 @@
 | 2026-09-04 | 托盘默认无料无配方（v1.17） | 新增 MockDrawerServiceTests 2 用例（初始 18 托盘全无料无配方含编号 1~18 / StartMonitoring 空操作不推送）；运行截图验证托盘默认灰、PLC 真实有料位正常联动黄色 | ✅ 130/130 PASS |
 | 2026-09-04 | 输入框编辑权限联动（v1.18） | 新增 4 用例（有料可编辑/无料只读 Theory、HasMaterial 变化通知 IsInputReadOnly、启动默认灰+只读锁定）；运行截图+无障碍树实证黄=可编辑灰=只读 | ✅ 134/134 PASS |
 | 2026-09-04 | 抽屉配方分组数据层（v1.19） | 新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序/多组按形成顺序/改写配方旧组失去新组末尾/重写同配方 Leave 刷新排组尾/清空移出+重填视为新填入/空白不分组/Trim 同组/编号不重复）；启动冒烟正常 | ✅ 142/142 PASS |
+| 2026-09-04 | 图像页编写（v1.20） | 新增 ImageInspectionServiceTests 5 用例（未加载拒绝/加载成功幂等+事件/空路径失败/检测返回结果图与序号/Shutdown 拒绝）+ ImagePageViewModelTests 5 用例（自动加载翻转状态/单次检测计数/连续启停产生结果/未加载命令不可用/Shutdown 取消循环） | ✅ 152/152 PASS |
 
 ## 当前处理中的错误
 
@@ -134,6 +139,13 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.20 ✅ **仿参考程序编写图像页**（用户需求：仿照 Form.txt 编写图像页面）：
+    - **服务抽象 + Mock**：IImageInspectionService/ImageInspectionService（方案加载/检测运行/GDI+ 模拟图）；ImageInspectionResult 模型
+    - **ImagePageViewModel 重写**：加载方案/单次检测/连续检测（启停+1s 周期）/OK·NG 计数/结果图管理（替换释放旧图）；_uiContext 调度
+    - **ImagePage 重写**：方案状态+加载按钮 / PictureBox 结果区+结论角标 / 单次·连续·停止按钮+统计；Load 自动加载、Disposed 停机
+    - **AsyncRelayCommand 增补 ExecuteAsync**（可等待、异常上抛）
+    - **测试**：新增 10 用例；**152/152 PASS、0 警告 0 错误**
 
 1.19 ✅ **抽屉配方分组数据层**（用户需求：按配方类型分组/组内按填入顺序/编号不重复/同抽屉多次写入保留最后一次；确认仅数据层、发送按钮暂不改）：
     - **Models/RecipeGroupModel**：RecipeName + DrawerIndexes（填入顺序）

@@ -55,6 +55,8 @@ namespace UiTopMachine
             services.AddSingleton<IRecipeFileService, RecipeFileService>();
             // ZPL 打印服务（打印页走 Spooler RAW 连接打印机名 "zpl"，TCP 直连 192.168.1.200:9100 为备用通道；流水号持久化 D:\Printer\Data\SerialNumber.txt）
             services.AddSingleton<IPrintService, ZplPrinterService>();
+            // 图像视觉检测服务（Mock：GDI+ 生成模拟检测图；真机接入海康 VisionMaster SDK 后替换实现类即可，图像页无需改动）
+            services.AddSingleton<IImageInspectionService, ImageInspectionService>();
             // PLC 传输层（InovanceTcpNet 走 Modbus TCP 502 站号 1，长连接；可切标准 ModbusTcpNet；IP 当前为本地调试 127.0.0.1，真机改 192.168.1.88）
             services.AddSingleton<IPlcTransport>(new HslModbusTransport("127.0.0.1", 502, 1, useInovance: true));
             // PLC 通讯服务（后台自动连接 + 心跳：心跳与抽屉物料合一——周期读 M1000×19，读成功即通讯正常并驱动抽屉，连续 3 次读失败判心跳丢失并重连）

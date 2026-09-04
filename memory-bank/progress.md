@@ -2,7 +2,18 @@
 
 ## ✅ 已完成功能
 
-### 抽屉配方分组数据层（2026-09-04）⭐ 最新
+### 图像页编写（2026-09-04）⭐ 最新
+
+- [x] **需求（v1.20）**：仿照参考程序（D:\OneDrive\桌面\Form.txt）的视觉流程编写图像页：方案加载 → 加载成功回调 → 采集运行 → 结果图渲染 → 连续轮询 → 退出停止
+- [x] **服务抽象 + Mock**：`IImageInspectionService`（IsSolutionLoaded/SolutionLoaded 事件/LoadSolutionAsync/RunInspectionAsync/Shutdown）+ Mock 实现（GDI+ 生成 640×480 模拟检测图：检测框+十字线+OK绿/NG红大字+NG 随机缺陷圈，约 20% NG）；真机 VisionMaster SDK 就绪后仅替换实现类
+- [x] **ImagePageViewModel 重写**：自动加载方案 / 单次检测 / 连续检测启停（1s 周期、CancellationTokenSource 取消）/ OK·NG·总数统计 / CurrentImage 替换释放旧图；全部后台结果经构造捕获的 _uiContext 调度（ERR-023 修复后模式）
+- [x] **ImagePage 重写**：左侧 PictureBox 结果图（Zoom 深色底）+ OK/NG 结论角标；右侧加载方案/单次检测/开始连续/停止连续按钮 + 统计文本；Load 自动加载方案、Disposed 停止连续检测
+- [x] **基础设施**：`AsyncRelayCommand` 增补 `ExecuteAsync` 可等待版本（异常上抛不弹窗，测试/编程调用用）
+- [x] **测试**：新增 10 用例（ImageInspectionServiceTests 5：未加载拒绝/加载成功幂等+事件/空路径失败/检测结果图序号/Shutdown 拒绝；ImagePageViewModelTests 5：自动加载/单次计数/连续启停/未加载命令不可用/停机取消）
+- [x] 验证：dotnet test **152/152 PASS** + dotnet build **0 警告 0 错误**；程序已重启待人工查看图像页效果
+- [x] Memory Bank 同步更新（activeContext/progress/projectbrief/systemPatterns）
+
+### 抽屉配方分组数据层（2026-09-04）
 
 - [x] **需求（v1.19）**：有配方的抽屉按配方类型分组；同组内编号按填入先后顺序（非编号大小）；所有编号不重复；同抽屉多次写入配方只保留最后一次。用户确认：**仅数据层**（界面不显示）、发送按钮暂不改
 - [x] **实现（派生数据，语义同参考 list/merList 但不维护独立列表）**：`Models/RecipeGroupModel`（RecipeName + DrawerIndexes）；MainViewModel `_recipeSequences`（编号→填入次序，重写即刷新）+ `RecipeGroups` 派生属性（Trim 后配方值分组；组内次序升序；组间组内最小次序=形成顺序；空白=无配方移出）
@@ -280,7 +291,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **142 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
+单元测试 **152 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
 
 ## ⚠️ 已知问题
 

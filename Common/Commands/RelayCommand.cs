@@ -130,6 +130,25 @@ namespace UiTopMachine.Common.Commands
         }
 
         /// <summary>
+        /// 异步执行命令（可等待版本，IsBusy 管理与 Execute 一致；异常直接上抛不弹窗，
+        /// 供单元测试与编程式调用使用）
+        /// </summary>
+        public async Task ExecuteAsync(object? parameter)
+        {
+            _isExecuting = true;
+            RaiseCanExecuteChanged();
+            try
+            {
+                await _execute(parameter);
+            }
+            finally
+            {
+                _isExecuting = false;
+                RaiseCanExecuteChanged();
+            }
+        }
+
+        /// <summary>
         /// 通知命令状态变化（触发事件 + 刷新绑定控件启用态）
         /// </summary>
         public void RaiseCanExecuteChanged()
