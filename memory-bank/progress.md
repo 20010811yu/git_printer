@@ -2,7 +2,16 @@
 
 ## ✅ 已完成功能
 
-### 抽屉输入框编辑权限联动（2026-09-04）⭐ 最新
+### 抽屉配方分组数据层（2026-09-04）⭐ 最新
+
+- [x] **需求（v1.19）**：有配方的抽屉按配方类型分组；同组内编号按填入先后顺序（非编号大小）；所有编号不重复；同抽屉多次写入配方只保留最后一次。用户确认：**仅数据层**（界面不显示）、发送按钮暂不改
+- [x] **实现（派生数据，语义同参考 list/merList 但不维护独立列表）**：`Models/RecipeGroupModel`（RecipeName + DrawerIndexes）；MainViewModel `_recipeSequences`（编号→填入次序，重写即刷新）+ `RecipeGroups` 派生属性（Trim 后配方值分组；组内次序升序；组间组内最小次序=形成顺序；空白=无配方移出）
+- [x] **重复写入相同配方**：INPC 值未变不触发通知 → 新增 `RefreshRecipeSequence(编号)` 公共方法，FeedDrawersPage 输入框 **Leave 事件**调用（对应参考程序 textBox_Leave→AddToList，重复写入同配方也按最后一次写入计序）
+- [x] **测试**：新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序 / 多组按形成顺序 / 改写配方旧组失去新组末尾 / 重写同配方 Leave 刷新排组尾 / 清空移出+重填视为新填入 / 空白不分组 / Trim 同组 / 编号不重复）
+- [x] 验证：dotnet test **142/142 PASS** + dotnet build **0 警告 0 错误**；启动冒烟正常（界面无变化，按用户确认仅数据层）
+- [x] Memory Bank 同步更新（activeContext/systemPatterns/progress/projectbrief）
+
+### 抽屉输入框编辑权限联动（2026-09-04）
 
 - [x] **需求（v1.18）**：① 每次启动抽屉默认灰色、不保留上次运行结果；② 抽屉无配方且黄色（有料）→ 输入框 ReadOnly=false 可录入配方，灰色（无料）→ ReadOnly=true 只读
 - [x] **实现**：`DrawerItemViewModel.IsInputReadOnly => !HasMaterial`（HasMaterial 变化即通知，与参考程序 `ReadOnly = !currentValue[i]` 一致；绿色有料亦为可编辑）；`FeedDrawersPage` 输入框加 `TextBox.ReadOnly` 单向绑定，PLC 物料推送实时切换编辑权限
@@ -271,7 +280,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **134 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
+单元测试 **142 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
 
 ## ⚠️ 已知问题
 

@@ -256,6 +256,9 @@ namespace UiTopMachine.Views.Pages
                 // 编辑权限：无料（灰）只读、有料（黄/绿）可编辑，随 PLC 物料推送联动
                 cell.RecipeBox.DataBindings.Add(nameof(TextBox.ReadOnly), vm,
                     nameof(DrawerItemViewModel.IsInputReadOnly), false, DataSourceUpdateMode.Never);
+
+                // 配方填写完成（焦点离开）→ 刷新分组次序（重复写入同一配方也按最后一次写入计序，仿参考 textBox_Leave）
+                cell.RecipeBox.Leave += (_, _) => _viewModel.RefreshRecipeSequence(vm.Index);
             }
         }
     }

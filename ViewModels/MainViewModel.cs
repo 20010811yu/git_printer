@@ -98,6 +98,25 @@ namespace UiTopMachine.ViewModels
             private set => SetProperty(ref _plcStatusLevel, value);
         }
 
+        private IReadOnlyList<RecipeGroupModel> _recipeGroups = new List<RecipeGroupModel>();
+
+        /// <summary>
+        /// 抽屉配方分组（派生数据）：有配方（Trim 后非空）的抽屉按配方值分组，
+        /// 组内编号按填入先后顺序，组间按分组形成顺序；同抽屉多次写入只保留最后一次
+        /// （供后续「按分组下发 PLC」使用，语义同参考程序 merList）
+        /// </summary>
+        public IReadOnlyList<RecipeGroupModel> RecipeGroups
+        {
+            get => _recipeGroups;
+            private set => SetProperty(ref _recipeGroups, value);
+        }
+
+        /// <summary>抽屉编号 → 配方填入次序号（重写配方即更新次序，实现"最后一次写入生效"）</summary>
+        private readonly Dictionary<int, int> _recipeSequences = new();
+
+        /// <summary>配方填入次序计数器（单调递增）</summary>
+        private int _recipeSequenceCounter;
+
         /// <summary>就绪（绿）抽屉数</summary>
         public int ReadyCount => Drawers.Count(d => d.Status == DrawerStatus.Ready);
 
@@ -155,7 +174,9 @@ namespace UiTopMachine.ViewModels
                 Drawers.Clear();
                 foreach (var model in result.Data)
                 {
-                    Drawers.Add(new DrawerItemViewModel(model.Index, model.HasMaterial, model.Recipe, _logService));
+                    var drawer = new DrawerItemViewModel(model.Index, model.HasMaterial, model.Recipe, _logService);
+                    drawer.PropertyChanged += OnDrawerPropertyChanged; // 监听配方输入，维护分组
+                    Drawers.Add(drawer);
                 }
 
                 RefreshStatistics();
@@ -310,6 +331,75 @@ namespace UiTopMachine.ViewModels
 
                 RefreshStatistics();
             }, null);
+        }
+
+        /// <summary>
+        /// 抽屉属性变化处理：配方输入（用户在输入框填写）→ 更新填入次序并重算分组；
+        /// 其余属性（物料/状态）由各自链路处理，这里统一刷新统计
+        /// </summary>
+        private void OnDrawerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (sender is not DrawerItemViewModel drawer)
+            {
+                return;
+            }
+
+            if (e.PropertyName == nameof(DrawerItemViewModel.Recipe))
+            {
+                RefreshRecipeSequence(drawer.Index);
+            }
+
+            RefreshStatistics();
+        }
+
+        /// <summary>
+        /// 刷新指定抽屉的配方填入次序并重算分组（对应参考程序 textBox_Leave → AddToList）：
+        /// 配方非空 → 记录/刷新次序（重写即刷新，重复写入同一配方也排到组尾）；
+        /// 配方为空/空白 → 移出分组（次序记录删除，重新填写视为新填入）。
+        /// View 在输入框焦点离开（Leave）时调用，保证"重复写入相同配方"也按最后一次写入计序
+        /// </summary>
+        public void RefreshRecipeSequence(int drawerIndex)
+        {
+            var drawer = Drawers.FirstOrDefault(d => d.Index == drawerIndex);
+            if (drawer is null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(drawer.Recipe))
+            {
+                _recipeSequences.Remove(drawerIndex);
+            }
+            else
+            {
+                _recipeSequences[drawerIndex] = ++_recipeSequenceCounter;
+            }
+
+            RecomputeRecipeGroups();
+        }
+
+        /// <summary>
+        /// 重算配方分组（派生数据，与抽屉当前配方恒一致）：
+        /// 有配方（Trim 后非空）的抽屉按配方值分组；组内按填入次序升序（=填入先后顺序）；
+        /// 组间按组内最小次序升序（=分组形成顺序）
+        /// </summary>
+        private void RecomputeRecipeGroups()
+        {
+            RecipeGroups = Drawers
+                .Where(d => !string.IsNullOrWhiteSpace(d.Recipe) && _recipeSequences.ContainsKey(d.Index))
+                .GroupBy(d => d.Recipe.Trim())
+                .Select(g => new
+                {
+                    Recipe = g.Key,
+                    Ordered = g.OrderBy(d => _recipeSequences[d.Index]).ToList()
+                })
+                .OrderBy(x => x.Ordered.Min(d => _recipeSequences[d.Index]))
+                .Select(x => new RecipeGroupModel
+                {
+                    RecipeName = x.Recipe,
+                    DrawerIndexes = x.Ordered.Select(d => d.Index).ToList()
+                })
+                .ToList();
         }
 
         /// <summary>

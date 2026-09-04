@@ -2,7 +2,14 @@
 
 ## 当前工作焦点
 
-**抽屉输入框编辑权限联动 + 启动默认灰锁定（v1.18）✅ 已完成** —— 用户需求：①「每次启动都让抽屉设置成默认灰色状态，不对上次的运行结果进行保留」②「抽屉无配方且黄色 → 对应输入框 ReadOnly=false；灰色 → ReadOnly=true」。落地：
+**抽屉配方分组数据层（v1.19）✅ 已完成** —— 用户需求：「对已有配方的抽屉进行分组，分组依据为配方类型；同组内编号按填入先后顺序；编号不重复；同抽屉多次写入只保留最后一次配方」。确认决策：**仅数据层**（不显示）、发送按钮暂不改（分组供后续按组下发 PLC）。落地：
+- **Models/RecipeGroupModel**：`RecipeName`（Trim 后配方值）+ `DrawerIndexes`（填入顺序，编号不重复）
+- **MainViewModel**：`_recipeSequences`（编号→次序，重写即刷新）+ `RecipeGroups` 派生属性——有配方（Trim 非空）抽屉 GroupBy 配方值；组内次序升序=填入顺序；组间组内最小次序=形成顺序；空白=无配方移出
+- **重复写入相同配方**：INPC 值未变不触发通知 → 新增 `RefreshRecipeSequence(编号)` 公共方法，FeedDrawersPage 输入框 **Leave 事件**调用（与参考 textBox_Leave→AddToList 对应，重复写入同配方也按最后一次计序）；配方值变化走 PropertyChanged 自动重算
+- **测试**：新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序/多组按形成顺序/改写配方旧组失去新组末尾/重写同配方 Leave 刷新排组尾/清空移出+重填视为新填入/空白不分组/Trim 同组）；dotnet test **142/142 PASS**、构建 **0 警告 0 错误**；启动冒烟正常
+- **下一步：真机联调**（不变）；分组数据待后续「按分组下发 PLC」需求启用
+
+### 上一焦点（v1.18 已完成的背景）
 - **启动默认灰**：抽屉配方本就无持久化（Mock 内存 + VM 内存，每次启动重建），v1.17 默认无料无配方 → 启动即全灰；本次加测试锁定（`初始抽屉_默认无料无配方_输入框只读`）
 - **编辑权限联动（仿参考 ReadOnly = !hasMaterial）**：`DrawerItemViewModel.IsInputReadOnly => !HasMaterial`（有料黄/绿可编辑、无料灰只读），HasMaterial setter 通知该属性；`FeedDrawersPage` 输入框加 `TextBox.ReadOnly` 单向绑定 → PLC 物料推送实时切换编辑权限
 - **测试**：新增 4 用例（有料可编辑/无料只读 Theory、HasMaterial 变化通知 IsInputReadOnly、启动默认灰+只读锁定）；dotnet test **134/134 PASS**、构建 **0 警告 0 错误**；运行截图+无障碍树实证（黄=可编辑、灰=只读）
@@ -112,6 +119,7 @@
 | 2026-09-04 | UI 状态不更新修复（v1.16，ERR-023） | 新增守护用例"后台线程触发PLC事件_状态行仍更新"（new Thread 无上下文触发 + Current null 前置断言）；运行截图实证状态行绿色已连接、消息流恢复、抽屉联动 | ✅ 128/128 PASS |
 | 2026-09-04 | 托盘默认无料无配方（v1.17） | 新增 MockDrawerServiceTests 2 用例（初始 18 托盘全无料无配方含编号 1~18 / StartMonitoring 空操作不推送）；运行截图验证托盘默认灰、PLC 真实有料位正常联动黄色 | ✅ 130/130 PASS |
 | 2026-09-04 | 输入框编辑权限联动（v1.18） | 新增 4 用例（有料可编辑/无料只读 Theory、HasMaterial 变化通知 IsInputReadOnly、启动默认灰+只读锁定）；运行截图+无障碍树实证黄=可编辑灰=只读 | ✅ 134/134 PASS |
+| 2026-09-04 | 抽屉配方分组数据层（v1.19） | 新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序/多组按形成顺序/改写配方旧组失去新组末尾/重写同配方 Leave 刷新排组尾/清空移出+重填视为新填入/空白不分组/Trim 同组/编号不重复）；启动冒烟正常 | ✅ 142/142 PASS |
 
 ## 当前处理中的错误
 
@@ -126,6 +134,11 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.19 ✅ **抽屉配方分组数据层**（用户需求：按配方类型分组/组内按填入顺序/编号不重复/同抽屉多次写入保留最后一次；确认仅数据层、发送按钮暂不改）：
+    - **Models/RecipeGroupModel**：RecipeName + DrawerIndexes（填入顺序）
+    - **MainViewModel**：`_recipeSequences` 次序字典 + `RecipeGroups` 派生属性 + `RefreshRecipeSequence`（Leave 刷新，重复写入同配方也计最后一次）+ 抽屉 Recipe PropertyChanged 自动重算
+    - **测试**：新增 8 用例；**142/142 PASS、0 警告 0 错误**；启动冒烟正常
 
 1.18 ✅ **抽屉输入框编辑权限联动 + 启动默认灰锁定**（用户需求：启动默认灰不保留上次结果；黄色无配方可编辑/灰色只读）：
     - **DrawerItemViewModel**：`IsInputReadOnly => !HasMaterial`（仿参考 `ReadOnly = !currentValue[i]`），HasMaterial setter 通知；**FeedDrawersPage** 输入框加 ReadOnly 单向绑定（PLC 物料推送实时切换）
