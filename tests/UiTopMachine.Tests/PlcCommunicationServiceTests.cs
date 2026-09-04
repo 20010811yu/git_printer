@@ -110,9 +110,9 @@ namespace UiTopMachine.Tests
     /// </summary>
     public class PlcCommunicationServiceTests
     {
-        /// <summary>缩短等待的心跳参数（覆盖构造默认值）</summary>
-        private const string WriteAddress = "100";
-        private const string ReadAddress = "101";
+        /// <summary>缩短等待的心跳参数（覆盖构造默认值；地址格式与生产一致为汇川软元件格式）</summary>
+        private const string WriteAddress = "D100";
+        private const string ReadAddress = "D101";
         private const int HeartbeatPeriodMs = 20;
         private const int MaxMissedCycles = 2;
         private const int ReconnectDelayMs = 20;

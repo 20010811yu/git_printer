@@ -8,7 +8,10 @@ namespace UiTopMachine.Communications.Plc
     /// 基于 HslCommunication 的 Modbus TCP 传输实现：
     /// 默认实例化 InovanceTcpNet（汇川协议，继承自 ModbusTcpNet），可切换为标准 ModbusTcpNet。
     /// 连接/收发超时 3 秒；V12 版本默认长连接，无需再设置 SetPersistentConnection（已过时）；
-    /// Hsl 的 OperateResult 在此层转换为返回值或异常，OperateResult/客户端实例不外泄到上层
+    /// Hsl 的 OperateResult 在此层转换为返回值或异常，OperateResult/客户端实例不外泄到上层。
+    /// ⚠️ 地址格式由所选协议类决定，原样透传不转换（ERR-022）：
+    /// InovanceTcpNet 要求汇川软元件格式——位地址 "M1000"，字地址 "D100"/"R100"，纯数字无法解析；
+    /// 标准 ModbusTcpNet 用纯数字——线圈 "1000"，保持寄存器 "100"
     /// </summary>
     public class HslModbusTransport : IPlcTransport
     {
@@ -26,8 +29,10 @@ namespace UiTopMachine.Communications.Plc
         /// <param name="useInovance">true=InovanceTcpNet（汇川），false=标准 ModbusTcpNet</param>
         public HslModbusTransport(string ipAddress = "127.0.0.1", int port = 502, byte station = 1, bool useInovance = true)
         {
+            // InovanceTcpNet 必须显式指定系列（默认 AM 系列不支持 D 字地址，ERR-022 实证）：
+            // H5U 系列——位地址 M/B/S/X/Y（如 "M1000"→线圈 1000），字地址 D/R（如 "D100"→寄存器 100）
             _plc = useInovance
-                ? new InovanceTcpNet(ipAddress, port, station)
+                ? new InovanceTcpNet(InovanceSeries.H5U, ipAddress, port, station)
                 : new ModbusTcpNet(ipAddress, port, station);
             _plc.ConnectTimeOut = ConnectTimeoutMs;
             _plc.ReceiveTimeOut = ReceiveTimeoutMs;
@@ -58,30 +63,13 @@ namespace UiTopMachine.Communications.Plc
         /// <inheritdoc />
         public async Task<bool[]> ReadBoolsAsync(string address, ushort length)
         {
-            var result = await _plc.ReadBoolAsync(ResolveBitAddress(address), length);
+            var result = await _plc.ReadBoolAsync(address, length);
             if (!result.IsSuccess)
             {
                 throw new InvalidOperationException($"PLC 读取位地址 {address} 失败：{result.Message}");
             }
 
             return result.Content;
-        }
-
-        /// <summary>
-        /// 位地址解析：Modbus 侧不识别软元件名前缀，汇川 H5U 系列 M 区与 Modbus 线圈同址，
-        /// 故 "M1000" 剥离 M 前缀按线圈地址 "1000" 读取（真机联调若该系列 M 区存在偏移，调整传入地址即可）
-        /// </summary>
-        private static string ResolveBitAddress(string address)
-        {
-            var trimmed = address.Trim();
-            if (trimmed.Length > 1
-                && char.ToUpperInvariant(trimmed[0]) == 'M'
-                && ushort.TryParse(trimmed[1..], out _))
-            {
-                return trimmed[1..];
-            }
-
-            return trimmed;
         }
 
         /// <inheritdoc />

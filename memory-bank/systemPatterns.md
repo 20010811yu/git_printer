@@ -59,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；121 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；127 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -87,7 +87,9 @@ d:\GitRepo\
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
 - **工厂/策略模式** ⏳：预留（真实多协议通信接入时启用）
 - **PLC 传输抽象 + 双向心跳模式** ✅（v1.10）：`IPlcTransport` 屏蔽协议实现（InovanceTcpNet/ModbusTcpNet 可构造切换，OperateResult 不上抛），Service 依赖抽象可注入 Fake 测试；心跳 = 连接循环（自动连接/断线重连/幂等启动）+ 心跳循环（写寄存器递增证 PC 活 + 读寄存器监测变化证 PLC 活，停滞 N 周期判 HeartbeatLost 触发重连）；单条长连接 IO 经 `SemaphoreSlim(1,1)` 串行化；CancellationTokenSource 驱动循环启停（避开 Timer 歧义坑）
-- **PLC 物料轮询推送模式** ✅（v1.12）：连接成功后与心跳并列自动启动轮询循环（连续读 M1000 起 19 个 bool，`ResolveBitAddress` 剥离 M 前缀按线圈读）；与上次快照按抽屉位（下标 1 起，下标 0 非抽屉位不参与）比对，**仅变化时触发 DrawerMaterialsChanged（首读即推送用真值覆盖初始状态）**；读失败 → 断开重连（报一条对接错误，不刷屏）；**断开重连前必须 StopCyclesAsync 取消并等待心跳/物料任务退出**（防旧任务重连后报失败造成误断开）；VM 侧订阅事件批量更新抽屉（UpdateFromModel 只同步物料、配方保留用户输入），PLC 为物料唯一真值源（Mock 随机监控停用）
+- **PLC 物料轮询推送模式** ✅（v1.12）：连接成功后与心跳并列自动启动轮询循环（连续读 M1000 起 19 个 bool）；与上次快照按抽屉位（下标 1 起，下标 0 非抽屉位不参与）比对，**仅变化时触发 DrawerMaterialsChanged（首读即推送用真值覆盖初始状态）**；读失败 → 断开重连（报一条对接错误，不刷屏）；**断开重连前必须 StopCyclesAsync 取消并等待心跳/物料任务退出**（防旧任务重连后报失败造成误断开）；VM 侧订阅事件批量更新抽屉（UpdateFromModel 只同步物料、配方保留用户输入），PLC 为物料唯一真值源（Mock 随机监控停用）
+- **PLC 地址格式规则** ✅（v1.12b ERR-022 实证）：地址**原样透传不转换**——InovanceTcpNet 要求汇川软元件格式（位 "M1000"、字 "D100"，纯数字解析失败）且**必须显式指定 InovanceSeries.H5U**（默认 AM 系列不支持 D 字地址）；标准 ModbusTcpNet 才用纯数字。实证工具 = `TranslateToModbusAddress(address, functionCode)`（离线可测，HslModbusAddressTests 守护）
+- **双向心跳的 PLC 侧要求** ✅（v1.12b 实测确认）：读心跳寄存器 D101 必须**由 PLC 程序周期改变**（翻转/递增）才能证明 PLC 侧存活——本地被动模拟器不会动 D101，5 个周期后按设计判 HeartbeatLost 断开重连（这是正确行为，不是缺陷）；真机联调需 PLC 程序员配合此约定
 - **测试桩模式** ✅：StubLogService（内存记录日志供断言）/ StubPrintService（记录 ZPL、可控失败）/ 事件参数回填模拟 View 弹框（VM 测试零 UI 依赖）/ 临时目录 + IDisposable 每测试隔离
 - **配套测试模式** ✅：每次功能修改同步写/更新测试，用例名关联 ERR 编号（如 `ERR014_保存含末尾空行的表_重载后行数不变`），dotnet test 即自动回归全部历史修复
 - **Status 面板 PLC 专用过滤模式** ✅（v1.11）：面板 `Logs` 集合与文件日志双通道解耦——`ILogService.LogEmitted` 不再订阅（一般操作日志只落文件），面板仅由 `PlcConnectionStateChanged` 事件驱动（成功/错误直插，过程信息不入），VM 后台事件经 `SynchronizationContext.Post` 调度；测试用 `ImmediateSynchronizationContext`（Post 同步执行）替代 WinForms 消息泵断言面板内容

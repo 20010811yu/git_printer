@@ -193,6 +193,16 @@
 - **教训**：⚠️ **引入/升级第三方库大版本前，先以包内 XML 文档（`.nuget/packages/<pkg>/<ver>/lib/*/xxx.xml`）核对关键 API 签名与命名空间**，不能凭记忆或旧文档写代码；过时警告（CS0612）出现时查官方注释中的替代方案再动手
 - **状态**：🟢 已解决
 
+### ERR-022：InovanceTcpNet 地址格式假设错误（心跳写失败导致连接无限重连循环）
+- **错误现象**：程序连接 PLC（本机模拟器）TCP 握手成功，但每次连接约 0.5 秒后心跳丢失 → 断开 → 5 秒重连无限循环；日志报「PLC 写入寄存器 100 失败：输入的地址解析失败，可能是该地址格式不支持…」；v1.12 物料地址剥离 M 前缀同样错误
+- **发生上下文**：2026-09-04 v1.12 交付后运行程序检查连接状态时发现
+- **根本原因**：**三层地址假设全错**——① `InovanceTcpNet` 要求**汇川软元件格式**地址（位 "M1000"、字 "D100"），纯数字无法解析，v1.10 心跳地址 "100"/"101" 从一开始就解析不了；② 默认构造（AM 系列）**不支持 D 字地址**，必须显式 `new InovanceTcpNet(InovanceSeries.H5U, ...)`；③ v1.12 的 `ResolveBitAddress` 把 "M1000" 剥成 "1000" 与正确方向相反。单元测试未能发现：FakePlcTransport 不做地址解析（测试桩绕过生产路径，ERR-020 同类）
+- **解决方式**：① 删除 ResolveBitAddress，地址原样透传；② 心跳默认地址改 "D100"/"D101"；③ transport 显式指定 `InovanceSeries.H5U`；④ **实证工具**：`TranslateToModbusAddress(address, functionCode)` 离线可验证地址解析（不需要真机），固化为 `HslModbusAddressTests` 6 用例守护（H5U 翻译 M1000→1000/D100→100/D101→101、纯数字失败、默认系列 D 失败）；另用本机模拟器全链路实证（写 D101=567 回读 567、读 M1000×19）
+- **解决时间**：2026-09-04
+- **验证结果**：🟢 已解决——dotnet test **127/127 PASS**（含 6 个地址守护用例）；修复后程序连接模拟器心跳写读、物料读取全部正常收发
+- **教训**：⚠️ **协议类的地址格式必须离线实证（TranslateToModbusAddress 一行即可验证），不能按基类/文档印象假设**；「连接成功」不等于「通讯正常」——TCP 握手成功后首个读写才会暴露地址问题；涉及 SDK 行为的测试桩无法守护的路径，用 SDK 自身的离线 API 写守护测试
+- **状态**：🟢 已解决
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -221,6 +231,7 @@
 12. **AntdUI Table 索引基准** → `CellEndEdit`/`CellClick`/`CellFocused` 的 **RowIndex 均为含表头的 1 基内部 INDEX（ColumnIndex 为 0 基）**，传给 0 基数据源（DataTable）前必须减 1；`SelectedIndex` 亦为 1 基（恢复高亮 +1）；`CellEndEdit` 恒返回 false 阻止内部落值，VM 提交后 TableVersion++ 重建表格同步显示（ERR-017，两轮实证）
 13. **生产代码换实现通道** → 全局搜索测试桩中对应方法的桩逻辑并同步迁移（桩双通道行为不对称必须注释标明）；**交付硬门槛 = dotnet test 全绿**，只构建不测试的交付视为未验证（ERR-020）
 14. **第三方库大版本接入/升级** → 先以 NuGet 包内 XML 文档核对 API 签名、命名空间与过时标记（如 Hsl V12 默认长连接、InovanceTcpNet 迁至 Profinet 命名空间，ERR-021）
+15. **协议类地址格式** → 离线实证（`TranslateToModbusAddress`），不做前缀剥离等转换；InovanceTcpNet 用软元件格式且必须显式系列（H5U），ModbusTcpNet 用纯数字（ERR-022）
 
 ## 沉淀出口
 

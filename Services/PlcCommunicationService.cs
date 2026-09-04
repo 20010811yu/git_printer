@@ -64,12 +64,13 @@ namespace UiTopMachine.Services
         public PlcConnectionState State { get; private set; } = PlcConnectionState.Disconnected;
 
         /// <summary>
-        /// 构造：注入传输层与心跳/物料轮询参数（参数默认值可被测试覆盖以缩短等待）
+        /// 构造：注入传输层与心跳/物料轮询参数（参数默认值可被测试覆盖以缩短等待）。
+        /// 地址默认值按生产所用 InovanceTcpNet 的汇川软元件格式（字地址 D 区、位地址 M 区，ERR-022）
         /// </summary>
         public PlcCommunicationService(
             IPlcTransport transport,
-            string writeAddress = "100",
-            string readAddress = "101",
+            string writeAddress = "D100",
+            string readAddress = "D101",
             int heartbeatPeriodMs = 1000,
             int maxMissedCycles = 5,
             int reconnectDelayMs = 5000,

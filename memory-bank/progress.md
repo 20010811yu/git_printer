@@ -2,7 +2,17 @@
 
 ## ✅ 已完成功能
 
-### PLC 连续读取 M1000 物料数组驱动 18 抽屉（2026-09-04）⭐ 最新
+### PLC 地址格式修复 + 连接实证（2026-09-04）⭐ 最新
+
+- [x] **问题（v1.12b/ERR-022）**：运行程序检查连接状态发现无限循环——TCP 连上 → 0.5 秒心跳丢失 → 断开 → 5 秒重连；日志报「写入寄存器 100 失败：输入的地址解析失败」
+- [x] **根因**：InovanceTcpNet 要求汇川软元件格式地址（位 "M1000"/字 "D100"，纯数字解析失败）；默认构造（AM 系列）不支持 D 字地址，必须显式 `InovanceSeries.H5U`；v1.12 的 ResolveBitAddress 剥 M 前缀方向相反
+- [x] **修复**：删除 ResolveBitAddress（地址原样透传）；心跳默认地址 "D100"/"D101"；transport 显式 `InovanceSeries.H5U`
+- [x] **实证**：`TranslateToModbusAddress` 离线地址翻译固化为 HslModbusAddressTests 6 守护用例；本机模拟器（127.0.0.1:502）全链路通过——连接/写 D101=567 回读 567/读 M1000×19 返回 19 位；修复后程序日志地址解析错误消失
+- [x] **确认行为**：双向心跳第二向要求 PLC 侧周期变化 D101，被动模拟器不动 → 5 周期按设计判 HeartbeatLost 重连（真机需 PLC 程序员配合约定）
+- [x] 验证：dotnet test **127/127 PASS** + dotnet build **0 警告 0 错误**
+- [x] Memory Bank 同步更新（errorlog ERR-022 + 防回归清单 #15 + activeContext/systemPatterns/progress/projectbrief）
+
+### PLC 连续读取 M1000 物料数组驱动 18 抽屉（2026-09-04）
 
 - [x] **需求（v1.12）**：从 M1000 起连续读 19 个 bool，数组下标 1~18 对应抽屉 1~18（下标 0 不使用），true=有料 / false=无料，连续一直读取
 - [x] **传输层**：`IPlcTransport`/`HslModbusTransport` 加 `ReadBoolsAsync(address, length)`——HSL `ReadBoolAsync(address, length)` 批量线圈读；`ResolveBitAddress` 剥离 "M" 前缀（Modbus 不识别软元件名，汇川 H5U M 区与线圈同址；真机若有偏移调整传入地址）
@@ -206,7 +216,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **121 用例全绿**（dotnet test）。
+单元测试 **127 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
 
 ## ⚠️ 已知问题
 

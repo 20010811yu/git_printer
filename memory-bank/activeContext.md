@@ -2,13 +2,23 @@
 
 ## 当前工作焦点
 
-**PLC 连续读取 M1000 物料数组驱动 18 抽屉（v1.12）✅ 已完成（待真机验证）** —— 用户需求：「增加plc读取方法，从起始地址为M1000连续读取一个19位长度bool类型的数组，从数组元素位置1开始，每个位置分别与抽屉编号相对应，数组数值代表着抽屉是否有料，true为有料，false为无料状态，读取方式为连续一直读取」。落地：
-- **传输层**：`IPlcTransport`/`HslModbusTransport` 加 `ReadBoolsAsync(address, length)` 批量位读（HSL `ReadBoolAsync(string, ushort)` 批量重载已核实存在，走线圈功能码）；**M 地址映射**：Modbus 侧不识别软元件名前缀，`ResolveBitAddress` 将 "M1000" 剥离 M 前缀按线圈 "1000" 读取（汇川 H5U M 区与线圈同址；真机若有偏移调整传入地址即可）
+**PLC 地址格式修复 + 连接实证（v1.12b）✅ 已完成** —— 用户要求「检查运行程序当前plc的连接状态」后发现连接失败循环，确认修复。根因与修复（ERR-022）：
+- **根因（三层地址假设全错）**：① InovanceTcpNet 要求汇川软元件格式（位 "M1000"/字 "D100"），纯数字解析失败——v1.10 心跳地址 "100"/"101" 从未真正可用；② 默认构造（AM 系列）不支持 D 字地址，必须显式 `InovanceSeries.H5U`；③ v1.12 的 ResolveBitAddress 剥 M 前缀方向相反
+- **修复**：删 ResolveBitAddress 地址原样透传；心跳默认地址 "D100"/"D101"；transport 显式 `InovanceSeries.H5U`；**离线实证工具 `TranslateToModbusAddress` 固化为 HslModbusAddressTests 6 守护用例**
+- **全链路实证（本机模拟器 127.0.0.1:502）**：连接 ✓、写 D101=567 回读 567 ✓、读 M1000×19 返回 19 位 ✓；修复后程序日志不再有地址解析失败
+- **实测确认的行为**：双向心跳第二向——D101 需 **PLC 侧程序周期改变**才证明存活，被动模拟器不动 D101 → 5 周期后按设计判 HeartbeatLost 断开重连（真机联调需 PLC 程序员配合 D101 周期变化约定；若暂不需要 PLC 侧存活监测可调整）
+- dotnet test **127/127 PASS**（121 + 地址守护 6）、构建 **0 警告 0 错误**
+- **下一步：真机联调**（IP 改回 192.168.1.88——当前 Program.cs 为本地调试的 127.0.0.1；与 PLC 程序员核对 D100 写心跳/D101 读心跳/M1000~M1018 物料约定；Hsl 授权风险观察）
+
+### 上一焦点（v1.12 已完成的背景）
+
+**PLC 连续读取 M1000 物料数组驱动 18 抽屉（v1.12）✅ 已完成** —— 用户需求：「增加plc读取方法，从起始地址为M1000连续读取一个19位长度bool类型的数组，从数组元素位置1开始，每个位置分别与抽屉编号相对应，数组数值代表着抽屉是否有料，true为有料，false为无料状态，读取方式为连续一直读取」。落地：
+- **传输层**：`IPlcTransport`/`HslModbusTransport` 加 `ReadBoolsAsync(address, length)` 批量位读（HSL `ReadBoolAsync(string, ushort)` 批量重载已核实存在，走线圈功能码）；~~M 地址映射~~（v1.12b 修正：地址原样透传，见 ERR-022）
 - **服务层**：`IPlcCommunicationService` 加 `DrawerMaterialsChanged` 事件（`Values[i]`=抽屉 i，**仅抽屉位有变化时触发，首读即推送**用 PLC 真值覆盖初始状态；下标 0 非抽屉位不参与变化判定）+ 构造参数 `materialAddress="M1000"`/`materialLength=19`/`materialPollPeriodMs=1000`；连接成功后与心跳并列自动启动轮询（SemaphoreSlim 串行化）；读失败 → 报"抽屉物料读取失败（M1000）"错误并断开重连（面板按 v1.11 语义出一条对接错误）
 - **顺带修复（v1.10 隐患）**：断开重连前 `StopCyclesAsync()` 显式取消并等待心跳/物料任务退出——原实现旧任务在重连后才失败会把 `_heartbeatFailed` 置位造成误断开
 - **UI**：MainViewModel 订阅物料事件 → Post 内 i=1..18 构造 `DrawerModel{Index=i,HasMaterial=Values[i]}` 复用 OnDrawerChanged（UpdateFromModel 只同步物料、配方保留用户输入）+ 统一 RefreshStatistics；**InitializeAsync 移除 `_drawerService.StartMonitoring()`**（Mock 随机翻转与 PLC 真值打架）
 - **测试**：FakePlcTransport 加 BitReads 记录/BitReadShouldFail/BitReadHandler 可编程桩；新增 4 个服务用例（自动连续读取地址长度断言/变化触发且下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 个 VM 用例（物料推送更新抽屉、配方保留、汇总正确）；dotnet test **121/121 PASS**、构建 **0 警告 0 错误**
-- **下一步：真机联调**（心跳寄存器 100/101 + 物料位区 M1000~M1018 约定核对；Hsl 授权风险观察）
+- **下一步：真机联调**（心跳寄存器 D100/D101 + 物料位区 M1000~M1018 约定核对；Hsl 授权风险观察）
 
 ### 上一焦点（v1.11 已完成的背景）
 
@@ -47,6 +57,7 @@
 | 2026-09-04 | PLC 连接+双向心跳（v1.10） | 新增 PlcCommunicationServiceTests 7 用例（FakePlcTransport 桩：自动连接+心跳递增/PLC 停滞触发 HeartbeatLost+重连/手动停止心跳连接保持+手动重启/StopAsync 断连冻结/StartAsync 幂等/未连接启心跳拒绝/未连接读写拒绝）；顺手修 1 个既有 xUnit2013 警告（ERR-021 记录 Hsl V12 API 变化） | ✅ 110/110 PASS |
 | 2026-09-04 | Status 面板改 PLC 专用（v1.11） | 新增 MainViewModelPlcPanelTests 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext：一般日志不进面板/连接成功进面板成功级/失败与心跳丢失进面板错误级/连接中不进面板/混合日志面板仅 PLC 文件全留痕/Initialize 启动 Shutdown 停止） | ✅ 116/116 PASS |
 | 2026-09-04 | PLC 连续读取 M1000 物料数组（v1.12） | 新增 4 服务用例（FakePlcTransport 位读桩：自动连续读取 M1000×19 断言/变化触发事件下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 VM 用例（物料推送更新抽屉 HasMaterial、配方保留、三态汇总正确） | ✅ 121/121 PASS |
+| 2026-09-04 | PLC 地址格式修复（v1.12b，ERR-022） | 新增 HslModbusAddressTests 6 守护用例（离线实证 TranslateToModbusAddress：H5U 翻译 M1000→1000/D100→100/D101→101 各功能码/纯数字失败/默认系列 D 失败必须显式 H5U）；本机模拟器全链路实证（D100/D101 写读、M1000×19）；更新服务测试地址常量为 D100/D101 | ✅ 127/127 PASS |
 
 ## 当前处理中的错误
 
@@ -61,6 +72,12 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.12b ✅ **PLC 地址格式修复 + 连接实证（ERR-022）**（用户要求检查运行程序连接状态 → 发现连接失败循环）：
+    - **修复**：删 ResolveBitAddress（地址原样透传）；心跳默认地址 "D100"/"D101"；transport 显式 `InovanceSeries.H5U`（默认 AM 系列不支持 D 字地址）
+    - **实证**：TranslateToModbusAddress 离线固化为 6 个守护用例；本机模拟器全链路（写 D101 回读、读 M1000×19）通过；修复后程序日志地址解析错误消失
+    - **确认行为**：被动模拟器不动 D101 → 5 周期判 HeartbeatLost 重连（设计行为；真机需 PLC 侧周期变化 D101）
+    - **测试**：**127/127 PASS、构建 0 警告 0 错误**
 
 1.12 ✅ **PLC 连续读取 M1000 物料数组驱动 18 抽屉**（用户需求：M1000 起 19 个 bool、下标 1~18 对应抽屉、true=有料、连续一直读取）：
     - **传输层**：IPlcTransport/HslModbusTransport 加 `ReadBoolsAsync`（HSL `ReadBoolAsync(address, length)` 批量线圈读）；`ResolveBitAddress` 剥离 "M" 前缀按线圈地址读取

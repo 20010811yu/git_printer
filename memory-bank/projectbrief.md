@@ -42,7 +42,7 @@
   - ✅ 打印服务：IPrintService/ZplPrinterService（Socket/句柄私有封装，全 async）
   - ✅ PLC 通讯基础设施（v1.10）：IPlcTransport 抽象 + HslModbusTransport（HslCommunication，InovanceTcpNet 192.168.1.88:502 站号1）+ PlcCommunicationService（后台自动连接/断线重连 + 双向心跳自动启停 + 手动心跳控制，状态入 Status 列表；待真机联调）
   - ✅ DI 组装（Microsoft.Extensions.DependencyInjection）+ Mock 模拟服务 + errorlog.md 错误归档机制
-   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，121 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
+   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，127 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
   - ✅ PLC 抽屉物料接入（v1.12）：连续读取 M1000 起 19 个 bool（下标 1~18 对应抽屉，true=有料），变化推送驱动抽屉状态灯；PLC 为物料唯一真值源（Mock 随机监控停用）
   - ⏳ 待办：IDrawerService 真实 PLC 版替换 Mock（配方下发等）、图像页真实服务接入
   

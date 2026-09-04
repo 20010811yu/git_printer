@@ -45,7 +45,7 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 5. **UI 线程**：硬件 IO 全 async/await；后台事件禁止直接操作绑定控件
 6. **AntdUI Table 事件语义**：`CellFocused` 鼠标单击不触发（键盘焦点用），跟踪鼠标选中必须订阅 `CellClick`（详 ERR-012）；第三方事件勿望文生义，先反射实证。**索引基准（二轮运行时实证，ERR-017）**：`CellEndEdit`/`CellClick`/`CellFocused` 的 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头，首条数据行=1），**ColumnIndex 为 0 基**；`SelectedIndex` 亦为 1 基——传 0 基数据源（DataTable）前行必须减 1，恢复高亮反向 +1；编辑与删除链路共用此换算
 7. **ClosedXML 空行语义**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端整行全空时首列空格占位 + 读端 `LastRowUsed().RowNumber()` 行号循环逐行装载」，不要依赖 RowsUsed 枚举（详 ERR-014）
-8. **HslCommunication 大版本 API**：引入/升级前以包内 XML 文档核对签名与命名空间（`.nuget/packages/hslcommunication/<ver>/lib/*/HslCommunication.xml`）；过时 API 查注释中的替代方案（详 ERR-021）
+8. **HslCommunication 大版本 API**：引入/升级前以包内 XML 文档核对签名与命名空间（`.nuget/packages/hslcommunication/<ver>/lib/*/HslCommunication.xml`）；过时 API 查注释中的替代方案（详 ERR-021）。**协议地址格式必须离线实证**：`TranslateToModbusAddress(address, functionCode)` 一行验证（InovanceTcpNet 需软元件格式 + 显式系列，详 ERR-022）
 
 ## 依赖清单
 
