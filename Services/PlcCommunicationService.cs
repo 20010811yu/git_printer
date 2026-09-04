@@ -27,6 +27,9 @@ namespace UiTopMachine.Services
         private readonly int _heartbeatPeriodMs;
         private readonly int _maxMissedCycles;
         private readonly int _reconnectDelayMs;
+        private readonly string _materialAddress;
+        private readonly ushort _materialLength;
+        private readonly int _materialPollPeriodMs;
 
         /// <summary>Modbus IO 串行化锁：心跳与业务读写共用一条长连接，必须排队（防回归清单 #3 精神）</summary>
         private readonly SemaphoreSlim _ioSemaphore = new(1, 1);
@@ -35,6 +38,8 @@ namespace UiTopMachine.Services
         private Task? _runTask;
         private Task? _heartbeatTask;
         private CancellationTokenSource? _heartbeatCts;
+        private Task? _materialTask;
+        private CancellationTokenSource? _materialCts;
 
         /// <summary>心跳期望状态（手动关闭后置 false，连接循环不再拉起）</summary>
         private volatile bool _heartbeatRequested;
@@ -44,14 +49,22 @@ namespace UiTopMachine.Services
 
         private string _heartbeatFailureMessage = string.Empty;
 
+        /// <summary>物料轮询异常结束标志（读失败，由连接循环消费并触发重连）</summary>
+        private volatile bool _materialFailed;
+
+        private string _materialFailureMessage = string.Empty;
+
         /// <inheritdoc />
         public event EventHandler<PlcConnectionEventArgs>? ConnectionStateChanged;
+
+        /// <inheritdoc />
+        public event EventHandler<DrawerMaterialsChangedEventArgs>? DrawerMaterialsChanged;
 
         /// <inheritdoc />
         public PlcConnectionState State { get; private set; } = PlcConnectionState.Disconnected;
 
         /// <summary>
-        /// 构造：注入传输层与心跳参数（参数默认值可被测试覆盖以缩短等待）
+        /// 构造：注入传输层与心跳/物料轮询参数（参数默认值可被测试覆盖以缩短等待）
         /// </summary>
         public PlcCommunicationService(
             IPlcTransport transport,
@@ -59,7 +72,10 @@ namespace UiTopMachine.Services
             string readAddress = "101",
             int heartbeatPeriodMs = 1000,
             int maxMissedCycles = 5,
-            int reconnectDelayMs = 5000)
+            int reconnectDelayMs = 5000,
+            string materialAddress = "M1000",
+            ushort materialLength = 19,
+            int materialPollPeriodMs = 1000)
         {
             _transport = transport ?? throw new ArgumentNullException(nameof(transport));
             _writeAddress = writeAddress;
@@ -67,6 +83,9 @@ namespace UiTopMachine.Services
             _heartbeatPeriodMs = heartbeatPeriodMs;
             _maxMissedCycles = maxMissedCycles;
             _reconnectDelayMs = reconnectDelayMs;
+            _materialAddress = materialAddress;
+            _materialLength = materialLength;
+            _materialPollPeriodMs = materialPollPeriodMs;
         }
 
         /// <inheritdoc />
@@ -87,7 +106,7 @@ namespace UiTopMachine.Services
         {
             _heartbeatRequested = false;
             _serviceCts?.Cancel();
-            _heartbeatCts?.Cancel();
+            await StopCyclesAsync();
 
             if (_runTask is not null)
             {
@@ -102,7 +121,6 @@ namespace UiTopMachine.Services
             }
 
             _runTask = null;
-            _heartbeatTask = null;
 
             await _transport.CloseAsync();
             SetState(PlcConnectionState.Disconnected, "PLC 服务已停止：心跳已关闭，连接已断开");
@@ -230,11 +248,26 @@ namespace UiTopMachine.Services
 
                 while (!token.IsCancellationRequested)
                 {
-                    // 心跳异常结束（PLC 停滞/通讯异常）→ 断开重连
-                    if (_heartbeatFailed)
+                    // 心跳/物料轮询异常结束（PLC 停滞/通讯异常）→ 断开重连
+                    if (_heartbeatFailed || _materialFailed)
                     {
+                        var isHeartbeatLost = _heartbeatFailed;
+                        var reason = isHeartbeatLost ? _heartbeatFailureMessage : _materialFailureMessage;
+
+                        // 先取消并等待心跳/物料任务退出，防止旧任务在重连后报失败造成误断开
+                        await StopCyclesAsync();
                         _heartbeatFailed = false;
-                        SetState(PlcConnectionState.HeartbeatLost, $"PLC 心跳丢失：{_heartbeatFailureMessage}，即将断开重连");
+                        _materialFailed = false;
+
+                        if (isHeartbeatLost)
+                        {
+                            SetState(PlcConnectionState.HeartbeatLost, $"PLC 心跳丢失：{reason}，即将断开重连");
+                        }
+                        else
+                        {
+                            SetState(PlcConnectionState.Disconnected, $"PLC 抽屉物料读取失败（{_materialAddress}）：{reason}，即将断开重连");
+                        }
+
                         await _transport.CloseAsync();
                         if (!await SafeDelayAsync(_reconnectDelayMs, token))
                         {
@@ -250,6 +283,12 @@ namespace UiTopMachine.Services
                         StartHeartbeatCore();
                     }
 
+                    // 物料轮询未运行 → 拉起（连续一直读取）
+                    if (_materialTask is null || _materialTask.IsCompleted)
+                    {
+                        StartMaterialPollCore();
+                    }
+
                     await SafeDelayAsync(LoopPollIntervalMs, token);
                 }
             }
@@ -262,6 +301,130 @@ namespace UiTopMachine.Services
         {
             _heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(_serviceCts?.Token ?? CancellationToken.None);
             _heartbeatTask = Task.Run(() => HeartbeatLoopAsync(_heartbeatCts.Token));
+        }
+
+        /// <summary>
+        /// 拉起物料轮询循环（连接保持段内调用，保证同一时刻至多一个轮询任务）
+        /// </summary>
+        private void StartMaterialPollCore()
+        {
+            _materialCts = CancellationTokenSource.CreateLinkedTokenSource(_serviceCts?.Token ?? CancellationToken.None);
+            _materialTask = Task.Run(() => MaterialPollLoopAsync(_materialCts.Token));
+        }
+
+        /// <summary>
+        /// 取消并等待心跳/物料循环退出（断开重连与服务停止时调用），清空任务引用防旧任务误报
+        /// </summary>
+        private async Task StopCyclesAsync()
+        {
+            _heartbeatCts?.Cancel();
+            _materialCts?.Cancel();
+
+            foreach (var task in new[] { _heartbeatTask, _materialTask })
+            {
+                if (task is null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await task;
+                }
+                catch
+                {
+                    // 取消过程中的收发超时异常不影响关闭
+                }
+            }
+
+            _heartbeatTask = null;
+            _materialTask = null;
+            _heartbeatCts = null;
+            _materialCts = null;
+        }
+
+        /// <summary>
+        /// 抽屉物料轮询循环：连续读取物料位区（M1000 起 19 个 bool，下标 0 不使用，1~18 对应抽屉 1~18），
+        /// 与上次快照按抽屉位比对，有变化才触发事件；首读即推送（用 PLC 真值覆盖初始状态）；
+        /// 读取异常时置失败标志退出（由连接循环处理断开重连）
+        /// </summary>
+        private async Task MaterialPollLoopAsync(CancellationToken token)
+        {
+            bool[]? last = null;
+
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    bool[] values;
+                    await _ioSemaphore.WaitAsync(token);
+                    try
+                    {
+                        values = await _transport.ReadBoolsAsync(_materialAddress, _materialLength);
+                    }
+                    finally
+                    {
+                        _ioSemaphore.Release();
+                    }
+
+                    if (last is null || HasDrawerChange(last, values))
+                    {
+                        RaiseMaterialsChanged(values);
+                    }
+
+                    last = values;
+
+                    if (!await SafeDelayAsync(_materialPollPeriodMs, token))
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 断开重连或服务停止，正常退出
+            }
+            catch (Exception ex)
+            {
+                _materialFailureMessage = ex.Message;
+                _materialFailed = true;
+            }
+        }
+
+        /// <summary>
+        /// 比较两轮物料快照是否在抽屉位（下标 1 起）上有差异；下标 0 非抽屉位，不参与判定
+        /// </summary>
+        private static bool HasDrawerChange(bool[] previous, bool[] current)
+        {
+            if (previous.Length != current.Length)
+            {
+                return true;
+            }
+
+            for (int i = 1; i < current.Length; i++)
+            {
+                if (previous[i] != current[i])
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 触发抽屉物料变化事件（后台线程触发，订阅方负责调度 UI 线程；订阅方异常不影响轮询）
+        /// </summary>
+        private void RaiseMaterialsChanged(bool[] values)
+        {
+            try
+            {
+                DrawerMaterialsChanged?.Invoke(this, new DrawerMaterialsChangedEventArgs { Values = values });
+            }
+            catch
+            {
+                // 事件订阅方异常不中断轮询循环
+            }
         }
 
         /// <summary>

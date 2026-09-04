@@ -17,6 +17,11 @@ namespace UiTopMachine.Communications.Plc
         Task<short> ReadShortAsync(string address);
 
         /// <summary>
+        /// 从起始地址连续读取一段位（bool 数组，失败抛出异常）
+        /// </summary>
+        Task<bool[]> ReadBoolsAsync(string address, ushort length);
+
+        /// <summary>
         /// 写入保持寄存器（16 位有符号整数，失败抛出异常）
         /// </summary>
         Task WriteShortAsync(string address, short value);

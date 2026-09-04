@@ -101,11 +101,14 @@ namespace UiTopMachine.ViewModels
             SendCommand = new AsyncRelayCommand(_ => SendAllRecipesAsync(), _ => !IsBusy);
             ExitCommand = new RelayCommand(_ => ExitApplication());
 
-            // 订阅抽屉状态变化推送
+            // 订阅抽屉状态变化推送（Mock 服务已不再启动随机监控，PLC 物料为真值源，订阅保留兼容）
             _drawerService.DrawerChanged += OnDrawerChanged;
 
             // 面板（Status 列表）只显示 PLC 对接信息：一般操作日志仅经 LogService 落文件，不再订阅 LogEmitted 进入 Logs
             _plcService.ConnectionStateChanged += OnPlcConnectionStateChanged;
+
+            // 订阅 PLC 抽屉物料推送（PLC 为有料状态唯一真值源，驱动抽屉状态灯）
+            _plcService.DrawerMaterialsChanged += OnDrawerMaterialsChanged;
 
             _logService.Info("系统初始化完成，正在读取抽屉状态…");
         }
@@ -132,9 +135,8 @@ namespace UiTopMachine.ViewModels
                 _logService.Error(result.ErrorMessage ?? "加载抽屉状态失败");
             }
 
-            _drawerService.StartMonitoring();
-
-            // 启动 PLC 后台自动连接（连接成功后心跳自动启动，状态经事件写入日志列表）
+            // 启动 PLC 后台自动连接（连接成功后心跳与抽屉物料轮询自动启动）
+            // 注：不再调用 Mock 的 StartMonitoring——PLC 物料轮询为有料状态唯一真值源，避免随机模拟与真值互相覆盖
             await _plcService.StartAsync();
         }
 
@@ -244,6 +246,26 @@ namespace UiTopMachine.ViewModels
         {
             _logService.Info("用户点击退出，应用即将关闭…");
             Application.Exit();
+        }
+
+        /// <summary>
+        /// PLC 抽屉物料推送处理（后台线程事件 → 调度到 UI 线程）：
+        /// 数组下标 1~18 对应抽屉 1~18（下标 0 不使用），复用抽屉更新逻辑（只同步物料、配方保留用户输入），
+        /// 批量更新后统一刷新统计
+        /// </summary>
+        private void OnDrawerMaterialsChanged(object? sender, DrawerMaterialsChangedEventArgs e)
+        {
+            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            context.Post(_ =>
+            {
+                for (int i = 1; i < e.Values.Count; i++)
+                {
+                    var drawer = Drawers.FirstOrDefault(d => d.Index == i);
+                    drawer?.UpdateFromModel(new DrawerModel { Index = i, HasMaterial = e.Values[i] });
+                }
+
+                RefreshStatistics();
+            }, null);
         }
 
         /// <summary>

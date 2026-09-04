@@ -41,6 +41,15 @@ namespace UiTopMachine.Tests
         /// <summary>读取记录（地址）</summary>
         public List<string> Reads { get; } = new();
 
+        /// <summary>位读取记录（地址, 长度）</summary>
+        public List<(string Address, ushort Length)> BitReads { get; } = new();
+
+        /// <summary>置 true 时 ReadBoolsAsync 抛异常（模拟位读取失败）</summary>
+        public bool BitReadShouldFail { get; set; }
+
+        /// <summary>位读取可编程返回（参数：地址, 长度；默认返回全 false 数组）</summary>
+        public Func<string, ushort, bool[]>? BitReadHandler { get; set; }
+
         public Task ConnectAsync()
         {
             if (ConnectShouldFail)
@@ -73,6 +82,22 @@ namespace UiTopMachine.Tests
             return Task.CompletedTask;
         }
 
+        public Task<bool[]> ReadBoolsAsync(string address, ushort length)
+        {
+            lock (_lock)
+            {
+                BitReads.Add((address, length));
+                if (BitReadShouldFail)
+                {
+                    throw new InvalidOperationException("模拟位读取失败");
+                }
+
+                return Task.FromResult(BitReadHandler is not null
+                    ? BitReadHandler(address, length)
+                    : new bool[length]);
+            }
+        }
+
         public Task CloseAsync()
         {
             Interlocked.Increment(ref _closeCount);
@@ -91,9 +116,13 @@ namespace UiTopMachine.Tests
         private const int HeartbeatPeriodMs = 20;
         private const int MaxMissedCycles = 2;
         private const int ReconnectDelayMs = 20;
+        private const string MaterialAddress = "M1000";
+        private const ushort MaterialLength = 19;
+        private const int MaterialPollPeriodMs = 20;
 
         private static PlcCommunicationService CreateService(FakePlcTransport transport) =>
-            new(transport, WriteAddress, ReadAddress, HeartbeatPeriodMs, MaxMissedCycles, ReconnectDelayMs);
+            new(transport, WriteAddress, ReadAddress, HeartbeatPeriodMs, MaxMissedCycles, ReconnectDelayMs,
+                MaterialAddress, MaterialLength, MaterialPollPeriodMs);
 
         private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
         {
@@ -151,6 +180,159 @@ namespace UiTopMachine.Tests
             {
                 Assert.Contains(ReadAddress, transport.Reads);
             }
+
+            await service.StopAsync();
+        }
+
+        [Fact]
+        public async Task 连接后_自动连续读取物料位区_地址与长度正确()
+        {
+            var transport = new FakePlcTransport();
+            var service = CreateService(transport);
+
+            await service.StartAsync();
+
+            // 连接成功后应自动开始连续读取（多轮轮询）
+            await WaitUntilAsync(() =>
+            {
+                lock (transport.BitReads)
+                {
+                    return transport.BitReads.Count >= 3;
+                }
+            });
+
+            List<(string Address, ushort Length)> bitReads;
+            lock (transport.BitReads)
+            {
+                bitReads = new List<(string, ushort)>(transport.BitReads);
+            }
+
+            Assert.All(bitReads, r =>
+            {
+                Assert.Equal(MaterialAddress, r.Address);
+                Assert.Equal(MaterialLength, r.Length);
+            });
+
+            await service.StopAsync();
+        }
+
+        [Fact]
+        public async Task 物料数组变化_触发事件且下标对应抽屉_无变化不重复触发()
+        {
+            var transport = new FakePlcTransport();
+            var service = CreateService(transport);
+
+            // 编程位读取：第 1 轮全 false；第 2 轮起下标 3 = true；之后恒定
+            int readCount = 0;
+            transport.BitReadHandler = (_, length) =>
+            {
+                var value = Interlocked.Increment(ref readCount);
+                var values = new bool[length];
+                if (value >= 2)
+                {
+                    values[3] = true;
+                }
+
+                return values;
+            };
+
+            var events = new List<DrawerMaterialsChangedEventArgs>();
+            var eventsLock = new object();
+            service.DrawerMaterialsChanged += (_, e) =>
+            {
+                lock (eventsLock)
+                {
+                    events.Add(e);
+                }
+            };
+
+            await service.StartAsync();
+
+            // 期望：轮 1 首读推送基线；轮 2 下标 3 变化推送；之后无变化不再推送
+            await WaitUntilAsync(() =>
+            {
+                lock (eventsLock)
+                {
+                    return events.Count >= 2;
+                }
+            });
+
+            lock (eventsLock)
+            {
+                Assert.False(events[0].Values[3]); // 首读基线：下标 3 为 false
+                Assert.True(events[1].Values[3]);  // 变化后：下标 3 为 true（对应抽屉 3 有料）
+                Assert.Equal(MaterialLength, events[1].Values.Count);
+            }
+
+            // 再等若干轮轮询，确认无变化时不重复触发
+            await Task.Delay(200);
+            lock (eventsLock)
+            {
+                Assert.Equal(2, events.Count);
+            }
+
+            await service.StopAsync();
+        }
+
+        [Fact]
+        public async Task 物料下标0变化_不触发事件()
+        {
+            var transport = new FakePlcTransport();
+            var service = CreateService(transport);
+
+            // 下标 0 非抽屉位：每轮强制翻转，抽屉位恒 false
+            int bitReadCount = 0;
+            transport.BitReadHandler = (_, length) =>
+            {
+                var value = Interlocked.Increment(ref bitReadCount);
+                var values = new bool[length];
+                values[0] = value % 2 == 0;
+                return values;
+            };
+
+            var eventCount = 0;
+            service.DrawerMaterialsChanged += (_, _) => Interlocked.Increment(ref eventCount);
+
+            await service.StartAsync();
+
+            // 跑若干轮后：仅首读推送 1 次，后续下标 0 变化不应触发
+            await WaitUntilAsync(() =>
+            {
+                lock (transport.BitReads)
+                {
+                    return transport.BitReads.Count >= 5;
+                }
+            });
+            await Task.Delay(100);
+
+            Assert.Equal(1, eventCount);
+
+            await service.StopAsync();
+        }
+
+        [Fact]
+        public async Task 物料读取失败_报错误状态并断开重连()
+        {
+            var transport = new FakePlcTransport { BitReadShouldFail = true };
+            var service = CreateService(transport);
+
+            var disconnected = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            service.ConnectionStateChanged += (_, e) =>
+            {
+                if (e.State == PlcConnectionState.Disconnected && e.Message.Contains("物料读取失败"))
+                {
+                    disconnected.TrySetResult(e);
+                }
+            };
+
+            await service.StartAsync();
+
+            // 首轮位读取即失败：应报"物料读取失败"错误并自动重连
+            var failure = await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Contains(MaterialAddress, failure.Message);
+
+            await WaitUntilAsync(() => transport.ConnectCount >= 2);
+            await WaitUntilAsync(() => service.State == PlcConnectionState.Connected);
 
             await service.StopAsync();
         }

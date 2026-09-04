@@ -2,6 +2,16 @@
 
 ## 当前工作焦点
 
+**PLC 连续读取 M1000 物料数组驱动 18 抽屉（v1.12）✅ 已完成（待真机验证）** —— 用户需求：「增加plc读取方法，从起始地址为M1000连续读取一个19位长度bool类型的数组，从数组元素位置1开始，每个位置分别与抽屉编号相对应，数组数值代表着抽屉是否有料，true为有料，false为无料状态，读取方式为连续一直读取」。落地：
+- **传输层**：`IPlcTransport`/`HslModbusTransport` 加 `ReadBoolsAsync(address, length)` 批量位读（HSL `ReadBoolAsync(string, ushort)` 批量重载已核实存在，走线圈功能码）；**M 地址映射**：Modbus 侧不识别软元件名前缀，`ResolveBitAddress` 将 "M1000" 剥离 M 前缀按线圈 "1000" 读取（汇川 H5U M 区与线圈同址；真机若有偏移调整传入地址即可）
+- **服务层**：`IPlcCommunicationService` 加 `DrawerMaterialsChanged` 事件（`Values[i]`=抽屉 i，**仅抽屉位有变化时触发，首读即推送**用 PLC 真值覆盖初始状态；下标 0 非抽屉位不参与变化判定）+ 构造参数 `materialAddress="M1000"`/`materialLength=19`/`materialPollPeriodMs=1000`；连接成功后与心跳并列自动启动轮询（SemaphoreSlim 串行化）；读失败 → 报"抽屉物料读取失败（M1000）"错误并断开重连（面板按 v1.11 语义出一条对接错误）
+- **顺带修复（v1.10 隐患）**：断开重连前 `StopCyclesAsync()` 显式取消并等待心跳/物料任务退出——原实现旧任务在重连后才失败会把 `_heartbeatFailed` 置位造成误断开
+- **UI**：MainViewModel 订阅物料事件 → Post 内 i=1..18 构造 `DrawerModel{Index=i,HasMaterial=Values[i]}` 复用 OnDrawerChanged（UpdateFromModel 只同步物料、配方保留用户输入）+ 统一 RefreshStatistics；**InitializeAsync 移除 `_drawerService.StartMonitoring()`**（Mock 随机翻转与 PLC 真值打架）
+- **测试**：FakePlcTransport 加 BitReads 记录/BitReadShouldFail/BitReadHandler 可编程桩；新增 4 个服务用例（自动连续读取地址长度断言/变化触发且下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 个 VM 用例（物料推送更新抽屉、配方保留、汇总正确）；dotnet test **121/121 PASS**、构建 **0 警告 0 错误**
+- **下一步：真机联调**（心跳寄存器 100/101 + 物料位区 M1000~M1018 约定核对；Hsl 授权风险观察）
+
+### 上一焦点（v1.11 已完成的背景）
+
 **Status 列表面板改为 PLC 专用（v1.11）✅ 已完成** —— 用户需求：「修改listbox 的作用，不再存入系统操作信息，只存入与plc对接时的错误显示，以及连接成功的提示信息」。落地：
 - **MainViewModel**：取消订阅 `LogService.LogEmitted`（`OnLogEmitted` 删除）——一般系统操作日志（初始化/抽屉/配方/打印）仅经 LogService 落文件，不再进入 `Logs` 集合；抽屉 `DrawerChanged` 订阅保留
 - **面板新数据源**：`OnPlcConnectionStateChanged` 直接驱动 `AddPlcPanelEntry`——Connected=成功绿条、HeartbeatLost/Disconnected=错误红条（最新置顶、上限 200 条，经 SynchronizationContext.Post 调度）；Connecting「连接中…」过程信息只写文件不进面板
@@ -36,6 +46,7 @@
 | 2026-09-03 | 打印页自定义内容（v1.9） | 新增 3 用例（自定义内容每张打印流水号不变/纯空白回退流水号/自定义内容优先非法流水号不拦截）；修复 ERR-020（测试桩记录/失败注入随生产代码迁移至 Spooler 通道）+ 修 1 个历史 xUnit2013 警告 | ✅ 103/103 PASS |
 | 2026-09-04 | PLC 连接+双向心跳（v1.10） | 新增 PlcCommunicationServiceTests 7 用例（FakePlcTransport 桩：自动连接+心跳递增/PLC 停滞触发 HeartbeatLost+重连/手动停止心跳连接保持+手动重启/StopAsync 断连冻结/StartAsync 幂等/未连接启心跳拒绝/未连接读写拒绝）；顺手修 1 个既有 xUnit2013 警告（ERR-021 记录 Hsl V12 API 变化） | ✅ 110/110 PASS |
 | 2026-09-04 | Status 面板改 PLC 专用（v1.11） | 新增 MainViewModelPlcPanelTests 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext：一般日志不进面板/连接成功进面板成功级/失败与心跳丢失进面板错误级/连接中不进面板/混合日志面板仅 PLC 文件全留痕/Initialize 启动 Shutdown 停止） | ✅ 116/116 PASS |
+| 2026-09-04 | PLC 连续读取 M1000 物料数组（v1.12） | 新增 4 服务用例（FakePlcTransport 位读桩：自动连续读取 M1000×19 断言/变化触发事件下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 VM 用例（物料推送更新抽屉 HasMaterial、配方保留、三态汇总正确） | ✅ 121/121 PASS |
 
 ## 当前处理中的错误
 
@@ -50,6 +61,12 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.12 ✅ **PLC 连续读取 M1000 物料数组驱动 18 抽屉**（用户需求：M1000 起 19 个 bool、下标 1~18 对应抽屉、true=有料、连续一直读取）：
+    - **传输层**：IPlcTransport/HslModbusTransport 加 `ReadBoolsAsync`（HSL `ReadBoolAsync(address, length)` 批量线圈读）；`ResolveBitAddress` 剥离 "M" 前缀按线圈地址读取
+    - **服务层**：DrawerMaterialsChanged 事件（仅抽屉位变化触发、首读即推送）+ 物料轮询循环（连接成功自动启动、SemaphoreSlim 串行化、周期 1s 可配）；读失败断开重连；**顺带修复断开重连旧任务未取消的误断开隐患（StopCyclesAsync）**
+    - **UI**：MainViewModel 订阅物料事件批量更新 18 抽屉（配方保留用户输入）；**InitializeAsync 移除 Mock StartMonitoring（PLC 为物料唯一真值源）**
+    - **测试**：新增 5 用例；**121/121 PASS、构建 0 警告 0 错误**
 
 1.11 ✅ **Status 列表面板改为 PLC 专用**（用户需求：「修改listbox 的作用，不再存入系统操作信息，只存入与plc对接时的错误显示，以及连接成功的提示信息」）：
     - **MainViewModel**：取消订阅 `LogService.LogEmitted`（删除 `OnLogEmitted`）——一般操作日志仅落文件；`DrawerChanged` 订阅保留
@@ -167,7 +184,7 @@
 ## 下一步
 
 1. 打印/图像页接入真实服务（IPrintService / VisionCameraService，放 Services/）
-2. ~~用真实 PLC 通信实现替换 `MockDrawerService`（实现 `IDrawerService` 即可，建议 HslCommunication/S7NetPlus 放入 `Communications/`）~~ 部分落地：**v1.10 已建 PLC 通讯基础设施**（HslCommunication + InovanceTcpNet、IPlcTransport 抽象、IPlcCommunicationService 自动连接+双向心跳，Communications/Plc/）；剩余 = 在此基础上实现 `IDrawerService` 的真实 PLC 版替换 Mock（18 抽屉读写映射待定）
+2. ~~用真实 PLC 通信实现替换 `MockDrawerService`（实现 `IDrawerService` 即可，建议 HslCommunication/S7NetPlus 放入 `Communications/`）~~ 大部分落地：**v1.10~v1.12 已建 PLC 通讯并接入抽屉物料**（自动连接+双向心跳 + 连续读取 M1000×19 驱动 18 抽屉有料状态，PLC 为物料唯一真值源）；剩余 = 配方下发等写方向的真实 PLC 版（当前 SendRecipeAsync 仍为 Mock 实现）
 3. 配方管理页增强：抽屉列表显示配方名/状态列、批量下发
 4. ~~补充单元测试（tests/ 目录）~~ ✅ 已完成（2026-09-03，55 用例全绿；此后每次任务修改功能必须配套测试，详 techContext.md 测试工作流）
 5. ~~创建解决方案文件 .sln~~ ✅ 已完成（2026-09-03，UiTopMachine.slnx）

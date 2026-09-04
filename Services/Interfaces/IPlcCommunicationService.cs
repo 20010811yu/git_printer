@@ -34,10 +34,25 @@ namespace UiTopMachine.Services.Interfaces
     }
 
     /// <summary>
+    /// 抽屉物料状态变化事件参数：
+    /// Values[i] 为抽屉 i 的有料状态（下标 0 不使用，1~18 对应抽屉 1~18），true=有料 / false=无料
+    /// </summary>
+    public class DrawerMaterialsChangedEventArgs : EventArgs
+    {
+        /// <summary>物料状态数组（长度=读取长度，仅在有变化时触发）</summary>
+        public IReadOnlyList<bool> Values { get; init; } = Array.Empty<bool>();
+
+        /// <summary>发生时间</summary>
+        public DateTime Timestamp { get; init; } = DateTime.Now;
+    }
+
+    /// <summary>
     /// PLC 通讯服务（Modbus TCP）：
     /// 启动后后台自动连接（断线自动重连），连接成功后自动启动双向心跳——
     /// PC 侧周期向写心跳寄存器递增写数（证明 PC 在线），同时监听读心跳寄存器变化（证明 PLC 在线），
-    /// PLC 侧心跳停滞连续超过阈值判定心跳丢失并触发重连。退出时 StopAsync 关闭心跳并断开连接
+    /// PLC 侧心跳停滞连续超过阈值判定心跳丢失并触发重连。
+    /// 同时持续轮询抽屉物料位区（M1000 起 19 个 bool，下标 i 对应抽屉 i），变化时推送事件。
+    /// 退出时 StopAsync 关闭心跳并断开连接
     /// </summary>
     public interface IPlcCommunicationService
     {
@@ -45,6 +60,11 @@ namespace UiTopMachine.Services.Interfaces
         /// 连接状态变化事件（后台线程触发，订阅方自行调度 UI 线程）
         /// </summary>
         event EventHandler<PlcConnectionEventArgs>? ConnectionStateChanged;
+
+        /// <summary>
+        /// 抽屉物料状态变化事件（后台线程触发，仅数值有变化时推送，订阅方自行调度 UI 线程）
+        /// </summary>
+        event EventHandler<DrawerMaterialsChangedEventArgs>? DrawerMaterialsChanged;
 
         /// <summary>当前连接状态</summary>
         PlcConnectionState State { get; }

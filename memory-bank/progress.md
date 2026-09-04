@@ -2,7 +2,18 @@
 
 ## ✅ 已完成功能
 
-### Status 列表面板改为 PLC 专用（2026-09-04）⭐ 最新
+### PLC 连续读取 M1000 物料数组驱动 18 抽屉（2026-09-04）⭐ 最新
+
+- [x] **需求（v1.12）**：从 M1000 起连续读 19 个 bool，数组下标 1~18 对应抽屉 1~18（下标 0 不使用），true=有料 / false=无料，连续一直读取
+- [x] **传输层**：`IPlcTransport`/`HslModbusTransport` 加 `ReadBoolsAsync(address, length)`——HSL `ReadBoolAsync(address, length)` 批量线圈读；`ResolveBitAddress` 剥离 "M" 前缀（Modbus 不识别软元件名，汇川 H5U M 区与线圈同址；真机若有偏移调整传入地址）
+- [x] **服务层**：`DrawerMaterialsChanged` 事件（`Values[i]`=抽屉 i；仅抽屉位变化时触发，首读即推送覆盖初始状态）+ 构造参数 `materialAddress="M1000"`/`materialLength=19`/`materialPollPeriodMs=1000`；连接成功后与心跳并列自动轮询（SemaphoreSlim 串行化）；读失败报"抽屉物料读取失败（M1000）"并断开重连（面板一条对接错误，不刷屏）
+- [x] **隐患修复**：断开重连前 `StopCyclesAsync()` 显式取消并等待心跳/物料任务退出（v1.10 起旧任务重连后报失败会误触发断开的竞态）
+- [x] **UI**：MainViewModel 订阅物料事件批量更新 18 抽屉（`UpdateFromModel` 只同步物料、配方保留用户输入）+ 统一刷新三态汇总；**InitializeAsync 移除 Mock `StartMonitoring()`**——PLC 物料轮询为有料状态唯一真值源（原 Mock 每 2 秒随机翻转与真值打架）
+- [x] **测试**：FakePlcTransport 加位读桩（调用记录/可编程返回/失败注入）；新增 5 用例（自动连续读取 M1000×19 断言 / 变化触发且下标对应+无变化不重发 / 下标 0 变化不触发 / 读失败断开重连 / VM 物料映射配方保留汇总正确）
+- [x] 验证：dotnet test **121/121 PASS** + dotnet build **0 警告 0 错误**
+- [x] Memory Bank 同步更新（activeContext/systemPatterns/projectbrief/progress；techContext/errorlog 无需更新）
+
+### Status 列表面板改为 PLC 专用（2026-09-04）
 
 - [x] **面板语义变更（v1.11）**：主窗体右侧 Status 列表（LogPanelControl）**不再存入系统操作信息**（初始化/抽屉/配方/打印等一般日志），**只存 PLC 对接信息**——连接成功提示（成功绿条）+ 对接错误（连接失败/心跳丢失，错误红条）
 - [x] **实现**：MainViewModel 取消订阅 `LogService.LogEmitted`（删除 OnLogEmitted），`Logs` 集合仅由 `PlcConnectionStateChanged` 事件驱动（`AddPlcPanelEntry` 直插，Connecting 过程信息只写文件）；全部 PLC 状态仍经 LogService 落文件（面板=过滤视图，文件=完整留痕）
@@ -193,9 +204,9 @@
 **新建配方备份轮转**（原文件改名+时间戳备份、新配方沿用 Recipe.xlsx 原名、确认弹框、页面即显，v1.7b/ERR-019）；
 **行序整理 + 自动补空白行**（数据连续排列空白垫底、按可见高度补真实可编辑空白行、RowHeight=36，v1.7b）；
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
-**PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.10/v1.11）；**待真机联调**）；
+**PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **116 用例全绿**（dotnet test）。
+单元测试 **121 用例全绿**（dotnet test）。
 
 ## ⚠️ 已知问题
 

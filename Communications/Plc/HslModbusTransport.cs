@@ -24,7 +24,7 @@ namespace UiTopMachine.Communications.Plc
         /// <param name="port">Modbus TCP 端口</param>
         /// <param name="station">站号</param>
         /// <param name="useInovance">true=InovanceTcpNet（汇川），false=标准 ModbusTcpNet</param>
-        public HslModbusTransport(string ipAddress = "192.168.1.88", int port = 502, byte station = 1, bool useInovance = true)
+        public HslModbusTransport(string ipAddress = "127.0.0.1", int port = 502, byte station = 1, bool useInovance = true)
         {
             _plc = useInovance
                 ? new InovanceTcpNet(ipAddress, port, station)
@@ -53,6 +53,35 @@ namespace UiTopMachine.Communications.Plc
             }
 
             return result.Content;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool[]> ReadBoolsAsync(string address, ushort length)
+        {
+            var result = await _plc.ReadBoolAsync(ResolveBitAddress(address), length);
+            if (!result.IsSuccess)
+            {
+                throw new InvalidOperationException($"PLC 读取位地址 {address} 失败：{result.Message}");
+            }
+
+            return result.Content;
+        }
+
+        /// <summary>
+        /// 位地址解析：Modbus 侧不识别软元件名前缀，汇川 H5U 系列 M 区与 Modbus 线圈同址，
+        /// 故 "M1000" 剥离 M 前缀按线圈地址 "1000" 读取（真机联调若该系列 M 区存在偏移，调整传入地址即可）
+        /// </summary>
+        private static string ResolveBitAddress(string address)
+        {
+            var trimmed = address.Trim();
+            if (trimmed.Length > 1
+                && char.ToUpperInvariant(trimmed[0]) == 'M'
+                && ushort.TryParse(trimmed[1..], out _))
+            {
+                return trimmed[1..];
+            }
+
+            return trimmed;
         }
 
         /// <inheritdoc />

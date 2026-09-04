@@ -11,7 +11,7 @@ using Xunit;
 namespace UiTopMachine.Tests
 {
     /// <summary>
-    /// 测试桩：IDrawerService 空实现（无抽屉推送，供 MainViewModel 构造）
+    /// 测试桩：IDrawerService —— 初始抽屉可配置（默认空），不推送随机状态
     /// </summary>
     public class StubDrawerService : IDrawerService
     {
@@ -19,8 +19,13 @@ namespace UiTopMachine.Tests
         public event EventHandler<DrawerModel>? DrawerChanged;
 #pragma warning restore CS0067
 
+        /// <summary>初始抽屉列表（GetAllDrawersAsync 返回其副本）</summary>
+        public List<DrawerModel> SeedDrawers { get; set; } = new();
+
         public Task<Result<List<DrawerModel>>> GetAllDrawersAsync() =>
-            Task.FromResult(Result<List<DrawerModel>>.OK(new List<DrawerModel>()));
+            Task.FromResult(Result<List<DrawerModel>>.OK(SeedDrawers
+                .Select(d => new DrawerModel { Index = d.Index, HasMaterial = d.HasMaterial, Recipe = d.Recipe })
+                .ToList()));
 
         public Task<Result<bool>> SendRecipeAsync(int drawerIndex, string recipe) =>
             Task.FromResult(Result<bool>.OK(true));
@@ -31,11 +36,13 @@ namespace UiTopMachine.Tests
     }
 
     /// <summary>
-    /// 测试桩：IPlcCommunicationService —— 记录启停调用，供测试手动触发状态变化事件
+    /// 测试桩：IPlcCommunicationService —— 记录启停调用，供测试手动触发状态/物料事件
     /// </summary>
     public class StubPlcCommunicationService : IPlcCommunicationService
     {
         public event EventHandler<PlcConnectionEventArgs>? ConnectionStateChanged;
+
+        public event EventHandler<DrawerMaterialsChangedEventArgs>? DrawerMaterialsChanged;
 
         public PlcConnectionState State { get; set; } = PlcConnectionState.Disconnected;
 
@@ -69,6 +76,10 @@ namespace UiTopMachine.Tests
             State = state;
             ConnectionStateChanged?.Invoke(this, new PlcConnectionEventArgs { State = state, Message = message });
         }
+
+        /// <summary>模拟 PLC 抽屉物料推送（同步触发事件）</summary>
+        public void RaiseMaterials(bool[] values) =>
+            DrawerMaterialsChanged?.Invoke(this, new DrawerMaterialsChangedEventArgs { Values = values });
     }
 
     /// <summary>
@@ -194,6 +205,50 @@ namespace UiTopMachine.Tests
 
             await vm.ShutdownAsync();
             Assert.Equal(1, plc.StopCalls);
+        }
+
+        [Fact]
+        public async Task PLC物料推送_更新对应抽屉有料状态_配方保留()
+        {
+            var log = new StubLogService();
+            var plc = new StubPlcCommunicationService();
+            var drawerService = new StubDrawerService
+            {
+                SeedDrawers = Enumerable.Range(1, 18).Select(i => new DrawerModel
+                {
+                    Index = i,
+                    HasMaterial = false,
+                    Recipe = i <= 2 ? "R-001" : string.Empty
+                }).ToList()
+            };
+            var vm = new MainViewModel(drawerService, log, plc);
+            await vm.InitializeAsync();
+
+            // PLC 推送：下标 1=抽屉1 有料；下标 5=抽屉5 有料；下标 0 不使用；其余无料
+            var values = new bool[19];
+            values[1] = true;
+            values[5] = true;
+            plc.RaiseMaterials(values);
+
+            // 抽屉 1：有料 + 有配方 → 就绪；配方保留用户侧输入不被覆盖
+            var drawer1 = vm.Drawers.First(d => d.Index == 1);
+            Assert.True(drawer1.HasMaterial);
+            Assert.Equal("R-001", drawer1.Recipe);
+            Assert.Equal(DrawerStatus.Ready, drawer1.Status);
+
+            // 抽屉 2：PLC 推无料，配方保留 → 有配方无料 = 预警
+            var drawer2 = vm.Drawers.First(d => d.Index == 2);
+            Assert.False(drawer2.HasMaterial);
+            Assert.Equal("R-001", drawer2.Recipe);
+            Assert.Equal(DrawerStatus.Warning, drawer2.Status);
+
+            // 抽屉 5：有料无配方 = 预警
+            Assert.True(vm.Drawers.First(d => d.Index == 5).HasMaterial);
+
+            // 汇总：1 就绪；抽屉 2/5 + …… 预警 3 个（2、5，另一个为——无）；其余 15 个空闲
+            Assert.Equal(1, vm.ReadyCount);
+            Assert.Equal(2, vm.WarningCount);
+            Assert.Equal(15, vm.IdleCount);
         }
     }
 }
