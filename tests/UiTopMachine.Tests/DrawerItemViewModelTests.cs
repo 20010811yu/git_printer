@@ -49,6 +49,42 @@ namespace UiTopMachine.Tests
             Assert.Equal(DrawerStatus.Warning, vm.Status);
         }
 
+        [Theory]
+        [InlineData(true, false)]   // 有料（黄，无配方）→ 可编辑
+        [InlineData(false, true)]   // 无料（灰）→ 只读
+        public void 输入框编辑权限_由有料状态决定(bool hasMaterial, bool expectedReadOnly)
+        {
+            var vm = new DrawerItemViewModel(1, hasMaterial, "", new StubLogService());
+
+            Assert.Equal(expectedReadOnly, vm.IsInputReadOnly);
+        }
+
+        [Fact]
+        public void 有料状态变化_编辑权限属性通知联动()
+        {
+            var vm = new DrawerItemViewModel(1, hasMaterial: false, "", new StubLogService());
+            Assert.True(vm.IsInputReadOnly);
+
+            string? notified = null;
+            vm.PropertyChanged += (_, e) => notified = e.PropertyName;
+
+            vm.HasMaterial = true; // PLC 推送有料（灰→黄）
+
+            Assert.False(vm.IsInputReadOnly);
+            Assert.Equal(nameof(DrawerItemViewModel.IsInputReadOnly), notified);
+        }
+
+        [Fact]
+        public void 初始抽屉_默认无料无配方_输入框只读()
+        {
+            // 每次启动的默认态：灰色空闲 + 配方输入只读（不保留上次运行结果，配方无持久化）
+            var vm = new DrawerItemViewModel(1, hasMaterial: false, recipe: string.Empty, new StubLogService());
+
+            Assert.Equal(DrawerStatus.Idle, vm.Status);
+            Assert.True(vm.IsInputReadOnly);
+            Assert.Equal(string.Empty, vm.Recipe);
+        }
+
         [Fact]
         public void 配方输入变化_状态即时联动()
         {

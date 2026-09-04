@@ -252,6 +252,10 @@ namespace UiTopMachine.Views.Pages
                 // 配方输入框：双向绑定（用户输入即时回写 VM，驱动状态灯变色）
                 cell.RecipeBox.DataBindings.Add(nameof(TextBox.Text), vm,
                     nameof(DrawerItemViewModel.Recipe), true, DataSourceUpdateMode.OnPropertyChanged);
+
+                // 编辑权限：无料（灰）只读、有料（黄/绿）可编辑，随 PLC 物料推送联动
+                cell.RecipeBox.DataBindings.Add(nameof(TextBox.ReadOnly), vm,
+                    nameof(DrawerItemViewModel.IsInputReadOnly), false, DataSourceUpdateMode.Never);
             }
         }
     }

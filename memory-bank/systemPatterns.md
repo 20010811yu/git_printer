@@ -59,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；130 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护/线程调度守护/Mock默认态）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；134 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤/PLC物料轮询/HSL地址格式守护/线程调度守护/Mock默认态/输入框编辑权限）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -101,7 +101,9 @@ HasMaterial && HasRecipe   → Ready   (绿 #4CAF50)
 !HasMaterial && !HasRecipe → Idle    (灰 #BDC3C7)
 其余                        → Warning (黄 #FFC107)
 ```
-实现位置：`DrawerItemViewModel.RefreshStatus()`；配方输入框双向绑定（DataSourceUpdateMode.OnPropertyChanged）即时联动状态灯。
+实现位置：`DrawerItemViewModel.RefreshStatus()`；配方输入框双向绑定（DataSourceUpdateMode.OnPropertyChanged）即时联动状态灯；
+**输入框编辑权限**（v1.18）：`IsInputReadOnly => !HasMaterial`（无料灰=只读，有料黄/绿=可编辑，随 PLC 物料推送实时切换，仿参考程序 `ReadOnly = !currentValue[i]`），View 经 `TextBox.ReadOnly` 单向绑定；
+**启动默认态**：抽屉无持久化（Mock/VM 内存态），每次启动一律无料无配方全灰。
 
 ## 核心业务规则：配方编号唯一性
 

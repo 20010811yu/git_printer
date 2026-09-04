@@ -37,9 +37,16 @@ namespace UiTopMachine.ViewModels
                 if (SetProperty(ref _hasMaterial, value))
                 {
                     RefreshStatus();
+                    OnPropertyChanged(nameof(IsInputReadOnly)); // 有料变化联动输入框编辑权限
                 }
             }
         }
+
+        /// <summary>
+        /// 配方输入框是否只读：无料（灰色）→ 只读；有料（可录入配方驱动状态灯）→ 可编辑
+        /// （ReadOnly = !HasMaterial，与参考程序 _drawerTextBoxs[i-1].ReadOnly = !currentValue[i] 一致）
+        /// </summary>
+        public bool IsInputReadOnly => !HasMaterial;
 
         /// <summary>
         /// 配方名称（与输入框双向绑定，输入变化即时联动状态灯）
