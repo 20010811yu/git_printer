@@ -183,6 +183,16 @@
 - **教训**：⚠️ **生产代码改换实现路径（通道/方法/服务）时必须全局搜索测试桩中对应方法的桩逻辑**；「测试全绿才交付」是硬门槛，构建通过 ≠ 验证通过——跳过测试的交付会把红灯伪装成绿灯
 - **状态**：🟢 已解决
 
+### ERR-021：HslCommunication V12 大版本 API 变化（SetPersistentConnection 过时 + InovanceTcpNet 命名空间迁移）
+- **错误现象**：v1.10 接入 HslCommunication 12.9.2 后构建出现 CS0612 警告「DeviceTcpNet.SetPersistentConnection() 已过时」；且 InovanceTcpNet 不在旧文档记载的 `HslCommunication.Inovance` 命名空间（实际为 `HslCommunication.Profinet.Inovance`）
+- **发生上下文**：2026-09-04 PLC Modbus TCP 连接 + 双向心跳（v1.10）任务，首次引入 HslCommunication 包
+- **根本原因**：HslCommunication V12 起**默认即长连接**，`SetPersistentConnection()` 仅为兼容保留（调用无效且过时）；大版本升级后协议类命名空间重新组织（Inovance 系归入 Profinet），旧版文档/API 记载不能直接沿用
+- **解决方式**：删除 `SetPersistentConnection()` 调用（V12 默认长连接，注释标明）；`InovanceTcpNet` 使用 `HslCommunication.Profinet.Inovance` 命名空间，构造 `new InovanceTcpNet(ip, port, station)`（另有带 `InovanceSeries` 枚举的重载）；API 真实签名以 NuGet 包内 XML 文档核对为准
+- **解决时间**：2026-09-04
+- **验证结果**：🟢 已解决——dotnet build **0 警告 0 错误**，dotnet test **110/110 PASS**
+- **教训**：⚠️ **引入/升级第三方库大版本前，先以包内 XML 文档（`.nuget/packages/<pkg>/<ver>/lib/*/xxx.xml`）核对关键 API 签名与命名空间**，不能凭记忆或旧文档写代码；过时警告（CS0612）出现时查官方注释中的替代方案再动手
+- **状态**：🟢 已解决
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -210,6 +220,7 @@
 11a. **编号列识别** → 候选表头 `{ "配方编号", "编号" }` Trim + 忽略大小写匹配（`FindRecipeIdColumnIndex` 统一入口），禁止硬编码单一列名；校验失败必须弹窗告知用户（`MessageRequested` 事件），拒绝提交同时 `TableVersion++` 强制还原显示（ERR-018）
 12. **AntdUI Table 索引基准** → `CellEndEdit`/`CellClick`/`CellFocused` 的 **RowIndex 均为含表头的 1 基内部 INDEX（ColumnIndex 为 0 基）**，传给 0 基数据源（DataTable）前必须减 1；`SelectedIndex` 亦为 1 基（恢复高亮 +1）；`CellEndEdit` 恒返回 false 阻止内部落值，VM 提交后 TableVersion++ 重建表格同步显示（ERR-017，两轮实证）
 13. **生产代码换实现通道** → 全局搜索测试桩中对应方法的桩逻辑并同步迁移（桩双通道行为不对称必须注释标明）；**交付硬门槛 = dotnet test 全绿**，只构建不测试的交付视为未验证（ERR-020）
+14. **第三方库大版本接入/升级** → 先以 NuGet 包内 XML 文档核对 API 签名、命名空间与过时标记（如 Hsl V12 默认长连接、InovanceTcpNet 迁至 Profinet 命名空间，ERR-021）
 
 ## 沉淀出口
 

@@ -40,7 +40,8 @@
   - ✅ 弹框交互：新增列经 InputDialog 收集列名；删除行/列经 ConfirmDialog 二次确认（VM↔View 事件模式，零 UI 耦合）
   - ✅ 配方服务：ClosedXML 多配方接口（带路径加载/保存 + CreateBlankAsync 备份轮转）
   - ✅ 打印服务：IPrintService/ZplPrinterService（Socket/句柄私有封装，全 async）
+  - ✅ PLC 通讯基础设施（v1.10）：IPlcTransport 抽象 + HslModbusTransport（HslCommunication，InovanceTcpNet 192.168.1.88:502 站号1）+ PlcCommunicationService（后台自动连接/断线重连 + 双向心跳自动启停 + 手动心跳控制，状态入 Status 列表；待真机联调）
   - ✅ DI 组装（Microsoft.Extensions.DependencyInjection）+ Mock 模拟服务 + errorlog.md 错误归档机制
-   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，103 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
-  - ⏳ 待办：真实 PLC 通信实现、图像页真实服务接入
+   - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，110 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
+  - ⏳ 待办：IDrawerService 真实 PLC 版替换 Mock、图像页真实服务接入
   

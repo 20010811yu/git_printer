@@ -2,7 +2,17 @@
 
 ## ✅ 已完成功能
 
-### 打印页自定义打印内容 + 通道切换 Spooler（2026-09-03）⭐ 最新
+### PLC Modbus TCP 连接 + 双向心跳（2026-09-04）⭐ 最新
+
+- [x] **依赖接入（v1.10）**：HslCommunication 12.9.2——客户端类 **InovanceTcpNet**（汇川协议，继承 ModbusTcpNet，用户指定保留，命名空间 `HslCommunication.Profinet.Inovance`），构造参数可切标准 ModbusTcpNet；V12 默认长连接，`SetPersistentConnection` 过时不调（ERR-021）
+- [x] **通信抽象层**：`Communications/Plc/IPlcTransport`（Connect/ReadShort/WriteShort/Close）+ `HslModbusTransport`（3s 连接/收发超时，OperateResult 在此层转异常，SDK 对象不外泄）
+- [x] **Service 层**：`IPlcCommunicationService` + `PlcCommunicationService`——① 后台自动连接循环（启动即连、失败 5s 重试、断线自动重连、幂等启动）；② **双向心跳**（连接成功自动启动：周期写递增值到写心跳寄存器 100 证 PC 在线 + 读读心跳寄存器 101 监测变化证 PLC 在线，PLC 侧停滞 5 周期判 HeartbeatLost 触发重连）；③ 手动 StartHeartbeatAsync/StopHeartbeatAsync（幂等）；④ ReadRegisterAsync/WriteRegisterAsync 基础读写；SemaphoreSlim 串行化 IO、CancellationTokenSource 驱动循环、Result<T> 统一返回
+- [x] **UI 接线**：不加页面——MainViewModel.InitializeAsync 自动启动 PLC 服务，ConnectionStateChanged 事件按级别写 ILogService（主窗体右侧 Status 列表面板显示，用户确认决策）；MainForm.OnFormClosing → ShutdownAsync 关心跳断连（3s 超时兜底）；Program.cs DI 单例注册
+- [x] **测试**：新增 `PlcCommunicationServiceTests` 7 用例（FakePlcTransport 桩模拟 PLC 回写/停滞：自动连接+心跳递增断言 / PLC 停滞触发 HeartbeatLost+重连 / 手动停止心跳连接保持+手动重启 / StopAsync 断连冻结 / StartAsync 幂等 / 未连接启心跳拒绝 / 未连接读写拒绝）；顺手修 1 个既有 xUnit2013 警告
+- [x] 验证：dotnet test **110/110 PASS** + dotnet build **0 警告 0 错误**
+- [x] Memory Bank 同步更新（errorlog 新增 ERR-021 + 防回归清单 #14 + activeContext/systemPatterns/techContext/projectbrief）
+
+### 打印页自定义打印内容 + 通道切换 Spooler（2026-09-03）
 
 - [x] **打印通道切换（v1.8b）**：`PrintPageViewModel.PrintAsync` 由 `PrintByIpAsync`（TCP 直连）改为 `PrintBySpoolerAsync`（Windows Spooler RAW，打印机名 "zpl"）——TCP 192.168.1.200:9100 不可达持续超时，Spooler 实测打印成功；TCP 通道保留为备用
 - [x] **自定义打印内容（v1.9）**：`CustomContent` 属性——Trim 后非空 → 每张打印用户输入内容（批量每张相同），**流水号不递增不持久化**；留空 → 走流水号自动递增原路径；自定义路径跳过流水号校验，两条路径互不干扰
@@ -157,7 +167,7 @@
 
 - [ ] 图像页接入真实服务（VisionCameraService）
 - [x] ~~打印页接入真实服务（IPrintService）~~ ✅ 2026-09-03 完成（ZplPrinterService，ZPL TCP/Spooler 双通道 + 流水号自动递增，v1.8）
-- [ ] 真实 PLC 通信实现（替换 MockDrawerService，放 Communications/，建议 HslCommunication/S7NetPlus）
+- [x] ~~PLC 通讯基础设施（HslCommunication，Communications/）~~ ✅ 2026-09-04 完成（v1.10：IPlcTransport 抽象 + HslModbusTransport(InovanceTcpNet 192.168.1.88:502 站号1) + PlcCommunicationService 自动连接/双向心跳/手动启停；剩余 = 在此基础上实现 IDrawerService 真实 PLC 版替换 MockDrawerService）
 - [ ] 配方管理页增强（列表显示配方名/状态列、批量下发）
 - [x] ~~单元测试（tests/）~~ ✅ 2026-09-03 完成（xUnit，55 用例全绿，工作流固化）
 - [x] ~~解决方案文件 .sln~~ ✅ 2026-09-03 完成（UiTopMachine.slnx）
@@ -175,7 +185,9 @@
 **新建配方备份轮转**（原文件改名+时间戳备份、新配方沿用 Recipe.xlsx 原名、确认弹框、页面即显，v1.7b/ERR-019）；
 **行序整理 + 自动补空白行**（数据连续排列空白垫底、按可见高度补真实可编辑空白行、RowHeight=36，v1.7b）；
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
+**PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；连接状态显示于 Status 列表面板；**待真机联调**，v1.10）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
+单元测试 **110 用例全绿**（dotnet test）。
 
 ## ⚠️ 已知问题
 

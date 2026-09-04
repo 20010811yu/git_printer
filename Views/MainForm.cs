@@ -57,6 +57,23 @@ namespace UiTopMachine.Views
             Load += async (_, _) => await _mainViewModel.InitializeAsync();
         }
 
+        /// <summary>
+        /// 窗体关闭：停止 PLC 服务（关闭心跳并断开连接），短超时兜底避免退出卡住
+        /// </summary>
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            var shutdown = _mainViewModel.ShutdownAsync();
+            try
+            {
+                shutdown.Wait(TimeSpan.FromSeconds(3));
+            }
+            catch
+            {
+                // 关闭路径的停止失败不阻断退出（重连循环已随进程结束）
+            }
+        }
+
         // ══════════════ UI 构建 ══════════════
 
         /// <summary>

@@ -362,7 +362,7 @@ namespace UiTopMachine.Tests
             Assert.Equal(string.Empty, result.Data); // 无备份
             Assert.True(File.Exists(service.FilePath)); // 原路径 = 新配方文件
             var files = Directory.GetFiles(_tempDir);
-            Assert.Equal(1, files.Length); // 目录中只有新配方一个文件
+            Assert.Single(files); // 目录中只有新配方一个文件
         }
 
         [Fact]

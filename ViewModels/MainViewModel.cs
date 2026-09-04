@@ -17,6 +17,7 @@ namespace UiTopMachine.ViewModels
     {
         private readonly IDrawerService _drawerService;
         private readonly ILogService _logService;
+        private readonly IPlcCommunicationService _plcService;
 
         private string _companyTitle = "上海寅铠精密机械制造有限公司";
         private string _pageTitle = "进料抽屉状态";
@@ -91,10 +92,11 @@ namespace UiTopMachine.ViewModels
         /// <summary>
         /// 构造：依赖注入服务
         /// </summary>
-        public MainViewModel(IDrawerService drawerService, ILogService logService)
+        public MainViewModel(IDrawerService drawerService, ILogService logService, IPlcCommunicationService plcService)
         {
             _drawerService = drawerService ?? throw new ArgumentNullException(nameof(drawerService));
             _logService = logService ?? throw new ArgumentNullException(nameof(logService));
+            _plcService = plcService ?? throw new ArgumentNullException(nameof(plcService));
 
             SendCommand = new AsyncRelayCommand(_ => SendAllRecipesAsync(), _ => !IsBusy);
             ExitCommand = new RelayCommand(_ => ExitApplication());
@@ -104,6 +106,9 @@ namespace UiTopMachine.ViewModels
 
             // 订阅抽屉状态变化推送
             _drawerService.DrawerChanged += OnDrawerChanged;
+
+            // 订阅 PLC 连接状态变化（写入日志集合，显示在 Status 列表面板）
+            _plcService.ConnectionStateChanged += OnPlcConnectionStateChanged;
 
             _logService.Info("系统初始化完成，正在读取抽屉状态…");
         }
@@ -131,6 +136,47 @@ namespace UiTopMachine.ViewModels
             }
 
             _drawerService.StartMonitoring();
+
+            // 启动 PLC 后台自动连接（连接成功后心跳自动启动，状态经事件写入日志列表）
+            await _plcService.StartAsync();
+        }
+
+        /// <summary>
+        /// 停机：关闭心跳并断开 PLC 连接（由主窗体关闭事件调用）
+        /// </summary>
+        public async Task ShutdownAsync()
+        {
+            try
+            {
+                await _plcService.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"PLC 服务停止异常：{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// PLC 连接状态变化处理：按状态分级写入日志（LogService 内部已调度 UI 线程）
+        /// </summary>
+        private void OnPlcConnectionStateChanged(object? sender, PlcConnectionEventArgs e)
+        {
+            switch (e.State)
+            {
+                case PlcConnectionState.Connected:
+                    _logService.Success($"PLC：{e.Message}");
+                    break;
+                case PlcConnectionState.Connecting:
+                    _logService.Info($"PLC：{e.Message}");
+                    break;
+                case PlcConnectionState.HeartbeatLost:
+                    _logService.Error($"PLC：{e.Message}");
+                    break;
+                case PlcConnectionState.Disconnected:
+                default:
+                    _logService.Warn($"PLC：{e.Message}");
+                    break;
+            }
         }
 
         /// <summary>

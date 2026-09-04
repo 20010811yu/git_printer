@@ -2,6 +2,16 @@
 
 ## 当前工作焦点
 
+**PLC Modbus TCP 连接 + 双向心跳（v1.10）✅ 已完成（待真机验证）** —— 用户需求：「创建plc连接，plc ip为192.168.1.88，端口502，站号1，实现心跳启动，心跳监听，关闭心跳」。落地内容：
+- **依赖**：HslCommunication 12.9.2；客户端类 **InovanceTcpNet**（汇川协议，继承 ModbusTcpNet，用户指定保留；命名空间 `HslCommunication.Profinet.Inovance`），构造参数可切标准 ModbusTcpNet；V12 默认长连接，`SetPersistentConnection` 已过时不再调用（ERR-021）
+- **Communications/Plc/**：`IPlcTransport` 抽象（Connect/ReadShort/WriteShort/Close）+ `HslModbusTransport` 实现（超时各 3s；OperateResult 在此层转换，SDK 对象不外泄）
+- **Services**：`IPlcCommunicationService` + `PlcCommunicationService` —— 后台自动连接循环（失败 5s 重试、断线自动重连、幂等启动）+ 双向心跳（写寄存器 100 递增写 / 读寄存器 101 监测变化，PLC 侧停滞 5 周期判 HeartbeatLost 触发重连；SemaphoreSlim 串行化 IO；CancellationTokenSource 而非 Timer）；支持手动 StartHeartbeatAsync/StopHeartbeatAsync（幂等）；ReadRegisterAsync/WriteRegisterAsync 基础读写
+- **接入**：Program.cs DI 单例注册；MainViewModel 订阅 ConnectionStateChanged 按级别写日志（Status 列表面板显示）；InitializeAsync 自动启动；MainForm.OnFormClosing → ShutdownAsync（3s 超时兜底）
+- **验证**：dotnet build **0 警告 0 错误**；dotnet test **110/110 PASS**（103 例无回归 + 新增 7 例，FakePlcTransport 测试桩）
+- **下一步：真机联调** —— 运行程序观察 Status 列表「PLC 已连接/心跳已启动」；PLC 侧需配置心跳寄存器（写 100/读 101 为默认约定，可在 Service 构造参数改）；若运行时触发 Hsl 未授权提示/异常，需处理授权码或降级包版本（ERR-021 同源风险）
+
+### 上一焦点（已完成的背景）
+
 **打印页自定义打印内容（v1.9）** —— 打印页新增「打印内容」输入框：① `PrintPageViewModel.CustomContent`（Trim 后非空 → 每张打印用户输入内容、批量时每张相同，流水号**不递增不持久化**；留空 → 走流水号自动递增原路径，两条路径互不干扰）；② `PrintPage` 视图加 TextBox（PlaceholderText 提示「留空则打印流水号」）+ `TextChanged` 绑定 VM；③ 顺带修复视图布局缺陷——三个说明标题（当前流水号/码型/打印张数）此前是局部变量、未参与 `CenterLayout` 布局叠在左上角，现提升为字段全部归位（每行标题位于控件上方）；④ 打印通道 v1.8b 已切 Spooler RAW 为主（TCP 备用）；⑤ 测试桩通道同步迁移（ERR-020：记录/失败注入从 `PrintByIpAsync` 迁至 `PrintBySpoolerAsync`）+ 新增 3 个自定义内容用例。dotnet test **103/103** 全绿、构建 0 警告 0 错误。**下一步：重启程序人工验证打印页输入框与打印行为。**
 
 ## 测试记录
@@ -17,6 +27,7 @@
 | 2026-09-03 | 备份轮转+行序整理+补空白行（v1.7b） | 改写 CreateBlank 7 个 Service 用例（备份轮转/数据完整/不覆盖/无原文件/取消不变）+ VM 3 个（确认轮转/取消不变/保存往返）+ 行序整理/补行 4 个；DeletionConfirmRequested→ConfirmationRequested 迁移 | ✅ 79/79 PASS（trx 留档） |
 | 2026-09-03 | ZPL 打印机集成（v1.8） | 新增 ZplPrinterServiceTests 21 用例（ZPL 5 码型断言含 Code128 笔误修正/流水号校验 Theory/持久化往返补零/VM 5 用例打印桩模拟单张多张中途失败非法拒绝）；流水号补零位数保留修复 | ✅ 100/100 PASS（trx 留档） |
 | 2026-09-03 | 打印页自定义内容（v1.9） | 新增 3 用例（自定义内容每张打印流水号不变/纯空白回退流水号/自定义内容优先非法流水号不拦截）；修复 ERR-020（测试桩记录/失败注入随生产代码迁移至 Spooler 通道）+ 修 1 个历史 xUnit2013 警告 | ✅ 103/103 PASS |
+| 2026-09-04 | PLC 连接+双向心跳（v1.10） | 新增 PlcCommunicationServiceTests 7 用例（FakePlcTransport 桩：自动连接+心跳递增/PLC 停滞触发 HeartbeatLost+重连/手动停止心跳连接保持+手动重启/StopAsync 断连冻结/StartAsync 幂等/未连接启心跳拒绝/未连接读写拒绝）；顺手修 1 个既有 xUnit2013 警告（ERR-021 记录 Hsl V12 API 变化） | ✅ 110/110 PASS |
 
 ## 当前处理中的错误
 
@@ -30,7 +41,17 @@
 
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
-## 最近变更（2026-09-03）
+## 最近变更（2026-09-04）
+
+1.10 ✅ **PLC Modbus TCP 连接 + 双向心跳**（用户需求：「创建plc连接，plc ip为192.168.1.88，端口502，站号1，实现心跳启动，心跳监听，关闭心跳」；确认决策：HslCommunication + InovanceTcpNet、双向心跳、后台自动连接、状态入 Status 列表）：
+    - **依赖**：csproj 加 HslCommunication 12.9.2；InovanceTcpNet（Profinet.Inovance 命名空间）为默认客户端，构造参数可切 ModbusTcpNet（ERR-021：V12 默认长连接，SetPersistentConnection 过时不调）
+    - **Communications/Plc/**：`IPlcTransport`（Connect/ReadShort/WriteShort/Close）+ `HslModbusTransport`（3s 超时、OperateResult→异常转换、SDK 不外泄）
+    - **Services/Interfaces/IPlcCommunicationService.cs**：PlcConnectionState 枚举 + PlcConnectionEventArgs + 接口（StartAsync/StopAsync/StartHeartbeatAsync/StopHeartbeatAsync/ReadRegisterAsync/WriteRegisterAsync）
+    - **Services/PlcCommunicationService.cs**：自动连接循环（失败 5s 重试、断线重连、幂等）+ 双向心跳循环（写 100 递增 / 读 101 监测，停滞 5 周期 → HeartbeatLost → 重连；SemaphoreSlim 串行化；CancellationTokenSource 防 Timer 歧义坑）；Result<T> 统一返回
+    - **接线**：Program.cs DI 单例注册（IPlcTransport + IPlcCommunicationService）；MainViewModel 订阅状态事件按 Connected=Success/Connecting=Info/HeartbeatLost=Error/Disconnected=Warn 写日志；InitializeAsync 自动启动；新增 ShutdownAsync；MainForm.OnFormClosing 调用（3s 超时兜底）
+    - **测试**：新增 7 用例（FakePlcTransport 桩模拟 PLC 回写/停滞）；顺手修既有 xUnit2013 警告 1 处；**110/110 PASS、构建 0 警告 0 错误**
+
+## 历史变更（2026-09-03）
 
 1.9 ✅ **打印页自定义打印内容 + 布局修正**（用户需求：「修改打印页面，增加输入框，打印内容用户输入的内容」）：
     - **VM**：`CustomContent` 属性 + `PrintAsync` 内容来源分支——Trim 后非空走自定义（每张相同、流水号不动），留空走流水号原路径（递增+持久化）；自定义路径跳过流水号校验；失败文案按路径区分
@@ -133,7 +154,7 @@
 ## 下一步
 
 1. 打印/图像页接入真实服务（IPrintService / VisionCameraService，放 Services/）
-2. 用真实 PLC 通信实现替换 `MockDrawerService`（实现 `IDrawerService` 即可，建议 HslCommunication/S7NetPlus 放入 `Communications/`）
+2. ~~用真实 PLC 通信实现替换 `MockDrawerService`（实现 `IDrawerService` 即可，建议 HslCommunication/S7NetPlus 放入 `Communications/`）~~ 部分落地：**v1.10 已建 PLC 通讯基础设施**（HslCommunication + InovanceTcpNet、IPlcTransport 抽象、IPlcCommunicationService 自动连接+双向心跳，Communications/Plc/）；剩余 = 在此基础上实现 `IDrawerService` 的真实 PLC 版替换 Mock（18 抽屉读写映射待定）
 3. 配方管理页增强：抽屉列表显示配方名/状态列、批量下发
 4. ~~补充单元测试（tests/ 目录）~~ ✅ 已完成（2026-09-03，55 用例全绿；此后每次任务修改功能必须配套测试，详 techContext.md 测试工作流）
 5. ~~创建解决方案文件 .sln~~ ✅ 已完成（2026-09-03，UiTopMachine.slnx）
@@ -151,6 +172,10 @@
 | Tab 导航 | 底部四 Tab（打印/图像/进料抽屉/配方）✅ 已落地 |
 | 配方数据源 | Excel 文件 D:\Printer\Data\Recipe.xlsx（ClosedXML 读写，可编辑/增删行列/新建空白/打开文件夹）✅ 已落地 |
 | 工具栏按钮语义色 | 绿=新增（Success）/红=删除（Error）/橙=新建配方（Warn）/蓝=刷新保存（Primary），避免灰白样式被误读为禁用 ✅ 已落地 |
+| PLC 连接参数 | **192.168.1.88:502 站号 1**（用户输入 1192.168.1.88 经确认实为 192.168.1.88）✅ 已落地（v1.10） |
+| PLC 通讯库 | **HslCommunication，客户端类保留 InovanceTcpNet**（可构造参数切 ModbusTcpNet）✅ 已落地（v1.10） |
+| PLC 心跳机制 | **双向心跳**：PC 周期写递增值（写寄存器 100）+ 监听 PLC 侧读寄存器（101）变化，停滞 5 周期判丢失自动重连 ✅ 已落地（v1.10） |
+| PLC 连接/状态 UI | **后台自动连接**（不加页面/输入框），连接状态消息经 ILogService 显示在主窗体右侧 Status 列表面板 ✅ 已落地（v1.10） |
 
 ## 重要模式与偏好
 
@@ -165,7 +190,7 @@
 ### 错误类教训（已归档 → errorlog.md）
 
 错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗） · ERR-019 新建配方文件流转语义偏差（另存副本 vs 备份轮转，返工） · ERR-020 测试桩通道与生产代码脱节（VM 打印测试静默失效）
+ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗） · ERR-019 新建配方文件流转语义偏差（另存副本 vs 备份轮转，返工） · ERR-020 测试桩通道与生产代码脱节（VM 打印测试静默失效） · ERR-021 HslCommunication V12 API 变化（SetPersistentConnection 过时 + InovanceTcpNet 命名空间迁移）
 
 ### API 知识与技巧（保留本体）
 

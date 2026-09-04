@@ -40,11 +40,16 @@ d:\GitRepo\
 │   ├── Interfaces\ILogService.cs
 │   ├── Interfaces\IPrintService.cs       # 打印接口（TCP/Spooler 打印 + ZPL 生成 + 流水号持久化）
 │   ├── Interfaces\IRecipeFileService.cs  # 配方文件接口（多配方：带路径加载/保存 + CreateBlankAsync(headers, blankRowCount) 备份轮转）
+│   ├── Interfaces\IPlcCommunicationService.cs  # PLC 通讯接口（PlcConnectionState 枚举 + PlcConnectionEventArgs + 连接/心跳/基础读写）
 │   ├── MockDrawerService.cs           # 模拟实现（2 秒随机推送状态变化）
 │   ├── LogService.cs                  # 事件推送 + 文件落盘
 │   ├── ZplPrinterService.cs           # ZPL 打印（TCP 直连 + winspool RAW 私有封装 + 5 码型生成 + 流水号持久化，全 async）
-│   └── RecipeFileService.cs           # ClosedXML 封装（xlsx 读写全 async，SDK 对象不外泄）
-├── Communications\        # 通信层（⏳ 待接入真实 PLC 实现）
+│   ├── RecipeFileService.cs           # ClosedXML 封装（xlsx 读写全 async，SDK 对象不外泄）
+│   └── PlcCommunicationService.cs     # PLC 通讯（后台自动连接 + 断线重连 + 双向心跳 + 手动心跳启停，SemaphoreSlim 串行化 IO）
+├── Communications\        # 通信层（✅ v1.10 起接入 PLC 实现）
+│   └── Plc\
+│       ├── IPlcTransport.cs         # 传输抽象（Connect/ReadShort/WriteShort/Close）——SDK 不外泄 + 测试桩可替换
+│       └── HslModbusTransport.cs    # HslCommunication 实现（默认 InovanceTcpNet，构造参数可切 ModbusTcpNet；3s 超时；OperateResult 在此层转换）
 ├── Common\
 │   ├── Commands\          # MVVM 基础设施（已实现）
 │   │   ├── ObservableObject.cs
@@ -54,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；103 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；110 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -81,6 +86,7 @@ d:\GitRepo\
 - **VM→View 消息提示请求模式** ✅：`MessageRequestEventArgs`（Title/Message 纯数据，无回填）→ View 弹 MessageBox（后台线程经 BeginInvoke 封送）；与输入请求（回填 InputText）/确认请求（回填 Confirmed）构成三类弹框交互模式
 - **导航模式（页面路由）** ✅：NavigationViewModel 持有 CurrentPage（PageType 枚举），MainForm 订阅 PropertyChanged → 页面懒创建 + 可见性切换；Tab 点击经参数化命令回传 PageType
 - **工厂/策略模式** ⏳：预留（真实多协议通信接入时启用）
+- **PLC 传输抽象 + 双向心跳模式** ✅（v1.10）：`IPlcTransport` 屏蔽协议实现（InovanceTcpNet/ModbusTcpNet 可构造切换，OperateResult 不上抛），Service 依赖抽象可注入 Fake 测试；心跳 = 连接循环（自动连接/断线重连/幂等启动）+ 心跳循环（写寄存器递增证 PC 活 + 读寄存器监测变化证 PLC 活，停滞 N 周期判 HeartbeatLost 触发重连）；单条长连接 IO 经 `SemaphoreSlim(1,1)` 串行化；CancellationTokenSource 驱动循环启停（避开 Timer 歧义坑）
 - **测试桩模式** ✅：StubLogService（内存记录日志供断言）/ StubPrintService（记录 ZPL、可控失败）/ 事件参数回填模拟 View 弹框（VM 测试零 UI 依赖）/ 临时目录 + IDisposable 每测试隔离
 - **配套测试模式** ✅：每次功能修改同步写/更新测试，用例名关联 ERR 编号（如 `ERR014_保存含末尾空行的表_重载后行数不变`），dotnet test 即自动回归全部历史修复
 
@@ -133,6 +139,10 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 打印页 ▶ PrintCommand ▶ PrintPageViewModel（内容分支：CustomContent 非空用之/空走流水号→流水号校验→GenerateZpl→PrintBySpoolerAsync 逐张）▶ ZplPrinterService（Spooler 主/TCP 备）▶ 打印机
                     │ 流水号路径成功后 +1 持久化 SerialNumber.txt（自定义内容路径不动流水号）
 
+MainViewModel.InitializeAsync ▶ PlcCommunicationService.StartAsync ▶ 自动连接循环 ▶ InovanceTcpNet(192.168.1.88:502 站号1) ▶ PLC
+                    │ 连接成功自动启心跳（写100递增/读101监测，停滞5周期 HeartbeatLost→重连）
+                    └─ConnectionStateChanged 事件▶ MainViewModel 按级别写 ILogService ▶ Status 列表面板；MainForm 关闭▶ShutdownAsync
+
 按钮点击 ▶ CommandManagerHelper.Bind ▶ command.Execute ▶ VM 业务 ▶ 日志/状态更新 ▶ 界面刷新
 ```
 
@@ -172,6 +182,6 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 7. ✅ 危险操作确认模式（ConfirmationRequested 事件 + ConfirmDialog，删除行/列与新建配方共用，v1.4 落地 / v1.7b 通用化；CellFocused 单击不触发修正详 ERR-012）
 8. ✅ 单元测试基础设施（tests/UiTopMachine.Tests：xUnit + .slnx + .gitignore，103 用例全绿；每次任务修改功能必须配套测试并全绿，2026-09-03 固化，详 techContext.md「测试工作流」）
 9. ✅ ZPL 打印服务（IPrintService/ZplPrinterService：TCP/Spooler 双通道 + 5 码型生成 + 流水号持久化自动递增，打印页真实可用，v1.8；v1.8b 切 Spooler 主通道 / v1.9 自定义打印内容双路径）
-10. ⏳ `Communications`：统一通信接口 ICommunication（PLC/串口/TCP）
+10. ✅ PLC 通讯基础设施（IPlcTransport 抽象 + HslModbusTransport(InovanceTcpNet 192.168.1.88:502 站号1) + PlcCommunicationService 自动连接/双向心跳/手动启停，v1.10；ICommunication 统一多协议接口仍待扩展）
 11. ⏳ 图像真实服务接入（VisionCameraService）
 12. ⏳ DataAccess：数据库历史存储
