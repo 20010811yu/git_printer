@@ -59,7 +59,7 @@ d:\GitRepo\
 │   ├── ConfirmRequestEventArgs.cs  # VM↔View 确认请求事件参数（删除/新建配方等危险操作二次确认）
 │   └── MessageRequestEventArgs.cs  # VM↔View 消息提示请求事件参数（校验失败弹窗，纯单向通知）
 ├── DataAccess\ / Configs\ / Resources\ / docs\   # ⏳ 待开发
-├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；110 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳）
+├── tests\UiTopMachine.Tests\   # 单元测试（xUnit，net10.0-windows；116 用例覆盖命令/三态/xlsx往返/VM业务/编号查重/新建配方轮转/行序整理/ZPL打印/PLC连接与心跳/VM面板过滤）
 └── memory-bank\           # 项目记忆文档
 ```
 
@@ -89,6 +89,7 @@ d:\GitRepo\
 - **PLC 传输抽象 + 双向心跳模式** ✅（v1.10）：`IPlcTransport` 屏蔽协议实现（InovanceTcpNet/ModbusTcpNet 可构造切换，OperateResult 不上抛），Service 依赖抽象可注入 Fake 测试；心跳 = 连接循环（自动连接/断线重连/幂等启动）+ 心跳循环（写寄存器递增证 PC 活 + 读寄存器监测变化证 PLC 活，停滞 N 周期判 HeartbeatLost 触发重连）；单条长连接 IO 经 `SemaphoreSlim(1,1)` 串行化；CancellationTokenSource 驱动循环启停（避开 Timer 歧义坑）
 - **测试桩模式** ✅：StubLogService（内存记录日志供断言）/ StubPrintService（记录 ZPL、可控失败）/ 事件参数回填模拟 View 弹框（VM 测试零 UI 依赖）/ 临时目录 + IDisposable 每测试隔离
 - **配套测试模式** ✅：每次功能修改同步写/更新测试，用例名关联 ERR 编号（如 `ERR014_保存含末尾空行的表_重载后行数不变`），dotnet test 即自动回归全部历史修复
+- **Status 面板 PLC 专用过滤模式** ✅（v1.11）：面板 `Logs` 集合与文件日志双通道解耦——`ILogService.LogEmitted` 不再订阅（一般操作日志只落文件），面板仅由 `PlcConnectionStateChanged` 事件驱动（成功/错误直插，过程信息不入），VM 后台事件经 `SynchronizationContext.Post` 调度；测试用 `ImmediateSynchronizationContext`（Post 同步执行）替代 WinForms 消息泵断言面板内容
 
 ## 核心业务规则：抽屉三态判定
 
@@ -141,7 +142,7 @@ DrawerIndicatorControl.Status 属性绑定 ◀───────────�
 
 MainViewModel.InitializeAsync ▶ PlcCommunicationService.StartAsync ▶ 自动连接循环 ▶ InovanceTcpNet(192.168.1.88:502 站号1) ▶ PLC
                     │ 连接成功自动启心跳（写100递增/读101监测，停滞5周期 HeartbeatLost→重连）
-                    └─ConnectionStateChanged 事件▶ MainViewModel 按级别写 ILogService ▶ Status 列表面板；MainForm 关闭▶ShutdownAsync
+                    └─ConnectionStateChanged 事件▶ MainViewModel：全部级别落 ILogService 文件；面板（Logs/LogPanelControl）只插 PLC 条目——Connected=Success 绿、HeartbeatLost/Disconnected=Error 红、Connecting 不进面板（v1.11 面板 PLC 专用化）；MainForm 关闭▶ShutdownAsync
 
 按钮点击 ▶ CommandManagerHelper.Bind ▶ command.Execute ▶ VM 业务 ▶ 日志/状态更新 ▶ 界面刷新
 ```

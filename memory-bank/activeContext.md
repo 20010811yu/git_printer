@@ -2,7 +2,14 @@
 
 ## 当前工作焦点
 
-**PLC Modbus TCP 连接 + 双向心跳（v1.10）✅ 已完成（待真机验证）** —— 用户需求：「创建plc连接，plc ip为192.168.1.88，端口502，站号1，实现心跳启动，心跳监听，关闭心跳」。落地内容：
+**Status 列表面板改为 PLC 专用（v1.11）✅ 已完成** —— 用户需求：「修改listbox 的作用，不再存入系统操作信息，只存入与plc对接时的错误显示，以及连接成功的提示信息」。落地：
+- **MainViewModel**：取消订阅 `LogService.LogEmitted`（`OnLogEmitted` 删除）——一般系统操作日志（初始化/抽屉/配方/打印）仅经 LogService 落文件，不再进入 `Logs` 集合；抽屉 `DrawerChanged` 订阅保留
+- **面板新数据源**：`OnPlcConnectionStateChanged` 直接驱动 `AddPlcPanelEntry`——Connected=成功绿条、HeartbeatLost/Disconnected=错误红条（最新置顶、上限 200 条，经 SynchronizationContext.Post 调度）；Connecting「连接中…」过程信息只写文件不进面板
+- **双通道留痕**：全部 PLC 状态仍经 `_logService` 写文件日志（logs/yyyyMMdd.log），面板只是过滤视图
+- **测试**：新增 `MainViewModelPlcPanelTests` 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext 替代 WinForms 消息泵）：一般日志不进面板/连接成功进面板且成功级/连接失败与心跳丢失进面板且错误级/连接中不进面板/混合日志面板仅存 PLC 且文件全留痕/Initialize 启动与 Shutdown 停止调用；dotnet test **116/116 PASS**、构建 **0 警告 0 错误**
+- **下一步：真机联调 PLC**（v1.10 遗留：心跳寄存器写 100/读 101 约定 + Hsl 授权风险观察）
+
+### 上一焦点（v1.10 已完成的背景）
 - **依赖**：HslCommunication 12.9.2；客户端类 **InovanceTcpNet**（汇川协议，继承 ModbusTcpNet，用户指定保留；命名空间 `HslCommunication.Profinet.Inovance`），构造参数可切标准 ModbusTcpNet；V12 默认长连接，`SetPersistentConnection` 已过时不再调用（ERR-021）
 - **Communications/Plc/**：`IPlcTransport` 抽象（Connect/ReadShort/WriteShort/Close）+ `HslModbusTransport` 实现（超时各 3s；OperateResult 在此层转换，SDK 对象不外泄）
 - **Services**：`IPlcCommunicationService` + `PlcCommunicationService` —— 后台自动连接循环（失败 5s 重试、断线自动重连、幂等启动）+ 双向心跳（写寄存器 100 递增写 / 读寄存器 101 监测变化，PLC 侧停滞 5 周期判 HeartbeatLost 触发重连；SemaphoreSlim 串行化 IO；CancellationTokenSource 而非 Timer）；支持手动 StartHeartbeatAsync/StopHeartbeatAsync（幂等）；ReadRegisterAsync/WriteRegisterAsync 基础读写
@@ -28,6 +35,7 @@
 | 2026-09-03 | ZPL 打印机集成（v1.8） | 新增 ZplPrinterServiceTests 21 用例（ZPL 5 码型断言含 Code128 笔误修正/流水号校验 Theory/持久化往返补零/VM 5 用例打印桩模拟单张多张中途失败非法拒绝）；流水号补零位数保留修复 | ✅ 100/100 PASS（trx 留档） |
 | 2026-09-03 | 打印页自定义内容（v1.9） | 新增 3 用例（自定义内容每张打印流水号不变/纯空白回退流水号/自定义内容优先非法流水号不拦截）；修复 ERR-020（测试桩记录/失败注入随生产代码迁移至 Spooler 通道）+ 修 1 个历史 xUnit2013 警告 | ✅ 103/103 PASS |
 | 2026-09-04 | PLC 连接+双向心跳（v1.10） | 新增 PlcCommunicationServiceTests 7 用例（FakePlcTransport 桩：自动连接+心跳递增/PLC 停滞触发 HeartbeatLost+重连/手动停止心跳连接保持+手动重启/StopAsync 断连冻结/StartAsync 幂等/未连接启心跳拒绝/未连接读写拒绝）；顺手修 1 个既有 xUnit2013 警告（ERR-021 记录 Hsl V12 API 变化） | ✅ 110/110 PASS |
+| 2026-09-04 | Status 面板改 PLC 专用（v1.11） | 新增 MainViewModelPlcPanelTests 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext：一般日志不进面板/连接成功进面板成功级/失败与心跳丢失进面板错误级/连接中不进面板/混合日志面板仅 PLC 文件全留痕/Initialize 启动 Shutdown 停止） | ✅ 116/116 PASS |
 
 ## 当前处理中的错误
 
@@ -42,6 +50,11 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.11 ✅ **Status 列表面板改为 PLC 专用**（用户需求：「修改listbox 的作用，不再存入系统操作信息，只存入与plc对接时的错误显示，以及连接成功的提示信息」）：
+    - **MainViewModel**：取消订阅 `LogService.LogEmitted`（删除 `OnLogEmitted`）——一般操作日志仅落文件；`DrawerChanged` 订阅保留
+    - **面板数据源**：`OnPlcConnectionStateChanged` → `AddPlcPanelEntry` 直接插入 `Logs`（Connected=Success 绿 / HeartbeatLost、Disconnected=Error 红；Connecting 只写文件；Post 调度 UI 线程、最新置顶、上限 200）
+    - **测试**：新增 6 用例（StubDrawerService/StubPlcCommunicationService/ImmediateSynchronizationContext 三个测试桩）；**116/116 PASS、0 警告 0 错误**
 
 1.10 ✅ **PLC Modbus TCP 连接 + 双向心跳**（用户需求：「创建plc连接，plc ip为192.168.1.88，端口502，站号1，实现心跳启动，心跳监听，关闭心跳」；确认决策：HslCommunication + InovanceTcpNet、双向心跳、后台自动连接、状态入 Status 列表）：
     - **依赖**：csproj 加 HslCommunication 12.9.2；InovanceTcpNet（Profinet.Inovance 命名空间）为默认客户端，构造参数可切 ModbusTcpNet（ERR-021：V12 默认长连接，SetPersistentConnection 过时不调）
@@ -176,6 +189,7 @@
 | PLC 通讯库 | **HslCommunication，客户端类保留 InovanceTcpNet**（可构造参数切 ModbusTcpNet）✅ 已落地（v1.10） |
 | PLC 心跳机制 | **双向心跳**：PC 周期写递增值（写寄存器 100）+ 监听 PLC 侧读寄存器（101）变化，停滞 5 周期判丢失自动重连 ✅ 已落地（v1.10） |
 | PLC 连接/状态 UI | **后台自动连接**（不加页面/输入框），连接状态消息经 ILogService 显示在主窗体右侧 Status 列表面板 ✅ 已落地（v1.10） |
+| Status 列表面板语义 | **只存 PLC 对接信息**（连接成功提示 + 对接错误），不再存一般系统操作日志（v1.11，操作日志仅落文件）✅ 已落地 |
 
 ## 重要模式与偏好
 

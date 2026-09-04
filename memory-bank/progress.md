@@ -2,7 +2,15 @@
 
 ## ✅ 已完成功能
 
-### PLC Modbus TCP 连接 + 双向心跳（2026-09-04）⭐ 最新
+### Status 列表面板改为 PLC 专用（2026-09-04）⭐ 最新
+
+- [x] **面板语义变更（v1.11）**：主窗体右侧 Status 列表（LogPanelControl）**不再存入系统操作信息**（初始化/抽屉/配方/打印等一般日志），**只存 PLC 对接信息**——连接成功提示（成功绿条）+ 对接错误（连接失败/心跳丢失，错误红条）
+- [x] **实现**：MainViewModel 取消订阅 `LogService.LogEmitted`（删除 OnLogEmitted），`Logs` 集合仅由 `PlcConnectionStateChanged` 事件驱动（`AddPlcPanelEntry` 直插，Connecting 过程信息只写文件）；全部 PLC 状态仍经 LogService 落文件（面板=过滤视图，文件=完整留痕）
+- [x] **测试**：新增 MainViewModelPlcPanelTests 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext 无消息泵环境断言面板）
+- [x] 验证：dotnet test **116/116 PASS** + dotnet build **0 警告 0 错误**
+- [x] Memory Bank 同步更新（activeContext/systemPatterns/projectbrief/progress）
+
+### PLC Modbus TCP 连接 + 双向心跳（2026-09-04）
 
 - [x] **依赖接入（v1.10）**：HslCommunication 12.9.2——客户端类 **InovanceTcpNet**（汇川协议，继承 ModbusTcpNet，用户指定保留，命名空间 `HslCommunication.Profinet.Inovance`），构造参数可切标准 ModbusTcpNet；V12 默认长连接，`SetPersistentConnection` 过时不调（ERR-021）
 - [x] **通信抽象层**：`Communications/Plc/IPlcTransport`（Connect/ReadShort/WriteShort/Close）+ `HslModbusTransport`（3s 连接/收发超时，OperateResult 在此层转异常，SDK 对象不外泄）
@@ -185,9 +193,9 @@
 **新建配方备份轮转**（原文件改名+时间戳备份、新配方沿用 Recipe.xlsx 原名、确认弹框、页面即显，v1.7b/ERR-019）；
 **行序整理 + 自动补空白行**（数据连续排列空白垫底、按可见高度补真实可编辑空白行、RowHeight=36，v1.7b）；
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
-**PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；连接状态显示于 Status 列表面板；**待真机联调**，v1.10）；
+**PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.10/v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **110 用例全绿**（dotnet test）。
+单元测试 **116 用例全绿**（dotnet test）。
 
 ## ⚠️ 已知问题
 

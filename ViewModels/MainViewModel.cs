@@ -101,13 +101,10 @@ namespace UiTopMachine.ViewModels
             SendCommand = new AsyncRelayCommand(_ => SendAllRecipesAsync(), _ => !IsBusy);
             ExitCommand = new RelayCommand(_ => ExitApplication());
 
-            // 订阅日志事件
-            _logService.LogEmitted += OnLogEmitted;
-
             // 订阅抽屉状态变化推送
             _drawerService.DrawerChanged += OnDrawerChanged;
 
-            // 订阅 PLC 连接状态变化（写入日志集合，显示在 Status 列表面板）
+            // 面板（Status 列表）只显示 PLC 对接信息：一般操作日志仅经 LogService 落文件，不再订阅 LogEmitted 进入 Logs
             _plcService.ConnectionStateChanged += OnPlcConnectionStateChanged;
 
             _logService.Info("系统初始化完成，正在读取抽屉状态…");
@@ -157,7 +154,9 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// PLC 连接状态变化处理：按状态分级写入日志（LogService 内部已调度 UI 线程）
+        /// PLC 连接状态变化处理：
+        /// 面板（Status 列表）只存 PLC 对接信息——连接成功提示（绿）与错误（红）；
+        /// 连接中等过程信息只写文件日志，不进面板；全部状态均经 LogService 落文件留痕
         /// </summary>
         private void OnPlcConnectionStateChanged(object? sender, PlcConnectionEventArgs e)
         {
@@ -165,18 +164,40 @@ namespace UiTopMachine.ViewModels
             {
                 case PlcConnectionState.Connected:
                     _logService.Success($"PLC：{e.Message}");
+                    AddPlcPanelEntry(LogLevel.Success, e.Message);
                     break;
+
+                case PlcConnectionState.HeartbeatLost:
+                case PlcConnectionState.Disconnected:
+                    _logService.Error($"PLC：{e.Message}");
+                    AddPlcPanelEntry(LogLevel.Error, e.Message);
+                    break;
+
                 case PlcConnectionState.Connecting:
+                default:
                     _logService.Info($"PLC：{e.Message}");
                     break;
-                case PlcConnectionState.HeartbeatLost:
-                    _logService.Error($"PLC：{e.Message}");
-                    break;
-                case PlcConnectionState.Disconnected:
-                default:
-                    _logService.Warn($"PLC：{e.Message}");
-                    break;
             }
+        }
+
+        /// <summary>
+        /// 将 PLC 对接信息插入面板集合（事件来自后台线程，经 SynchronizationContext 调度至 UI 线程）
+        /// </summary>
+        private void AddPlcPanelEntry(LogLevel level, string message)
+        {
+            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            context.Post(_ =>
+            {
+                var vm = new LogEntryViewModel(new LogEntryModel { Level = level, Message = $"PLC：{message}" });
+                Logs.Insert(0, vm);
+                LatestLog = vm;
+
+                // 限制面板条数，防止内存膨胀
+                while (Logs.Count > 200)
+                {
+                    Logs.RemoveAt(Logs.Count - 1);
+                }
+            }, null);
         }
 
         /// <summary>
@@ -237,26 +258,6 @@ namespace UiTopMachine.ViewModels
                 var drawer = Drawers.FirstOrDefault(d => d.Index == model.Index);
                 drawer?.UpdateFromModel(model);
                 RefreshStatistics();
-            }, null);
-        }
-
-        /// <summary>
-        /// 日志事件处理（调度到 UI 线程，最新日志置顶显示）
-        /// </summary>
-        private void OnLogEmitted(object? sender, LogEntryModel entry)
-        {
-            var context = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-            context.Post(_ =>
-            {
-                var vm = new LogEntryViewModel(entry);
-                Logs.Insert(0, vm);
-                LatestLog = vm;
-
-                // 限制日志条数，防止内存膨胀
-                while (Logs.Count > 200)
-                {
-                    Logs.RemoveAt(Logs.Count - 1);
-                }
             }, null);
         }
 
