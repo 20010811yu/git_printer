@@ -62,7 +62,7 @@ namespace UiTopMachine.Services.Interfaces
         event EventHandler<PlcConnectionEventArgs>? ConnectionStateChanged;
 
         /// <summary>
-        /// 目标设备描述（如 "192.168.1.88:502 站号1"，用于界面展示连接状态）
+        /// 目标设备描述（如 "127.0.0.1:502 站号1"，用于界面展示连接状态）
         /// </summary>
         string Target { get; }
 

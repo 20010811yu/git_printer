@@ -73,7 +73,7 @@ namespace UiTopMachine.Services
         /// </summary>
         public PlcCommunicationService(
             IPlcTransport transport,
-            string target = "192.168.1.88:502 站号1",
+            string target = "127.0.0.1:502 站号1",
             string writeAddress = "D100",
             string readAddress = "D101",
             int heartbeatPeriodMs = 1000,

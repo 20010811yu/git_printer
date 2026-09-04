@@ -74,7 +74,7 @@ namespace UiTopMachine.ViewModels
         private LogLevel _plcStatusLevel = LogLevel.Error;
 
         /// <summary>
-        /// PLC 当前连接状态文字（显示在 Status 面板顶部状态行，如「已连接 192.168.1.88:502 站号1」）
+        /// PLC 当前连接状态文字（显示在 Status 面板顶部状态行，如「已连接 127.0.0.1:502 站号1」）
         /// </summary>
         public string PlcStatusText
         {
