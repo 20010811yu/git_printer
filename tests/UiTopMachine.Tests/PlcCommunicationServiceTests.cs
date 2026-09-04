@@ -120,7 +120,7 @@ namespace UiTopMachine.Tests
         private const ushort MaterialLength = 19;
         private const int MaterialPollPeriodMs = 20;
 
-        private static PlcCommunicationService CreateService(FakePlcTransport transport) =>
+        private static PlcCommunicationService CreateService(FakePlcTransport transport, bool monitorPlcAlive = false) =>
             new(transport,
                 target: "127.0.0.1:502 站号1",
                 writeAddress: WriteAddress,
@@ -130,7 +130,8 @@ namespace UiTopMachine.Tests
                 reconnectDelayMs: ReconnectDelayMs,
                 materialAddress: MaterialAddress,
                 materialLength: MaterialLength,
-                materialPollPeriodMs: MaterialPollPeriodMs);
+                materialPollPeriodMs: MaterialPollPeriodMs,
+                monitorPlcAlive: monitorPlcAlive);
 
         private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
         {
@@ -181,12 +182,6 @@ namespace UiTopMachine.Tests
             for (int i = 1; i < writes.Count; i++)
             {
                 Assert.True(writes[i].Value > writes[i - 1].Value, $"心跳计数值应递增：{writes[i - 1].Value} -> {writes[i].Value}");
-            }
-
-            // 读心跳：确实在读寄存器上监测（证明 PLC 在线的监听通道存在）
-            lock (transport.Reads)
-            {
-                Assert.Contains(ReadAddress, transport.Reads);
             }
 
             await service.StopAsync();
@@ -349,7 +344,7 @@ namespace UiTopMachine.Tests
         public async Task PlcHeartbeatStall_RaisesHeartbeatLost_AndReconnects()
         {
             var transport = new FakePlcTransport { PlcEchoesHeartbeat = false, StaleHeartbeatValue = 0 };
-            var service = CreateService(transport);
+            var service = CreateService(transport, monitorPlcAlive: true); // 双向心跳：开启 PLC 侧存活监测
 
             var heartbeatLost = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
             service.ConnectionStateChanged += (_, e) =>
@@ -366,8 +361,46 @@ namespace UiTopMachine.Tests
             var lost = await heartbeatLost.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Contains(ReadAddress, lost.Message);
 
+            // 双向模式确实在读寄存器上监测
+            lock (transport.Reads)
+            {
+                Assert.Contains(ReadAddress, transport.Reads);
+            }
+
             await WaitUntilAsync(() => transport.ConnectCount >= 2);
             await WaitUntilAsync(() => service.State == PlcConnectionState.Connected);
+
+            await service.StopAsync();
+        }
+
+        [Fact]
+        public async Task 单向心跳_只写不读_PLC停滞不判丢失()
+        {
+            var transport = new FakePlcTransport { PlcEchoesHeartbeat = false, StaleHeartbeatValue = 0 };
+            var service = CreateService(transport, monitorPlcAlive: false); // 单向：默认，取消双向
+
+            var heartbeatLost = new TaskCompletionSource<PlcConnectionEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            service.ConnectionStateChanged += (_, e) =>
+            {
+                if (e.State == PlcConnectionState.HeartbeatLost)
+                {
+                    heartbeatLost.TrySetResult(e);
+                }
+            };
+
+            await service.StartAsync();
+
+            // PLC 侧寄存器停滞也不应触发 HeartbeatLost：连接持续保持
+            await WaitUntilAsync(() => WriteCount(transport) >= 8);
+            Assert.False(heartbeatLost.Task.IsCompleted, "单向心跳不应判 PLC 心跳丢失");
+            Assert.Equal(PlcConnectionState.Connected, service.State);
+            Assert.Equal(1, transport.ConnectCount);
+
+            // 不读读心跳寄存器（只写 D100）
+            lock (transport.Reads)
+            {
+                Assert.DoesNotContain(ReadAddress, transport.Reads);
+            }
 
             await service.StopAsync();
         }

@@ -2,7 +2,14 @@
 
 ## 当前工作焦点
 
-**Status 面板常驻展示 PLC 连接状态（v1.13）✅ 已完成** —— 用户需求：「在listbox 展示plc的连接状态」。落地：
+**取消双向心跳（v1.14）✅ 已完成** —— 用户需求：「取消双向连接」（上文诊断：本地模拟器不改变 D101 → 读监测 5 周期判心跳丢失 → 断连循环）。落地：
+- **`PlcCommunicationService` 加 `monitorPlcAlive` 开关（默认 false = 单向心跳）**：只周期写 D100 递增（证明 PC 在线），不读 D101 不判丢失；`true` 恢复双向监测（读 D101 停滞判 HeartbeatLost），HeartbeatLost 通路保留
+- **Program.cs 显式 `monitorPlcAlive: false`**（真机联调 PLC 侧有心跳程序时改 true）
+- **测试**：停滞判丢失用例改为显式开启监测 + 新增单向用例（PLC 停滞不判丢失/不读 D101/连接保持）；主连接用例移除 D101 读取断言；dotnet test **129/129 PASS**、构建 **0 警告 0 错误**
+- **运行验证**：重启后连接保持 2 分钟+ 无任何心跳丢失/重连日志（对比 v1.13 每 10 秒一轮）；**物料轮询首读推送实证生效**——模拟器 M1000 区 12 个位为 true，对应抽屉"Idle → Warning（有料）"状态灯联动
+- **下一步：真机联调**（IP 改 192.168.1.88；PLC 侧如有心跳程序可开 monitorPlcAlive:true 恢复双向；Hsl 授权观察）
+
+### 上一焦点（v1.13 已完成的背景）
 - **面板顶部常驻状态行**：LogPanelControl 自绘（颜色圆点 + 粗体文字）——已连接=绿「已连接 {Target}」/连接中=橙/心跳丢失与未连接=红；下方消息流保持 v1.11 语义
 - **实现链**：`IPlcCommunicationService` 加 `Target` 描述（IP:端口 站号，Program.cs 显式传）→ MainViewModel 加 `PlcStatusText`/`PlcStatusLevel`（事件内 SynchronizationContext.Post 刷新）→ MainForm 订阅 PropertyChanged 转发 → `LogPanelControl.UpdatePlcStatus`（UI 线程直接 Invalidate）
 - **运行实测**（截图验证）：状态行正确渲染红色「PLC：未连接」（本地模拟器不动 D101，10 秒周期在已连接/未连接间切换为预期行为）；真机上将是稳定绿色
@@ -68,6 +75,7 @@
 | 2026-09-04 | PLC 连续读取 M1000 物料数组（v1.12） | 新增 4 服务用例（FakePlcTransport 位读桩：自动连续读取 M1000×19 断言/变化触发事件下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 VM 用例（物料推送更新抽屉 HasMaterial、配方保留、三态汇总正确） | ✅ 121/121 PASS |
 | 2026-09-04 | PLC 地址格式修复（v1.12b，ERR-022） | 新增 HslModbusAddressTests 6 守护用例（离线实证 TranslateToModbusAddress：H5U 翻译 M1000→1000/D100→100/D101→101 各功能码/纯数字失败/默认系列 D 失败必须显式 H5U）；本机模拟器全链路实证（D100/D101 写读、M1000×19）；更新服务测试地址常量为 D100/D101 | ✅ 127/127 PASS |
 | 2026-09-04 | 面板常驻 PLC 状态行（v1.13） | 新增 1 用例（状态行流转：未连接→连接中→已连接含 Target→心跳丢失→未连接 + 级别断言）；运行截图验证状态行渲染 | ✅ 128/128 PASS |
+| 2026-09-04 | 取消双向心跳（v1.14） | 停滞判丢失用例改显式 monitorPlcAlive:true + 新增单向用例（PLC 停滞不判丢失/不读 D101/连接保持）；主连接用例移除 D101 断言；运行验证连接保持 2 分钟+ 无重连、物料首读推送抽屉联动 | ✅ 129/129 PASS |
 
 ## 当前处理中的错误
 
@@ -82,6 +90,11 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.14 ✅ **取消双向心跳（单向可配）**（用户需求：「取消双向连接」；背景：本地模拟器不动 D101 致读监测反复判丢失断连）：
+    - **PlcCommunicationService** 加 `monitorPlcAlive` 开关（默认 false）：单向心跳只写 D100 递增；true 恢复读 D101 停滞监测（HeartbeatLost 通路保留）；Program.cs 显式 false
+    - **运行验证**：连接保持 2 分钟+ 零重连（对比 v1.13 每 10 秒一轮）；物料首读推送抽屉状态灯联动实证（模拟器 M1000 区 12 位 true → 对应抽屉有料）
+    - **测试**：调整 + 新增用例；**129/129 PASS、0 警告 0 错误**
 
 1.13 ✅ **Status 面板常驻展示 PLC 连接状态**（用户需求：「在listbox 展示plc的连接状态」）：
     - **LogPanelControl**：顶部自绘状态行（圆点+粗体，绿=已连接/橙=连接中/红=心跳丢失与未连接）+ `UpdatePlcStatus`；消息流下移不变

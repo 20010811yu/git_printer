@@ -32,6 +32,9 @@ namespace UiTopMachine.Services
         private readonly int _materialPollPeriodMs;
         private readonly string _target;
 
+        /// <summary>是否监测 PLC 侧存活（读读心跳寄存器变化）；false=单向心跳只写不读（本地调试/PLC 侧无心跳程序时）</summary>
+        private readonly bool _monitorPlcAlive;
+
         /// <summary>Modbus IO 串行化锁：心跳与业务读写共用一条长连接，必须排队（防回归清单 #3 精神）</summary>
         private readonly SemaphoreSlim _ioSemaphore = new(1, 1);
 
@@ -69,7 +72,8 @@ namespace UiTopMachine.Services
 
         /// <summary>
         /// 构造：注入传输层与心跳/物料轮询参数（参数默认值可被测试覆盖以缩短等待）。
-        /// 地址默认值按生产所用 InovanceTcpNet 的汇川软元件格式（字地址 D 区、位地址 M 区，ERR-022）
+        /// 地址默认值按生产所用 InovanceTcpNet 的汇川软元件格式（字地址 D 区、位地址 M 区，ERR-022）；
+        /// monitorPlcAlive=false 为单向心跳（只写不读，本地调试/PLC 侧无心跳程序时用），true 恢复双向监测
         /// </summary>
         public PlcCommunicationService(
             IPlcTransport transport,
@@ -81,7 +85,8 @@ namespace UiTopMachine.Services
             int reconnectDelayMs = 5000,
             string materialAddress = "M1000",
             ushort materialLength = 19,
-            int materialPollPeriodMs = 1000)
+            int materialPollPeriodMs = 1000,
+            bool monitorPlcAlive = false)
         {
             _transport = transport ?? throw new ArgumentNullException(nameof(transport));
             _target = target;
@@ -93,6 +98,7 @@ namespace UiTopMachine.Services
             _materialAddress = materialAddress;
             _materialLength = materialLength;
             _materialPollPeriodMs = materialPollPeriodMs;
+            _monitorPlcAlive = monitorPlcAlive;
         }
 
         /// <inheritdoc />
@@ -435,8 +441,9 @@ namespace UiTopMachine.Services
         }
 
         /// <summary>
-        /// 双向心跳循环：写递增值到写心跳寄存器 + 读读心跳寄存器监测变化，
-        /// PLC 侧连续停滞达到阈值或通讯异常时置 _heartbeatFailed 退出（由连接循环处理重连）
+        /// 心跳循环：周期向写心跳寄存器递增写数（证明 PC 在线）；
+        /// monitorPlcAlive=true 时同时读读心跳寄存器监测变化（证明 PLC 在线，连续停滞达阈值置失败退出）；
+        /// 通讯异常时置 _heartbeatFailed 退出（由连接循环处理重连）
         /// </summary>
         private async Task HeartbeatLoopAsync(CancellationToken token)
         {
@@ -455,24 +462,27 @@ namespace UiTopMachine.Services
                         counter = counter >= HeartbeatCounterMax ? (ushort)1 : (ushort)(counter + 1);
                         await _transport.WriteShortAsync(_writeAddress, (short)counter);
 
-                        // 读心跳：监测 PLC 侧寄存器变化，证明 PLC 在线
-                        var plcValue = await _transport.ReadShortAsync(_readAddress);
-                        if (lastPlcValue.HasValue && plcValue == lastPlcValue.Value)
+                        // 读心跳：监测 PLC 侧寄存器变化，证明 PLC 在线（单向心跳模式下跳过）
+                        if (_monitorPlcAlive)
                         {
-                            missed++;
-                        }
-                        else
-                        {
-                            missed = 0;
-                        }
+                            var plcValue = await _transport.ReadShortAsync(_readAddress);
+                            if (lastPlcValue.HasValue && plcValue == lastPlcValue.Value)
+                            {
+                                missed++;
+                            }
+                            else
+                            {
+                                missed = 0;
+                            }
 
-                        lastPlcValue = plcValue;
+                            lastPlcValue = plcValue;
 
-                        if (missed >= _maxMissedCycles)
-                        {
-                            _heartbeatFailureMessage = $"读心跳寄存器 {_readAddress} 连续 {_maxMissedCycles} 个周期无变化";
-                            _heartbeatFailed = true;
-                            return;
+                            if (missed >= _maxMissedCycles)
+                            {
+                                _heartbeatFailureMessage = $"读心跳寄存器 {_readAddress} 连续 {_maxMissedCycles} 个周期无变化";
+                                _heartbeatFailed = true;
+                                return;
+                            }
                         }
                     }
                     finally
