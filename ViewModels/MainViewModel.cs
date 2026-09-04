@@ -26,19 +26,9 @@ namespace UiTopMachine.ViewModels
         /// </summary>
         private readonly SynchronizationContext _uiContext;
 
-        private string _companyTitle = "上海寅铠精密机械制造有限公司";
         private string _pageTitle = "进料抽屉状态";
         private bool _isBusy;
         private LogEntryViewModel? _latestLog;
-
-        /// <summary>
-        /// 公司标题
-        /// </summary>
-        public string CompanyTitle
-        {
-            get => _companyTitle;
-            set => SetProperty(ref _companyTitle, value);
-        }
 
         /// <summary>
         /// 页面标题

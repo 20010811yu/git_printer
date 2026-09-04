@@ -24,6 +24,10 @@ namespace UiTopMachine
             // WinForms 高 DPI 与视觉样式初始化（.NET 6+ 官方推荐方式）
             ApplicationConfiguration.Initialize();
 
+            // 全局异常模式必须最先设置——在创建任何控件/同步上下文之前，
+            // 否则报"线程上已创建控件，异常模式不能再更改"导致启动即崩（v1.21 教训）
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
             // 依赖注入容器：Service 层单例，ViewModel/View 瞬态
             var services = new ServiceCollection();
             ConfigureServices(services);
@@ -35,7 +39,6 @@ namespace UiTopMachine
 
             // 全局异常捕获（工业软件不允许崩溃，记录后优雅处理）：
             // 异常信息写入 Status 面板（v1.21 面板含"程序运行时错误"）并弹窗提示
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (_, e) =>
             {
                 mainViewModel.PublishPanelEntry(LogLevel.Error, $"程序运行时错误：{e.Exception.Message}");

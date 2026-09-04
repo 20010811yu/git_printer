@@ -2,7 +2,16 @@
 
 ## 当前工作焦点
 
-**面板重定义为设备对接与运行错误状态（v1.21）✅ 已完成** —— 用户需求：「重新定义listbox 的作用，listbox用于与plc对接时的状态显示，例如连接成功或连接失败，失败的具体原因；心跳错误相关的内容，vision方案的加载等」+「加入程序运行时发生的错误」。落地：
+**品牌化改造：Logo/标题/程序图标（v1.22）✅ 已完成** —— 用户需求：① 顶栏公司名文本替换为 Resources/tittle.png（调整到合适大小）② 程序名称"进料抽屉监控系统"改为"上海寅铠" ③ Resources/Ic.ico 设为程序图标。落地：
+- **发现并处理**：`Ic.ico` 实为 PNG（文件头魔数证实），直接编译/加载都会失败 → 转换生成真 ICO `Resources/App.ico`（64×64，原 Ic.ico 保留）
+- **csproj**：`ApplicationIcon=Resources\App.ico`（exe 文件图标）；`Resources\tittle.png` CopyToOutputDirectory（运行时加载）；Description 同步"上海寅铠"
+- **MainForm**：窗体 `Text="上海寅铠"`；`Icon=Icon.ExtractAssociatedIcon(exe)`（零文件依赖）；顶栏 `_companyLabel` → `_companyLogo` PictureBox（tittle.png 等比 284×48 Zoom，加载失败静默留白）；移除 CompanyTitle 绑定
+- **MainViewModel**：删除已无引用的 `CompanyTitle` 属性
+- **验证**：dotnet test **155/155 PASS**、构建 **0 警告 0 错误**；重启截图实证（窗口标题/任务栏图标/顶栏 logo 全部生效；图像页方案自动加载正常）
+- **AssemblyName 未改**（exe 文件名仍 UiTopMachine.exe，避免破坏启动路径引用；如需改 exe 名告知即可）
+- **下一步：真机联调**（不变）
+
+### 上一焦点（v1.21 已完成的背景）
 - **面板定位（四类信息）**：① PLC 连接成功（绿）/连接失败含原因（红）② 心跳丢失/检测连续失败/物料读取失败（红）③ **视觉方案加载成功（绿）/失败含原因（红）**（新增）④ **程序运行时错误**——全局异常处理（ThreadException/UnhandledException）在弹窗同时发布面板 Error 条目（新增）；检测完成的 Info 与"连接中"过程信息仍只落文件防刷屏
 - **实现**：新增 `IPanelStatusPublisher.PublishPanelEntry(level, message)` 接口（MainViewModel 实现，内部 _uiContext.Post + InsertPanelEntry，任意线程可调）；ImagePageViewModel 注入发布者（方案加载成功/失败、连续检测失败发布）；Program.cs 提前解析 MainViewModel 并在全局异常处理器中发布
 - **测试**：StubPanelPublisher 桩；新增 3 用例（加载成功发布 Success/加载失败发布含原因 Error/连续检测失败发布含原因 Error）；dotnet test **155/155 PASS**、构建 **0 警告 0 错误**；重启程序连接正常
@@ -133,6 +142,7 @@
 | 2026-09-04 | 输入框编辑权限联动（v1.18） | 新增 4 用例（有料可编辑/无料只读 Theory、HasMaterial 变化通知 IsInputReadOnly、启动默认灰+只读锁定）；运行截图+无障碍树实证黄=可编辑灰=只读 | ✅ 134/134 PASS |
 | 2026-09-04 | 抽屉配方分组数据层（v1.19） | 新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序/多组按形成顺序/改写配方旧组失去新组末尾/重写同配方 Leave 刷新排组尾/清空移出+重填视为新填入/空白不分组/Trim 同组/编号不重复）；启动冒烟正常 | ✅ 142/142 PASS |
 | 2026-09-04 | 图像页编写（v1.20） | 新增 ImageInspectionServiceTests 5 用例（未加载拒绝/加载成功幂等+事件/空路径失败/检测返回结果图与序号/Shutdown 拒绝）+ ImagePageViewModelTests 5 用例（自动加载翻转状态/单次检测计数/连续启停产生结果/未加载命令不可用/Shutdown 取消循环） | ✅ 152/152 PASS |
+| 2026-09-04 | 品牌 Logo/标题/图标（v1.22） | 无新增逻辑用例（纯视觉改造）；转换真 ICO 实证（Icon 加载校验 64×64）；运行截图实证窗口标题"上海寅铠"、顶栏 tittle.png logo、标题栏图标 | ✅ 155/155 PASS |
 
 ## 当前处理中的错误
 
@@ -147,6 +157,12 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.22 ✅ **品牌化：Logo/标题/程序图标**（用户需求：顶栏公司名换 tittle.png、程序名改"上海寅铠"、Ic.ico 设为程序图标）：
+    - **发现**：Ic.ico 实为 PNG（文件头魔数证实）→ 转换生成真 ICO `Resources/App.ico`（64×64，原 Ic.ico 保留）
+    - **csproj**：ApplicationIcon=Resources\App.ico；tittle.png CopyToOutputDirectory；Description 改"上海寅铠"
+    - **MainForm**：Text="上海寅铠"；Icon=ExtractAssociatedIcon(exe)；顶栏 companyLabel→companyLogo PictureBox（284×48 Zoom，加载失败静默留白）；MainViewModel 删 CompanyTitle
+    - **验证**：155/155 PASS；截图实证 logo/标题/图标全部生效
 
 1.20 ✅ **仿参考程序编写图像页**（用户需求：仿照 Form.txt 编写图像页面）：
     - **服务抽象 + Mock**：IImageInspectionService/ImageInspectionService（方案加载/检测运行/GDI+ 模拟图）；ImageInspectionResult 模型

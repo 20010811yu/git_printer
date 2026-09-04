@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Drawing;
 using System.Windows.Forms;
 using UiTopMachine.Common.Commands;
@@ -26,7 +27,7 @@ namespace UiTopMachine.Views
         // ══════════════ 布局控件 ══════════════
         private Panel _topBar = null!;
         private AntdUI.Button _exitButton = null!;
-        private Label _companyLabel = null!;
+        private PictureBox _companyLogo = null!;
         private LogPanelControl _logPanel = null!;
         private Panel _pageHost = null!;
 
@@ -77,12 +78,28 @@ namespace UiTopMachine.Views
         // ══════════════ UI 构建 ══════════════
 
         /// <summary>
+        /// 加载程序图标（编译期嵌入 exe 的 Resources\App.ico）；失败返回 null（窗体用默认图标）
+        /// </summary>
+        private static Icon? TryLoadAppIcon()
+        {
+            try
+            {
+                return Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// 构建界面布局（AntdUI 风格：浅色现代、圆角、轻描边）
         /// </summary>
         private void InitializeUi()
         {
             // 窗体基础
-            Text = "进料抽屉监控系统";
+            Text = "上海寅铠";
+            Icon = TryLoadAppIcon();
             Size = new Size(1500, 940);
             MinimumSize = new Size(1280, 800);
             StartPosition = FormStartPosition.CenterScreen;
@@ -100,14 +117,26 @@ namespace UiTopMachine.Views
             _topBar.Paint += (s, e) =>
                 e.Graphics.DrawLine(new Pen(Color.FromArgb(226, 232, 240)), 0, _topBar.Height - 1, _topBar.Width, _topBar.Height - 1);
 
-            // 公司名标题（左上，加大字体）
-            _companyLabel = new Label
+            // 公司 Logo（左上，替代原公司名文本；Resources\tittle.png 随程序分发，按顶栏高度等比缩放）
+            _companyLogo = new PictureBox
             {
-                AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 17f, FontStyle.Bold, GraphicsUnit.Point),
-                ForeColor = Color.FromArgb(38, 50, 66),
-                Location = new Point(20, 20)
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Size = new Size(284, 48),
+                Location = new Point(20, 14),
+                BackColor = Color.White
             };
+            try
+            {
+                var logoPath = Path.Combine(AppContext.BaseDirectory, "Resources", "tittle.png");
+                if (File.Exists(logoPath))
+                {
+                    _companyLogo.Image = Image.FromFile(logoPath);
+                }
+            }
+            catch
+            {
+                // Logo 加载失败不阻断启动（顶栏留白）
+            }
 
             // 退出按钮（右上角，AntdUI 危险语义红色，Anchor 右侧随窗口自适应）
             _exitButton = new AntdUI.Button
@@ -121,7 +150,7 @@ namespace UiTopMachine.Views
             };
 
             _topBar.Controls.Add(_exitButton);
-            _topBar.Controls.Add(_companyLabel);
+            _topBar.Controls.Add(_companyLogo);
 
             // ── 底部导航栏（TabItemControl，绑定导航命令）──
             var bottomBar = new Panel
@@ -248,10 +277,6 @@ namespace UiTopMachine.Views
         /// </summary>
         private void BindViewModel()
         {
-            // 标题绑定（VM → View 单向）
-            _companyLabel.DataBindings.Add(nameof(Label.Text), _mainViewModel, nameof(MainViewModel.CompanyTitle),
-                false, DataSourceUpdateMode.Never);
-
             // 退出按钮绑定命令
             CommandManagerHelper.Bind(_exitButton, _mainViewModel.ExitCommand);
 
