@@ -234,6 +234,17 @@
 - **教训**：⚠️ **自定义二进制/文本混合协议的「分隔符约定」必须构建端与解析端同步实现**——只改一端（或构建端忘了写分隔符）解析端会静默丢数据；这类跨端契约 Bug 首选「构建→解析往返测试」当场暴露（本次首轮测试即红）
 - **状态**：🟢 已解决
 
+### ERR-026：桥接 exe 相对路径回溯级数错误（4 级应为 3 级，解析到仓库外致「桥接进程不存在」）
+- **错误现象**：图像页加载方案报「视觉方案加载失败：桥接进程不存在：D:\tools\VmVisionBridge\bin\Debug\net48\VmVisionBridge.exe」——实际文件存在于 D:\GitRepo\tools\ 下
+- **发生上下文**：2026-09-07 v1.25 方案路径切换任务交付后用户运行程序时反馈
+- **发生时间**：2026-09-07 16:49
+- **根本原因**：`Program.cs` 中 `Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ...)` 从 `bin\Debug\net10.0-windows\` 回溯到仓库根只需要 **3 级**（net10.0-windows→Debug→bin→GitRepo），误写 4 级多退一级解析到 `D:\tools\...`（不存在）；`EnsureBridgeReadyNoLock` 的 `File.Exists` 检查如实报错——错误信息里打印的完整解析路径就是最直接的破案线索
+- **解决方式**：回溯级数改 3 级并注释推导链（net10.0-windows → Debug → bin → 仓库根）；修复后桥接 `--probe` 模式端到端实证 `PROBE_OK procedures=流程1`（VisionTesting.sol 加载成功且流程名匹配）
+- **解决时间**：2026-09-07 16:58
+- **验证结果**：🟢 已解决——主程序与桥接项目构建各 0 警告 0 错误；probe 实证方案加载 + 流程名枚举通过；单元测试 180/180 不受影响（纯 DI 路径参数）
+- **教训**：⚠️ **相对路径回溯级数必须以 AppContext.BaseDirectory 的实际值逐级推导**（`bin\Debug\<TFM>\` 是 3 级不是 4 级），不要凭感觉多写一个 `..`；此类错误构建/测试全绿（DI 参数为纯字符串），只有运行时才会暴露——错误信息中打印完整解析路径是必备的排障手段；下次可加「启动时路径存在性自检日志」提前暴露
+- **状态**：🟢 已解决
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -266,6 +277,7 @@
 16. **后台线程更新 UI** → SynchronizationContext 必须构造时捕获存字段，严禁后台事件里现取 `Current ?? new`（Post 静默丢失）；UI 线程 Wait 异步任务用 `Task.Run` 包裹防死锁（ERR-023）
 17. **跨运行时 SDK（.NET Framework）** → net10.0 禁止直引 GAC 的 Framework 程序集；用桥接进程（net48 独立项目承载 SDK + 命名管道 + **双侧共享同一份协议源码**）隔离；协议「分隔符约定」构建/解析两端同步实现并以往返测试锁死（ERR-025）；主 csproj 必须 `Compile Remove="tools\**"` 防 glob 误收（同 tests 教训）
 18. **PowerShell 5.1 临时脚本** → 无 BOM UTF-8 按 ANSI 解析，中文字面量变乱码；传中文用环境变量 + Base64 / `GetFolderPath` / `[char]` 拼接，或干脆避免脚本内非 ASCII 字面量（v1.24 实测）
+19. **相对路径回溯级数** → 以 `AppContext.BaseDirectory` 实际值逐级推导（`bin\Debug\<TFM>\` → 仓库根 = 3 级 `..`），禁止凭感觉多写；DI 传入的文件路径参数构建/测试不校验，运行时才暴露——服务报错必须打印完整解析路径（ERR-026）
 
 ## 沉淀出口
 

@@ -79,7 +79,9 @@ namespace UiTopMachine
             // 承载 VmSolution SDK，本服务经命名管道收发命令与 PNG 结果图；
             // 桥接 exe 缺失/启动失败自动降级报错，Mock 实现（ImageInspectionService）保留可随时切回
             var solutionPath = @"D:\Printer\VisionTesting.sol";
-            var bridgeExePath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
+            // 桥接 exe 位于仓库 tools 目录（net48 独立构建）：从 bin\Debug\net10.0-windows\ 回溯 3 级到仓库根
+            // （net10.0-windows → Debug → bin → GitRepo；此前误写 4 级解析到 D:\tools\ 致"桥接进程不存在"，ERR-026）
+            var bridgeExePath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..",
                 "tools", "VmVisionBridge", "bin", "Debug", "net48", "VmVisionBridge.exe");
             services.AddSingleton<IImageInspectionService>(sp =>
                 new VisionMasterBridgeInspectionService(

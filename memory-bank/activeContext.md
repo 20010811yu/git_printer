@@ -2,6 +2,13 @@
 
 ## 当前工作焦点
 
+**桥接 exe 路径回溯级数修复（v1.25b，ERR-026）✅ 已完成** —— 用户反馈「视觉方案加载失败，桥接进程不存在」。落地：
+- **根因**：Program.cs 桥接 exe 相对路径从 `bin\Debug\net10.0-windows\` 回溯到仓库根只需要 **3 级 `..`**（net10.0-windows→Debug→bin→GitRepo），v1.24 引入时误写 4 级多退一级解析到 `D:\tools\...`（不存在）→ `File.Exists` 检查如实报「桥接进程不存在」（错误信息中打印的完整解析路径即为破案线索）
+- **修复**：回溯级数 4→3 并注释推导链；主程序与桥接项目构建各 0 警告 0 错误；桥接 `--probe` 模式端到端实证 `PROBE_OK procedures=流程1`（VisionTesting.sol 加载成功 + 流程名匹配）
+- **下一步：图像页人工验证**（切换图像页确认 VisionTesting.sol 自动加载 + 单次/连续检测出真实图）
+
+### 上一焦点（v1.25 已完成的背景）
+
 **VM 方案路径切换 VisionTesting.sol（v1.25）✅ 已完成** —— 用户需求：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」。落地：
 - **路径统一收敛到 Program.cs（DI 单点维护）**：`solutionPath` 改为 `D:\Printer\VisionTesting.sol`（文件已确认存在）；流程名「流程1」不变（VisionTesting.sol 的 VmServer.xml 与 Test.sol 容器一致，probe 实测见 v1.24）
 - **VM 层路径感知清除（顺带修正 v1.20 遗留隐患）**：`ImagePageViewModel` 删除硬编码 `@"D:\test\DetectionProcess.sol"`，改调无参 `LoadSolutionAsync()`——方案路径由服务层 DI 配置统一提供，ViewModel 不感知具体路径（接口签名升级 `LoadSolutionAsync(string? solutionPath = null)`，null = 用服务自身配置路径；Mock/桥接实现/测试桩三处同步）
@@ -189,10 +196,16 @@
 | ERR-008 | Cline 终端 `&&` 分隔符不可用（实为 PowerShell） | 🟡 规避中 |
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
+| ERR-026 | 桥接 exe 相对路径回溯级数错误（4 级应为 3 级） | 🟢 已解决 |
 
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-07）
+
+1.25b ✅ **桥接 exe 路径回溯级数修复（ERR-026）**（用户反馈：「视觉方案加载失败，桥接进程不存在」）：
+    - **根因**：`AppContext.BaseDirectory` = `bin\Debug\net10.0-windows\`，回溯仓库根 3 级足够，v1.24 误写 4 级 → 解析到 `D:\tools\`（仓库外）
+    - **修复**：Program.cs 回溯级数 4→3 + 推导链注释；构建 0/0；桥接 `--probe` 端到端实证 `PROBE_OK procedures=流程1`（VisionTesting.sol）
+    - errorlog 归档 ERR-026 + 防回归清单 #19（相对路径回溯级数逐级推导）
 
 1.25 ✅ **VM 方案路径切换 VisionTesting.sol**（用户需求：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」）：
     - **Program.cs**：`solutionPath` → `D:\Printer\VisionTesting.sol`（DI 单点维护，文件存在性已实证）；流程名「流程1」不变
