@@ -2,7 +2,15 @@
 
 ## ✅ 已完成功能
 
-### 面板重定义为设备对接与运行错误状态（2026-09-04）⭐ 最新
+### 窗口按钮布局抽取 + 测试守护（2026-09-07）⭐ 最新
+
+- [x] **需求（v1.23b）**：v1.23 收尾强化——右上角窗口控制按钮的布局常量与位置计算从 MainForm 抽取为纯函数静态类，并以单元测试锁死「任意容器宽度下按钮都落在容器内且右对齐」不变量
+- [x] **实现**：新增 `Views/WindowButtonLayout.cs`（常量 ButtonWidth=56/ButtonHeight=42/RightMargin=16/Spacing=8/TopBarHeight=76 + `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)` 纯函数）；MainForm 尺寸改用常量、**彻底禁用 Anchor**（ERR-024 教训：Anchor=Right 在容器未定型时冻结负右缘距离）、`_topBar.Resize → LayoutWindowButtons()` 实时重算 + 初始调用一次
+- [x] **测试**：新增 `WindowButtonLayoutTests` 10 用例（常量自洽 1 + 任意宽度容器内右对齐 Theory 6 含 ERR-024 元凶宽度 200/最大化 1870/2K 屏 2560 + 从右向左排列间距一致 Theory 3）
+- [x] 验证：dotnet test **165/165 PASS** + dotnet build **0 警告 0 错误**
+- [x] Memory Bank 同步更新（activeContext/progress/projectbrief/systemPatterns）
+
+### 面板重定义为设备对接与运行错误状态（2026-09-04）
 
 - [x] **需求（v1.21）**：重新定义 listbox 作用——显示 ① PLC 连接成功/失败（含具体原因）② 心跳错误 ③ Vision 方案加载（成功/失败含原因）④ 程序运行时发生的错误（全局异常）
 - [x] **实现**：新增 `IPanelStatusPublisher.PublishPanelEntry(level, message)` 接口（MainViewModel 实现，_uiContext 调度 + InsertPanelEntry，任意线程可调）；ImagePageViewModel 注入发布者——方案加载成功/失败、连续检测失败进面板（检测完成 Info 只落文件防刷屏）；Program.cs 全局异常处理器（ThreadException/UnhandledException）弹窗同时发布面板 Error 条目
@@ -299,7 +307,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **155 用例全绿**（dotnet test，含 HSL 地址格式守护用例）。
+单元测试 **165 用例全绿**（dotnet test，含 HSL 地址格式守护与窗口按钮布局守护用例）。
 
 ## ⚠️ 已知问题
 

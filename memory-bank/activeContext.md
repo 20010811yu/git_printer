@@ -2,6 +2,14 @@
 
 ## 当前工作焦点
 
+**窗口按钮布局抽取 + 测试守护（v1.23b）✅ 已完成** —— v1.23 收尾强化：右上角三按钮的布局常量与位置计算从 MainForm 抽取为纯函数静态类，并以单元测试锁死「任意容器宽度下按钮都落在容器内且右对齐」不变量。落地：
+- **新增 `Views/WindowButtonLayout.cs`**：布局常量（ButtonWidth=56/ButtonHeight=42/RightMargin=16/Spacing=8/TopBarHeight=76/TopMargin 垂直居中推导）+ 纯函数 `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)`（右对齐 + 从右向左依次排列）——纯函数无 UI 依赖，可直接单测
+- **MainForm 改造**：`CreateWindowButton` 尺寸改用 WindowButtonLayout 常量；**彻底禁用 Anchor**（ERR-024 教训：Anchor=Right 在顶栏 Dock 宽度未定型时冻结负右缘距离把按钮推出窗口外）；新增 `LayoutWindowButtons()` 由 `_topBar.Resize` 事件按当前宽度实时重算三按钮位置，初始手动调用一次
+- **测试守护**：新增 `WindowButtonLayoutTests` 10 用例（常量自洽性 1 + 任意宽度容器内右对齐 Theory 6 组含 ERR-024 元凶宽度 200/最大化宽度 1870/2K 屏 2560 + 从右向左排列间距一致 Theory 3 组）；dotnet test **165/165 PASS**、构建 **0 警告 0 错误**
+- **下一步：真机联调**（不变）；无边框窗口自绘按钮如有视觉细节问题随时反馈
+
+### 上一焦点（v1.23 已完成的背景）
+
 **右上角窗口控制按钮图标化（v1.23）✅ 已完成** —— 用户需求：「在窗口的右上角增加窗口缩小，全屏，以及退出图标」（此前按钮功能在但视觉不可见）。落地：
 - **图标化**：三按钮符号从 Marlett 10pt 改为 YaHei UI 13f Bold Unicode 几何符号——`—` 最小化 / `□` 最大化全屏（Maximized 时 `❐` 还原）/ `✕` 关闭退出（hover 红底白字）；尺寸 48×34
 - **根因修复（ERR-024）**：按钮 UIA 可见可点但屏幕上看不到——`Anchor=Top|Right` 在控件未加入容器时设置，冻结负右缘距离把按钮排到窗口外 1156px（x=3026）；去掉 Anchor 改 `_topBar.Resize → LayoutWindowButtons()` 重算位置（右缘 -144/-96/-48）
@@ -151,6 +159,7 @@
 | 2026-09-04 | 抽屉配方分组数据层（v1.19） | 新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序/多组按形成顺序/改写配方旧组失去新组末尾/重写同配方 Leave 刷新排组尾/清空移出+重填视为新填入/空白不分组/Trim 同组/编号不重复）；启动冒烟正常 | ✅ 142/142 PASS |
 | 2026-09-04 | 图像页编写（v1.20） | 新增 ImageInspectionServiceTests 5 用例（未加载拒绝/加载成功幂等+事件/空路径失败/检测返回结果图与序号/Shutdown 拒绝）+ ImagePageViewModelTests 5 用例（自动加载翻转状态/单次检测计数/连续启停产生结果/未加载命令不可用/Shutdown 取消循环） | ✅ 152/152 PASS |
 | 2026-09-04 | 品牌 Logo/标题/图标（v1.22） | 无新增逻辑用例（纯视觉改造）；转换真 ICO 实证（Icon 加载校验 64×64）；运行截图实证窗口标题"上海寅铠"、顶栏 tittle.png logo、标题栏图标 | ✅ 155/155 PASS |
+| 2026-09-07 | 窗口按钮布局抽取+测试守护（v1.23b） | 新增 WindowButtonLayoutTests 10 用例（常量自洽 1/任意宽度容器内右对齐 Theory 6 含 ERR-024 元凶宽度 200 与最大化 1870/从右向左排列间距一致 Theory 3）；布局逻辑抽取为纯函数静态类，MainForm 改 Resize 重算禁用 Anchor | ✅ 165/165 PASS |
 
 ## 当前处理中的错误
 
@@ -164,7 +173,14 @@
 
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
-## 最近变更（2026-09-04）
+## 最近变更（2026-09-07）
+
+1.23b ✅ **窗口按钮布局抽取 + 测试守护**（v1.23 收尾强化：布局常量与位置计算抽取为纯函数 + 单元测试锁死不变量）：
+    - **新增 `Views/WindowButtonLayout.cs`**：布局常量（56×42/右边距 16/间距 8/顶栏高 76）+ `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)` 纯函数（右对齐、从右向左、垂直居中）
+    - **MainForm**：按钮尺寸改用常量；彻底禁用 Anchor（ERR-024 教训）；`_topBar.Resize → LayoutWindowButtons()` 实时重算 + 初始调用一次
+    - **测试**：新增 WindowButtonLayoutTests 10 用例（Theory 覆盖 ERR-024 元凶宽度 200/最大化 1870/2K 屏 2560 等边界）；**165/165 PASS、0 警告 0 错误**
+
+### 历史变更（2026-09-04）
 
 1.23 ✅ **右上角窗口控制按钮图标化**（用户需求：右上角增加 窗口缩小/全屏/退出 图标；此前按钮 Marlett 符号渲染淡且 Anchor bug 错位不可见）：
     - **图标化**：符号改 YaHei UI 13f Bold Unicode 几何符号（— 最小化 / □ 最大化 ❐ 还原 / ✕ 关闭），48×34，hover 高亮、关闭 hover 红底白字

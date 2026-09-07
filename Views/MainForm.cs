@@ -108,8 +108,8 @@ namespace UiTopMachine.Views
         }
 
         /// <summary>
-        /// 创建窗口控制按钮（AntdUI.Button：与原退出按钮同款组件，该组件在此窗体的
-        /// Anchor Top|Right 布局长期渲染正常；符号 — 最小化 / □ 最大化(❐ 还原) / ✕ 关闭）
+        /// 创建窗口控制按钮（AntdUI.Button；符号 — 最小化 / □ 最大化(❐ 还原) / ✕ 关闭）。
+        /// 尺寸与 WindowButtonLayout 常量一致
         /// </summary>
         private AntdUI.Button CreateWindowButton(string symbol, AntdUI.TTypeMini type, Action onClick)
         {
@@ -117,13 +117,25 @@ namespace UiTopMachine.Views
             {
                 Text = symbol,
                 Type = type,
-                Size = new Size(56, 42),
+                Size = new Size(WindowButtonLayout.ButtonWidth, WindowButtonLayout.ButtonHeight),
                 Radius = 6,
                 Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold, GraphicsUnit.Point),
                 Cursor = Cursors.Hand
             };
             btn.Click += (_, _) => onClick();
             return btn;
+        }
+
+        /// <summary>
+        /// 按顶栏当前宽度重排右上角三按钮位置（右对齐 + 垂直居中）。
+        /// ⚠️ 禁用 Anchor：ERR-024 教训——Anchor=Right 在容器未定型时设置会冻结负右缘距离，
+        /// 把按钮推出窗口外（点击有效但屏幕不可见）；Resize 时实时重算是唯一可靠方式
+        /// </summary>
+        private void LayoutWindowButtons()
+        {
+            _minimizeButton.Location = WindowButtonLayout.GetMinimizeLocation(_topBar.Width);
+            _maximizeButton.Location = WindowButtonLayout.GetMaximizeLocation(_topBar.Width);
+            _closeButton.Location = WindowButtonLayout.GetCloseLocation(_topBar.Width);
         }
 
         /// <summary>
@@ -211,17 +223,14 @@ namespace UiTopMachine.Views
             _maximizeButton = CreateWindowButton("□", AntdUI.TTypeMini.Default, ToggleMaximize);
             _closeButton = CreateWindowButton("✕", AntdUI.TTypeMini.Error, () => Close());
 
-            // 右上角排布（先加入容器定型，再设 Anchor=Top|Right；与原退出按钮同款布局模式）
+            // 右上角排布（⚠️ ERR-024 教训：禁用 Anchor——顶栏 Dock 宽度未定型时设 Anchor=Right
+            // 会冻结负右缘距离把按钮推出窗口外；改由 Resize 事件按当前宽度实时重算位置）
             _topBar.Controls.Add(_minimizeButton);
             _topBar.Controls.Add(_maximizeButton);
             _topBar.Controls.Add(_closeButton);
             _topBar.Controls.Add(_companyLogo);
-            _minimizeButton.Location = new Point(1200, 16);
-            _maximizeButton.Location = new Point(1264, 16);
-            _closeButton.Location = new Point(1328, 16);
-            _minimizeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            _maximizeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            _closeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _topBar.Resize += (_, _) => LayoutWindowButtons();
+            LayoutWindowButtons(); // 初始排布一次（顶栏仍为默认宽度，加入 Form 展宽后 Resize 再触发）
 
             // ── 底部导航栏（TabItemControl，绑定导航命令）──
             var bottomBar = new Panel
