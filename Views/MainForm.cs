@@ -42,9 +42,9 @@ namespace UiTopMachine.Views
         private Panel _pageHost = null!;
 
         /// <summary>右上角窗口控制按钮（无边框窗体自绘：最小化/最大化(全屏)/关闭）</summary>
-        private System.Windows.Forms.Button _minimizeButton = null!;
-        private System.Windows.Forms.Button _maximizeButton = null!;
-        private System.Windows.Forms.Button _closeButton = null!;
+        private AntdUI.Button _minimizeButton = null!;
+        private AntdUI.Button _maximizeButton = null!;
+        private AntdUI.Button _closeButton = null!;
 
         /// <summary>底部 Tab 控件（按 PageType 索引）</summary>
         private readonly Dictionary<PageType, TabItemControl> _tabs = new();
@@ -108,51 +108,41 @@ namespace UiTopMachine.Views
         }
 
         /// <summary>
-        /// 创建无边框窗体的窗口控制按钮（Unicode 几何符号，普通字体渲染稳定清晰）：
-        /// 符号由调用方传入（— 最小化 / □ 最大化 ❐ 还原 / ✕ 关闭）
+        /// 创建窗口控制按钮（AntdUI.Button：与原退出按钮同款组件，该组件在此窗体的
+        /// Anchor Top|Right 布局长期渲染正常；符号 — 最小化 / □ 最大化(❐ 还原) / ✕ 关闭）
         /// </summary>
-        private System.Windows.Forms.Button CreateWindowButton(string symbol, Color back, Color hoverBack, Action onClick)
+        private AntdUI.Button CreateWindowButton(string symbol, AntdUI.TTypeMini type, Action onClick)
         {
-            var btn = new System.Windows.Forms.Button
+            var btn = new AntdUI.Button
             {
                 Text = symbol,
-                FlatStyle = FlatStyle.Flat,
-                Size = new Size(48, 34),
-                BackColor = back,
-                ForeColor = Color.FromArgb(38, 50, 66),
-                Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold, GraphicsUnit.Point),
-                TabStop = false,
+                Type = type,
+                Size = new Size(56, 42),
+                Radius = 6,
+                Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold, GraphicsUnit.Point),
                 Cursor = Cursors.Hand
-                // 不使用 Right 锚定：控件未定型时设置 Anchor 会冻结错误的右缘距离，把按钮推到窗口外（v1.23 实证）；
-                // 位置统一由 LayoutWindowButtons() 在顶栏 Resize 时重算
             };
-            btn.FlatAppearance.BorderSize = 0;
-            btn.FlatAppearance.MouseOverBackColor = hoverBack;
             btn.Click += (_, _) => onClick();
             return btn;
         }
 
         /// <summary>
-        /// 最大化 / 还原切换（全屏功能）
+        /// 最大化 / 还原切换（全屏功能）。还原时窗口重新居中，
+        /// 避免还原到之前被拖出屏幕外的位置导致右上角按钮不可见
         /// </summary>
         private void ToggleMaximize()
         {
-            WindowState = WindowState == FormWindowState.Maximized
-                ? FormWindowState.Normal
-                : FormWindowState.Maximized;
-            _maximizeButton.Text = WindowState == FormWindowState.Maximized ? "❐" : "□"; // ❐=还原
-        }
+            if (WindowState == FormWindowState.Maximized)
+            {
+                WindowState = FormWindowState.Normal;
+                CenterToScreen(); // 还原后重新居中，确保窗口整体在屏幕内
+            }
+            else
+            {
+                WindowState = FormWindowState.Maximized;
+            }
 
-        /// <summary>
-        /// 窗口控制按钮右上角布局：按顶栏实际宽度重算（右缘三个 48×34 按钮紧贴顶边）。
-        /// 不使用 Anchor=Right——控件未定型时设置会冻结错误的右缘距离把按钮推出窗口外（v1.23 实证）
-        /// </summary>
-        private void LayoutWindowButtons()
-        {
-            int width = _topBar.ClientSize.Width;
-            _minimizeButton.Location = new Point(width - 144, 0);
-            _maximizeButton.Location = new Point(width - 96, 0);
-            _closeButton.Location = new Point(width - 48, 0);
+            _maximizeButton.Text = WindowState == FormWindowState.Maximized ? "❐" : "□"; // ❐=还原
         }
 
         /// <summary>
@@ -216,29 +206,22 @@ namespace UiTopMachine.Views
 
             // 窗口控制按钮（右上角：— 最小化 / □ 最大化全屏（❐ 还原）/ ✕ 关闭退出；
             // 关闭走 Close() → OnFormClosing → 停止服务，替代原红色退出按钮）
-            _minimizeButton = CreateWindowButton("—", Color.White, Color.FromArgb(229, 236, 242),
+            _minimizeButton = CreateWindowButton("—", AntdUI.TTypeMini.Default,
                 () => WindowState = FormWindowState.Minimized);
-            _maximizeButton = CreateWindowButton("□", Color.White, Color.FromArgb(229, 236, 242),
-                ToggleMaximize);
-            _closeButton = CreateWindowButton("✕", Color.White, Color.FromArgb(211, 47, 47),
-                () => Close());
-            _closeButton.ForeColor = Color.FromArgb(38, 50, 66);
-            _closeButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(211, 47, 47);
-            _closeButton.MouseEnter += (_, _) => _closeButton.ForeColor = Color.White;
-            _closeButton.MouseLeave += (_, _) => _closeButton.ForeColor = Color.FromArgb(38, 50, 66);
+            _maximizeButton = CreateWindowButton("□", AntdUI.TTypeMini.Default, ToggleMaximize);
+            _closeButton = CreateWindowButton("✕", AntdUI.TTypeMini.Error, () => Close());
 
-            // 右上角排布（挂载在顶栏内；位置由顶栏 Resize 重算，紧贴顶边右缘）
-            _minimizeButton.Location = new Point(1356, 0);
-            _maximizeButton.Location = new Point(1404, 0);
-            _closeButton.Location = new Point(1452, 0);
-
+            // 右上角排布（先加入容器定型，再设 Anchor=Top|Right；与原退出按钮同款布局模式）
             _topBar.Controls.Add(_minimizeButton);
             _topBar.Controls.Add(_maximizeButton);
             _topBar.Controls.Add(_closeButton);
             _topBar.Controls.Add(_companyLogo);
-            _companyLogo.BringToFront();
-            _topBar.Resize += (_, _) => LayoutWindowButtons();
-            LayoutWindowButtons();
+            _minimizeButton.Location = new Point(1200, 16);
+            _maximizeButton.Location = new Point(1264, 16);
+            _closeButton.Location = new Point(1328, 16);
+            _minimizeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _maximizeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _closeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
             // ── 底部导航栏（TabItemControl，绑定导航命令）──
             var bottomBar = new Panel
@@ -297,12 +280,13 @@ namespace UiTopMachine.Views
             Controls.Add(statusCard);
             Controls.Add(bottomBar);
             Controls.Add(_topBar);
-            Controls.Add(_minimizeButton);
-            Controls.Add(_maximizeButton);
-            Controls.Add(_closeButton);
 
             // 初始显示默认页（进料抽屉）
             ShowPage(_navigation.CurrentPage);
+
+            // 启动即最大化（工业上位机标准形态）：窗口始终占满屏幕，
+            // 右上角窗口控制按钮不会被拖出屏幕外（此前窗口被拖至超出屏幕右缘导致按钮不可见）
+            WindowState = FormWindowState.Maximized;
         }
 
         /// <summary>
