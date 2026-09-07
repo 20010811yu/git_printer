@@ -78,14 +78,14 @@ namespace UiTopMachine
             // 主程序 net10.0 无法直接引用 VM SDK（.NET Framework 程序集），由 tools/VmVisionBridge（net48）
             // 承载 VmSolution SDK，本服务经命名管道收发命令与 PNG 结果图；
             // 桥接 exe 缺失/启动失败自动降级报错，Mock 实现（ImageInspectionService）保留可随时切回
-            var solutionPath = @"D:\OneDrive\桌面\Test.sol";
+            var solutionPath = @"D:\Printer\VisionTesting.sol";
             var bridgeExePath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
                 "tools", "VmVisionBridge", "bin", "Debug", "net48", "VmVisionBridge.exe");
             services.AddSingleton<IImageInspectionService>(sp =>
                 new VisionMasterBridgeInspectionService(
                     bridgeExePath: Path.GetFullPath(bridgeExePath),
                     solutionPath: solutionPath,
-                    procedureName: "流程1", // 流程名：2026-09-07 桥接 --probe 实测 Test.sol 枚举结果
+                    procedureName: "流程1", // 流程名：方案文件容器内实证（VisionTesting.sol 的 VmServer.xml 与 Test.sol 一致，probe 实测见 v1.24）
                     logService: sp.GetRequiredService<ILogService>()));
             // PLC 传输层（InovanceTcpNet 走 Modbus TCP 502 站号 1，长连接；可切标准 ModbusTcpNet；IP 当前为本地调试 127.0.0.1，真机改 192.168.1.88）
             services.AddSingleton<IPlcTransport>(new HslModbusTransport("127.0.0.1", 502, 1, useInovance: true));

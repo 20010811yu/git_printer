@@ -13,6 +13,9 @@ namespace UiTopMachine.Views.Controls
     /// </summary>
     public class DrawerIndicatorControl : Control
     {
+        /// <summary>编号数字颜色（用户指定：蓝色；此前为 LightBlue 淡蓝对比不足）</summary>
+        public static readonly Color NumberColor = Color.FromArgb(25, 118, 210);
+
         private DrawerStatus _status = DrawerStatus.Idle;
         private int _index;
 
@@ -126,13 +129,13 @@ namespace UiTopMachine.Views.Controls
                 g.DrawEllipse(pen, rect);
             }
 
-            // ── 编号（放大字号 LightBlue，位于圆圈左上角一点点：轻微压住圆的左上边缘）──
+            // ── 编号（放大字号蓝色，位于圆圈左上角一点点：轻微压住圆的左上边缘）──
             if (_index > 0)
             {
                 // 字号随圆体直径缩放（直径的 30%），钳制 14~34px
                 float fontSize = Math.Clamp(diameter * 0.30f, 14f, 34f);
                 using var numFont = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel);
-                using var numBrush = new SolidBrush(Color.LightBlue);
+                using var numBrush = new SolidBrush(NumberColor);
 
                 // 左侧偏移圆左缘 6% 直径（用户要求编号再向左移一点），钳制 ≥1 防越界
                 float numX = Math.Max(1f, rect.X - diameter * 0.06f);

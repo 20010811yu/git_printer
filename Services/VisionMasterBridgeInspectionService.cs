@@ -81,7 +81,7 @@ namespace UiTopMachine.Services
         // ══════════════ 接口实现 ══════════════
 
         /// <inheritdoc />
-        public Task<Result<bool>> LoadSolutionAsync(string solutionPath)
+        public Task<Result<bool>> LoadSolutionAsync(string? solutionPath)
         {
             var path = string.IsNullOrWhiteSpace(solutionPath) ? _solutionPath : solutionPath;
             return Task.Run(() => LoadCore(path));

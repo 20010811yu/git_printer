@@ -177,7 +177,8 @@ namespace UiTopMachine.ViewModels
         {
             _logService.Info("开始加载视觉检测方案…");
 
-            var result = await _inspectionService.LoadSolutionAsync(@"D:\test\DetectionProcess.sol");
+            // 不传具体路径：使用服务层 DI 配置的方案路径（Program.cs 统一维护，VM 层不感知路径）
+            var result = await _inspectionService.LoadSolutionAsync();
             if (result.Success)
             {
                 OnPropertyChanged(nameof(IsSolutionLoaded));

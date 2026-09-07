@@ -33,14 +33,15 @@ namespace UiTopMachine.Services
         public string ProcedureName { get; } = "Testing";
 
         /// <inheritdoc />
-        public async Task<Result<bool>> LoadSolutionAsync(string solutionPath)
+        public async Task<Result<bool>> LoadSolutionAsync(string? solutionPath)
         {
             if (IsSolutionLoaded)
             {
                 return Result<bool>.OK(true); // 幂等：方案已加载
             }
 
-            if (string.IsNullOrWhiteSpace(solutionPath))
+            // null = 使用服务层配置的方案路径（Mock 无真实方案，模拟加载成功）；显式传入空白路径仍判失败
+            if (solutionPath is not null && string.IsNullOrWhiteSpace(solutionPath))
             {
                 return Result<bool>.Fail("方案路径为空，无法加载");
             }

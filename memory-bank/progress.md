@@ -2,7 +2,15 @@
 
 ## ✅ 已完成功能
 
-### VM 方案加载换真实 .sol（VisionMaster 桥接进程）（2026-09-07）⭐ 最新
+### VM 方案路径切换 VisionTesting.sol（2026-09-07）⭐ 最新
+
+- [x] **需求（v1.25）**：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」——图像页 VisionMaster 检测方案从 Test.sol 切换为生产路径 `D:\Printer\VisionTesting.sol`
+- [x] **路径收敛 DI 单点维护**：Program.cs `solutionPath` → `D:\Printer\VisionTesting.sol`（文件存在性已实证 Test-Path True）；流程名「流程1」不变（VisionTesting.sol 的 VmServer.xml 与 Test.sol 容器一致，probe 实测见 v1.24）
+- [x] **VM 层路径感知清除（顺带修正 v1.20 遗留隐患）**：`ImagePageViewModel` 删除硬编码 `@"D:\test\DetectionProcess.sol"`，改调无参 `LoadSolutionAsync()`；接口签名升级 `LoadSolutionAsync(string? solutionPath = null)`（null = 用服务自身 DI 配置路径），Mock/桥接实现/测试桩三处同步
+- [x] 验证：dotnet test **180/180 PASS** + dotnet build **0 警告 0 错误**
+- [x] Memory Bank 同步更新（activeContext/progress/projectbrief/systemPatterns）
+
+### VM 方案加载换真实 .sol（VisionMaster 桥接进程）（2026-09-07）
 
 - [x] **需求（v1.24）**：「vm方案加载换成实际的sol」——图像页从 Mock 模拟图切换为真实海康 VisionMaster 4.4.0 加载方案并运行检测
 - [x] **架构决策**：VM SDK 为 .NET Framework 程序集（GAC：VM.Core/VM.PlatformSDKCS，net10.0 无法直引）→ 用户确认**桥接进程方案**——tools/VmVisionBridge（net48 x64）承载 SDK，主程序经命名管道按共享二进制帧协议收发（PNG 结果图跨进程传输）
@@ -306,6 +314,8 @@
 
 **构建通过（0 警告 0 错误）**：`dotnet build` 后执行 `bin\Debug\net10.0-windows\UiTopMachine.exe`。
 底部 Tab 可在打印/图像/进料抽屉/配方四页面间切换；进料抽屉页 18 抽屉三态实时变化（Mock），配方输入联动状态灯；
+**图像页已接真实 VisionMaster 检测**（v1.24 桥接进程 + v1.25 方案路径 `D:\Printer\VisionTesting.sol` 收敛于 Program.cs DI 单点维护，流程名「流程1」）；
+单元测试 **180 用例全绿**（dotnet test）。
 配方管理页为 AntdUI Table（双击编辑 + 编号唯一校验 + 增删行列 + 新建空白配方带时间戳不删原文件 + 打开文件夹）；
 **新增列为弹框交互**（InputDialog 收集列名 + 空列名校验失败，v1.3）；
 **删除行/列带确认弹框**（ConfirmDialog 二次确认 + 单元格单击选中驱动按钮可用态，v1.4）；
@@ -317,7 +327,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **165 用例全绿**（dotnet test，含 HSL 地址格式守护与窗口按钮布局守护用例）。
+单元测试 **180 用例全绿**（dotnet test，含 VM 桥接协议、HSL 地址格式守护与窗口按钮布局守护用例）。
 
 ## ⚠️ 已知问题
 

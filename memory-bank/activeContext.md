@@ -2,6 +2,14 @@
 
 ## 当前工作焦点
 
+**VM 方案路径切换 VisionTesting.sol（v1.25）✅ 已完成** —— 用户需求：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」。落地：
+- **路径统一收敛到 Program.cs（DI 单点维护）**：`solutionPath` 改为 `D:\Printer\VisionTesting.sol`（文件已确认存在）；流程名「流程1」不变（VisionTesting.sol 的 VmServer.xml 与 Test.sol 容器一致，probe 实测见 v1.24）
+- **VM 层路径感知清除（顺带修正 v1.20 遗留隐患）**：`ImagePageViewModel` 删除硬编码 `@"D:\test\DetectionProcess.sol"`，改调无参 `LoadSolutionAsync()`——方案路径由服务层 DI 配置统一提供，ViewModel 不感知具体路径（接口签名升级 `LoadSolutionAsync(string? solutionPath = null)`，null = 用服务自身配置路径；Mock/桥接实现/测试桩三处同步）
+- **验证**：目标 .sol 存在（Test-Path True）；dotnet build **0 警告 0 错误**；dotnet test **180/180 PASS**
+- **下一步：图像页人工验证**（切换图像页确认 VisionTesting.sol 自动加载 + 单次/连续检测出真实图）
+
+### 上一焦点（v1.24 已完成的背景）
+
 **VM 方案加载换真实 .sol（v1.24）✅ 已完成** —— 用户需求：「vm方案加载换成实际的sol」——图像页从 Mock 模拟图切换为真实海康 VisionMaster 4.4.0 加载 `D:\OneDrive\桌面\Test.sol` 并运行检测。因 VM SDK 为 .NET Framework 程序集（GAC，net10.0 无法直引），采用**桥接进程方案**（用户确认方案 A）：
 - **新增 `tools/VmVisionBridge/`（net48 x64 桥接进程）**：承载 VmSolution SDK——服务模式监听命名管道 `UiTopMachine.VmBridge`，按二进制帧协议（命令1B+长度4B+payload）处理 Ping/Load/Run/Close/ListProcedures；检测运行 `VmSolution.Load(path,pwd,false)` → `Instance["流程1"] as VmProcedure` → `Run()` → `ModuResult.GetOutputImageV2("ImageData")` → `ImageBaseData.ToBitmap()` → PNG 回帧；`--probe "sol路径"` 探测模式枚举流程名
 - **新增 `Common/VmBridge/VmBridgeProtocol.cs`（共享源码）**：主程序与桥接项目 link 同一份文件编译，帧编解码 + 响应构建/解析（头部 key=value 行 + `\n\n` 分隔 + PNG 二进制，中文 Base64 编码），杜绝两侧漂移
@@ -170,6 +178,7 @@
 | 2026-09-04 | 品牌 Logo/标题/图标（v1.22） | 无新增逻辑用例（纯视觉改造）；转换真 ICO 实证（Icon 加载校验 64×64）；运行截图实证窗口标题"上海寅铠"、顶栏 tittle.png logo、标题栏图标 | ✅ 155/155 PASS |
 | 2026-09-07 | 窗口按钮布局抽取+测试守护（v1.23b） | 新增 WindowButtonLayoutTests 10 用例（常量自洽 1/任意宽度容器内右对齐 Theory 6 含 ERR-024 元凶宽度 200 与最大化 1870/从右向左排列间距一致 Theory 3）；布局逻辑抽取为纯函数静态类，MainForm 改 Resize 重算禁用 Anchor | ✅ 165/165 PASS |
 | 2026-09-07 | VM 方案加载换真实 .sol（v1.24） | 新增 VmBridgeProtocolTests 15 用例（帧编解码往返 4/响应构建解析往返含中文 Base64 与 PNG 边界 5/服务失败路径与构造校验 6，不启动真实桥接进程）；测试暴露并修复 BuildResponse 头部缺 `\n\n` 结束标记致 PNG 解析丢失的真 Bug；另端到端管道联调实证（Ping/Load Test.sol/List「流程1」/Run 返回 986×645 PNG isok=1/Close 全链路） | ✅ 180/180 PASS |
+| 2026-09-07 | VM 方案路径切换 VisionTesting.sol（v1.25） | 无新增逻辑用例（纯路径配置切换 + 接口默认参数）；接口签名升级 `LoadSolutionAsync(string?)` 后全量回归（Mock/桥接/测试桩三处同步编译通过）；目标 .sol 存在性实证（Test-Path True）；构建 0 警告 0 错误 | ✅ 180/180 PASS |
 
 ## 当前处理中的错误
 
@@ -184,6 +193,12 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-07）
+
+1.25 ✅ **VM 方案路径切换 VisionTesting.sol**（用户需求：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」）：
+    - **Program.cs**：`solutionPath` → `D:\Printer\VisionTesting.sol`（DI 单点维护，文件存在性已实证）；流程名「流程1」不变
+    - **接口链同步**：`IImageInspectionService.LoadSolutionAsync(string? solutionPath = null)`——null=用服务配置路径；`VisionMasterBridgeInspectionService`（空/ null 回退 `_solutionPath`）、Mock `ImageInspectionService`（null=模拟加载成功）、测试桩同步
+    - **ImagePageViewModel**：删除 VM 层硬编码 `D:\test\DetectionProcess.sol`，改调无参 `LoadSolutionAsync()`（路径归 Service/DI，VM 不感知）
+    - **验证**：构建 0 警告 0 错误；**180/180 PASS**
 
 1.24 ✅ **VM 方案加载换真实 .sol（VisionMaster 桥接进程）**（用户需求：「vm方案加载换成实际的sol」）：
     - **新增 `tools/VmVisionBridge/`**（net48 x64 桥接进程，承载 VmSolution SDK）：命名管道服务（Ping/Load/Run/Close/ListProcedures 二进制帧协议）+ `--probe` 流程名探测模式；GAC 引用 VM.Core + VM.PlatformSDKCS

@@ -21,9 +21,10 @@ namespace UiTopMachine.Services.Interfaces
         string ProcedureName { get; }
 
         /// <summary>
-        /// 加载检测方案（对应参考 VmSolution.Load；重复加载幂等）
+        /// 加载检测方案（对应参考 VmSolution.Load；重复加载幂等）。
+        /// <paramref name="solutionPath"/> 为 null 时使用服务层自身配置的方案路径（DI 注入，Program.cs 统一维护）
         /// </summary>
-        Task<Result<bool>> LoadSolutionAsync(string solutionPath);
+        Task<Result<bool>> LoadSolutionAsync(string? solutionPath = null);
 
         /// <summary>
         /// 运行一次检测（对应参考 VmProcedure.SyncRun：采集 + 执行流程 + 返回结果图）；

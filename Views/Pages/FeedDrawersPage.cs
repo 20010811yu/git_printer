@@ -21,6 +21,8 @@ namespace UiTopMachine.Views.Pages
         private const int Columns = 6;
         /// <summary>行数（强制 3 行）</summary>
         private const int Rows = 3;
+        /// <summary>输入框行高（px，用户要求增高：46→58）</summary>
+        public const int InputRowHeight = 58;
 
         // ══════════════ 布局控件 ══════════════
         private AntdUI.Button _sendButton = null!;
@@ -128,7 +130,7 @@ namespace UiTopMachine.Views.Pages
         /// ┌──────────────┐
         /// │  状态灯（填充） │ ← 指示灯控件（编号左上角+自适应圆圈）
         /// ├──────────────┤
-        /// │   配方输入框   │ ← 固定 46px 行，输入框水平居中
+        /// │   配方输入框   │ ← 固定行高（InputRowHeight），输入框水平居中
         /// └──────────────┘
         /// 随窗口缩放，输入框永远完整可见
         /// </summary>
@@ -144,7 +146,7 @@ namespace UiTopMachine.Views.Pages
                 Margin = new Padding(10, 26, 10, 8)
             };
 
-            // 单元格内部：双行 TableLayoutPanel（指示灯行 100% + 输入框行固定 46px）
+            // 单元格内部：双行 TableLayoutPanel（指示灯行 100% + 输入框行固定高）
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -154,8 +156,8 @@ namespace UiTopMachine.Views.Pages
                 Margin = new Padding(0)
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));   // 指示灯：占剩余全部
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));    // 输入框：固定高 46px
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));          // 指示灯：占剩余全部
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, InputRowHeight)); // 输入框：固定行高
 
             // 状态灯：编号左上角，圆圈自适应完整显示
             cell.Indicator = new DrawerIndicatorControl

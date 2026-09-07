@@ -81,7 +81,7 @@ namespace UiTopMachine.Tests
             public event EventHandler? SolutionLoaded;
 #pragma warning restore CS0067
 
-            public Task<Result<bool>> LoadSolutionAsync(string solutionPath) =>
+            public Task<Result<bool>> LoadSolutionAsync(string? solutionPath = null) =>
                 Task.FromResult(Result<bool>.Fail("模拟方案文件不存在"));
 
             public Task<Result<ImageInspectionResult>> RunInspectionAsync() =>
