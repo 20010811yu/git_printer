@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using UiTopMachine.Common.Commands;
 using UiTopMachine.Models;
@@ -12,11 +13,21 @@ using UiTopMachine.Views.Pages;
 namespace UiTopMachine.Views
 {
     /// <summary>
-    /// 主窗体（纯 View）：导航壳 —— 顶栏（公司名/退出）+ 底部 Tab 导航 + 中央页面容器 + 右侧全局 Status 日志
+    /// 主窗体（纯 View）：导航壳 —— 顶栏（公司 Logo/退出）+ 底部 Tab 导航 + 中央页面容器 + 右侧全局 Status 日志
     /// 页面切换由 NavigationViewModel 驱动，本窗体仅做页面可见性切换，零业务逻辑
     /// </summary>
     public class MainForm : Form
     {
+        // 无边框窗体拖动所需的 Win32 消息（顶栏按下左键伪装成标题栏拖动）
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HT_CAPTION = 0x2;
+
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
         // ══════════════ 依赖（ViewModel 注入） ══════════════
         private readonly NavigationViewModel _navigation;
         private readonly MainViewModel _mainViewModel;
@@ -26,10 +37,14 @@ namespace UiTopMachine.Views
 
         // ══════════════ 布局控件 ══════════════
         private Panel _topBar = null!;
-        private AntdUI.Button _exitButton = null!;
         private PictureBox _companyLogo = null!;
         private LogPanelControl _logPanel = null!;
         private Panel _pageHost = null!;
+
+        /// <summary>右上角窗口控制按钮（无边框窗体自绘：最小化/最大化(全屏)/关闭）</summary>
+        private System.Windows.Forms.Button _minimizeButton = null!;
+        private System.Windows.Forms.Button _maximizeButton = null!;
+        private System.Windows.Forms.Button _closeButton = null!;
 
         /// <summary>底部 Tab 控件（按 PageType 索引）</summary>
         private readonly Dictionary<PageType, TabItemControl> _tabs = new();
@@ -93,36 +108,97 @@ namespace UiTopMachine.Views
         }
 
         /// <summary>
+        /// 创建无边框窗体的窗口控制按钮（Unicode 几何符号，普通字体渲染稳定清晰）：
+        /// 符号由调用方传入（— 最小化 / □ 最大化 ❐ 还原 / ✕ 关闭）
+        /// </summary>
+        private System.Windows.Forms.Button CreateWindowButton(string symbol, Color back, Color hoverBack, Action onClick)
+        {
+            var btn = new System.Windows.Forms.Button
+            {
+                Text = symbol,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(48, 34),
+                BackColor = back,
+                ForeColor = Color.FromArgb(38, 50, 66),
+                Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold, GraphicsUnit.Point),
+                TabStop = false,
+                Cursor = Cursors.Hand
+                // 不使用 Right 锚定：控件未定型时设置 Anchor 会冻结错误的右缘距离，把按钮推到窗口外（v1.23 实证）；
+                // 位置统一由 LayoutWindowButtons() 在顶栏 Resize 时重算
+            };
+            btn.FlatAppearance.BorderSize = 0;
+            btn.FlatAppearance.MouseOverBackColor = hoverBack;
+            btn.Click += (_, _) => onClick();
+            return btn;
+        }
+
+        /// <summary>
+        /// 最大化 / 还原切换（全屏功能）
+        /// </summary>
+        private void ToggleMaximize()
+        {
+            WindowState = WindowState == FormWindowState.Maximized
+                ? FormWindowState.Normal
+                : FormWindowState.Maximized;
+            _maximizeButton.Text = WindowState == FormWindowState.Maximized ? "❐" : "□"; // ❐=还原
+        }
+
+        /// <summary>
+        /// 窗口控制按钮右上角布局：按顶栏实际宽度重算（右缘三个 48×34 按钮紧贴顶边）。
+        /// 不使用 Anchor=Right——控件未定型时设置会冻结错误的右缘距离把按钮推出窗口外（v1.23 实证）
+        /// </summary>
+        private void LayoutWindowButtons()
+        {
+            int width = _topBar.ClientSize.Width;
+            _minimizeButton.Location = new Point(width - 144, 0);
+            _maximizeButton.Location = new Point(width - 96, 0);
+            _closeButton.Location = new Point(width - 48, 0);
+        }
+
+        /// <summary>
         /// 构建界面布局（AntdUI 风格：浅色现代、圆角、轻描边）
         /// </summary>
         private void InitializeUi()
         {
-            // 窗体基础
+            // 窗体基础：无边框样式（去掉系统标题栏的图标与名称；右上角自绘 最小化/最大化(全屏)/关闭 三按钮），
+            // 任务栏仍显示图标与名称（Text/Icon 保留）；窗口拖动经顶栏鼠标事件实现
+            FormBorderStyle = FormBorderStyle.None;
             Text = "上海寅铠";
             Icon = TryLoadAppIcon();
+            ShowInTaskbar = true;
             Size = new Size(1500, 940);
             MinimumSize = new Size(1280, 800);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(244, 247, 250);
             Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Point);
 
-            // ── 顶部栏（白底 + 分隔线）──
+            // ── 顶部栏（白底 + 分隔线；Logo 向上占满并向右延伸，同时承担窗口拖动）──
             _topBar = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 76,
                 BackColor = Color.White,
-                Padding = new Padding(20, 0, 20, 0)
+                Padding = new Padding(0)
             };
             _topBar.Paint += (s, e) =>
                 e.Graphics.DrawLine(new Pen(Color.FromArgb(226, 232, 240)), 0, _topBar.Height - 1, _topBar.Width, _topBar.Height - 1);
 
-            // 公司 Logo（左上，替代原公司名文本；Resources\tittle.png 随程序分发，按顶栏高度等比缩放）
+            // 无边框窗体拖动：顶栏按下左键时伪装成标题栏拖动（ReleaseCapture + WM_NCLBUTTONDOWN）
+            _topBar.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    ReleaseCapture();
+                    _ = SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HT_CAPTION, IntPtr.Zero);
+                }
+            };
+
+            // 公司 Logo（左上，替代原公司名文本；向上占满顶栏并向右延伸，Resources\tittle.png 等比缩放）
             _companyLogo = new PictureBox
             {
                 SizeMode = PictureBoxSizeMode.Zoom,
-                Size = new Size(284, 48),
-                Location = new Point(20, 14),
+                Size = new Size(448, 76),
+                Location = new Point(0, 0),
                 BackColor = Color.White
             };
             try
@@ -138,19 +214,31 @@ namespace UiTopMachine.Views
                 // Logo 加载失败不阻断启动（顶栏留白）
             }
 
-            // 退出按钮（右上角，AntdUI 危险语义红色，Anchor 右侧随窗口自适应）
-            _exitButton = new AntdUI.Button
-            {
-                Text = "退出",
-                Type = AntdUI.TTypeMini.Error,
-                Size = new Size(104, 44),
-                Location = new Point(1200, 16),
-                Radius = 8,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
+            // 窗口控制按钮（右上角：— 最小化 / □ 最大化全屏（❐ 还原）/ ✕ 关闭退出；
+            // 关闭走 Close() → OnFormClosing → 停止服务，替代原红色退出按钮）
+            _minimizeButton = CreateWindowButton("—", Color.White, Color.FromArgb(229, 236, 242),
+                () => WindowState = FormWindowState.Minimized);
+            _maximizeButton = CreateWindowButton("□", Color.White, Color.FromArgb(229, 236, 242),
+                ToggleMaximize);
+            _closeButton = CreateWindowButton("✕", Color.White, Color.FromArgb(211, 47, 47),
+                () => Close());
+            _closeButton.ForeColor = Color.FromArgb(38, 50, 66);
+            _closeButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(211, 47, 47);
+            _closeButton.MouseEnter += (_, _) => _closeButton.ForeColor = Color.White;
+            _closeButton.MouseLeave += (_, _) => _closeButton.ForeColor = Color.FromArgb(38, 50, 66);
 
-            _topBar.Controls.Add(_exitButton);
+            // 右上角排布（挂载在顶栏内；位置由顶栏 Resize 重算，紧贴顶边右缘）
+            _minimizeButton.Location = new Point(1356, 0);
+            _maximizeButton.Location = new Point(1404, 0);
+            _closeButton.Location = new Point(1452, 0);
+
+            _topBar.Controls.Add(_minimizeButton);
+            _topBar.Controls.Add(_maximizeButton);
+            _topBar.Controls.Add(_closeButton);
             _topBar.Controls.Add(_companyLogo);
+            _companyLogo.BringToFront();
+            _topBar.Resize += (_, _) => LayoutWindowButtons();
+            LayoutWindowButtons();
 
             // ── 底部导航栏（TabItemControl，绑定导航命令）──
             var bottomBar = new Panel
@@ -209,10 +297,9 @@ namespace UiTopMachine.Views
             Controls.Add(statusCard);
             Controls.Add(bottomBar);
             Controls.Add(_topBar);
-
-            // 布局完成后定位右上角退出按钮（基于真实客户区宽度）
-            PerformLayout();
-            _exitButton.Location = new Point(_topBar.ClientSize.Width - _exitButton.Width - 20, 16);
+            Controls.Add(_minimizeButton);
+            Controls.Add(_maximizeButton);
+            Controls.Add(_closeButton);
 
             // 初始显示默认页（进料抽屉）
             ShowPage(_navigation.CurrentPage);
@@ -277,9 +364,6 @@ namespace UiTopMachine.Views
         /// </summary>
         private void BindViewModel()
         {
-            // 退出按钮绑定命令
-            CommandManagerHelper.Bind(_exitButton, _mainViewModel.ExitCommand);
-
             // 日志面板绑定（全局）
             _logPanel.Bind(_mainViewModel.Logs);
 

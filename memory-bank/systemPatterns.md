@@ -175,6 +175,7 @@ MainViewModel.InitializeAsync ▶ PlcCommunicationService.StartAsync ▶ 自动�
 | 新建配方文件流转语义错（另存副本 vs 备份轮转，返工） | 涉及文件生命周期（重命名/移动/删除/覆盖）的需求，动手前先列出「原文件去向 × 新文件命名」候选矩阵让用户确认 | ERR-019 |
 | 生产代码换实现通道后测试桩脱节（VM 打印用例静默失效） | 换通道/方法/服务时全局搜索测试桩对应方法并同步迁移桩逻辑（双通道桩行为不对称必须注释标明）；交付硬门槛 = dotnet test 全绿，构建通过 ≠ 验证通过 | ERR-020 |
 | 后台事件现取 SynchronizationContext（Post 静默丢失，UI 永远初始状态）+ UI 线程 Wait 异步任务死锁（进程残留） | 上下文构造时捕获存字段 `_uiContext`，后台事件统一用它 Post；UI 线程等异步用 `Task.Run(...).Wait(timeout)` 包裹；测试用 new Thread（无上下文）触发事件守护 | ERR-023 |
+| 控件未加入容器时设置 Anchor=Right（冻结错误右缘距离，按钮被推出窗口外：点击有效但看不见） | Anchor 在加入容器/容器定型后再设，或用容器 Resize 事件重算位置（`LayoutWindowButtons`）；先查 UIA bounds 绝对坐标再查渲染 | ERR-024 |
 | 数值型流水号 ToString 丢失前导零（打印内容 1 而非 000001） | 递增用 ulong、显示/打印前按原始位数 `PadLeft(digits, '0')` 还原；进位（999999→1000000）自然扩展 | 2026-09-03 v1.8 |
 | ClosedXML `RowsUsed()` 跳过空行致保存的空行蒸发 | 写端整行全空时首列写空格占位；读端 `LastRowUsed().RowNumber()` + for 循环逐行装载 | ERR-014 |
 | 读外部文件建 DataTable 用「预置表头+重命名」遇重名列崩溃 | 按文件实际表头新建 DataTable 重建列结构（空表头「列N」兜底） | ERR-015 |

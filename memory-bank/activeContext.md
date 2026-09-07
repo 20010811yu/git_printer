@@ -2,6 +2,14 @@
 
 ## 当前工作焦点
 
+**右上角窗口控制按钮图标化（v1.23）✅ 已完成** —— 用户需求：「在窗口的右上角增加窗口缩小，全屏，以及退出图标」（此前按钮功能在但视觉不可见）。落地：
+- **图标化**：三按钮符号从 Marlett 10pt 改为 YaHei UI 13f Bold Unicode 几何符号——`—` 最小化 / `□` 最大化全屏（Maximized 时 `❐` 还原）/ `✕` 关闭退出（hover 红底白字）；尺寸 48×34
+- **根因修复（ERR-024）**：按钮 UIA 可见可点但屏幕上看不到——`Anchor=Top|Right` 在控件未加入容器时设置，冻结负右缘距离把按钮排到窗口外 1156px（x=3026）；去掉 Anchor 改 `_topBar.Resize → LayoutWindowButtons()` 重算位置（右缘 -144/-96/-48）
+- **验证**：UIA bounds 实证三按钮紧贴窗口右上角（1726/1774/1822，右缘 1870）；点击最小化按钮窗口真实最小化；dotnet test **155/155 PASS**、构建 **0 警告 0 错误**
+- **下一步：真机联调**（不变）；无边框窗口自绘按钮如有视觉细节问题随时反馈
+
+### 上一焦点（v1.22 已完成的背景）
+
 **品牌化改造：Logo/标题/程序图标（v1.22）✅ 已完成** —— 用户需求：① 顶栏公司名文本替换为 Resources/tittle.png（调整到合适大小）② 程序名称"进料抽屉监控系统"改为"上海寅铠" ③ Resources/Ic.ico 设为程序图标。落地：
 - **发现并处理**：`Ic.ico` 实为 PNG（文件头魔数证实），直接编译/加载都会失败 → 转换生成真 ICO `Resources/App.ico`（64×64，原 Ic.ico 保留）
 - **csproj**：`ApplicationIcon=Resources\App.ico`（exe 文件图标）；`Resources\tittle.png` CopyToOutputDirectory（运行时加载）；Description 同步"上海寅铠"
@@ -157,6 +165,11 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-04）
+
+1.23 ✅ **右上角窗口控制按钮图标化**（用户需求：右上角增加 窗口缩小/全屏/退出 图标；此前按钮 Marlett 符号渲染淡且 Anchor bug 错位不可见）：
+    - **图标化**：符号改 YaHei UI 13f Bold Unicode 几何符号（— 最小化 / □ 最大化 ❐ 还原 / ✕ 关闭），48×34，hover 高亮、关闭 hover 红底白字
+    - **ERR-024 根因修复**：去掉未定型时的 Anchor=Right；`_topBar.Resize → LayoutWindowButtons()` 重算按钮位置
+    - **验证**：UIA bounds 实证按钮贴窗口右上角；点击最小化真实生效；**155/155 PASS、0 警告 0 错误**
 
 1.22 ✅ **品牌化：Logo/标题/程序图标**（用户需求：顶栏公司名换 tittle.png、程序名改"上海寅铠"、Ic.ico 设为程序图标）：
     - **发现**：Ic.ico 实为 PNG（文件头魔数证实）→ 转换生成真 ICO `Resources/App.ico`（64×64，原 Ic.ico 保留）
