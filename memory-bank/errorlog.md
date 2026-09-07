@@ -223,6 +223,17 @@
 - **教训**：⚠️ **Anchor=Right/Bottom 必须在控件加入容器且容器尺寸定型之后再设置**（或干脆用 Resize 事件重算位置）；"UIA 树里有 + 点击有效 + 屏幕上看不见"= 控件在窗口外的典型组合，先查 bounds 绝对坐标再查渲染；**原生 Button 渲染异常时换已实证的组件体系（AntdUI.Button）是最快收敛路径**——同一布局模式在成熟组件上工作正常
 - **状态**：🟢 已解决
 
+### ERR-025：共享协议 BuildResponse 头部缺 `\n\n` 结束标记（单元测试暴露 PNG 解析丢失）
+- **错误现象**：VmBridgeProtocolTests「响应往返_成功含PNG」用例失败——`ParseResponse` 返回的 `PngBytes` 为 null，PNG 结果图字节被静默丢弃
+- **发生上下文**：2026-09-07 v1.24 VM 桥接协议测试（新协议首次编写配套测试即暴露）
+- **发生时间**：2026-09-07 13:36
+- **根本原因**：`BuildResponse` 生成头部文本后直接拼 PNG 字节，**头部末尾没有追加空行（`\n\n`）**；而 `ParseResponse` 依赖「头部结束 = `\n\n`」切分 PNG 二进制——找不到分隔符时把整个 payload 当 headerText 解析，PNG 字节（二进制噪声）混进 key=value 行被丢弃
+- **解决方式**：`BuildResponse` 在含 PNG 的响应头部末尾补 `sb.Append('\n')` 形成 `\n\n` 结束标记；构建/解析两端往返由测试锁死
+- **解决时间**：2026-09-07 13:36
+- **验证结果**：🟢 已解决——dotnet test 180/180 全绿（含 PNG 往返、中文错误 Base64、流程名列表等 15 个协议用例）；端到端管道联调实证 Run 命令返回 986×645 PNG（isok=1）
+- **教训**：⚠️ **自定义二进制/文本混合协议的「分隔符约定」必须构建端与解析端同步实现**——只改一端（或构建端忘了写分隔符）解析端会静默丢数据；这类跨端契约 Bug 首选「构建→解析往返测试」当场暴露（本次首轮测试即红）
+- **状态**：🟢 已解决
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -253,6 +264,8 @@
 14. **第三方库大版本接入/升级** → 先以 NuGet 包内 XML 文档核对 API 签名、命名空间与过时标记（如 Hsl V12 默认长连接、InovanceTcpNet 迁至 Profinet 命名空间，ERR-021）
 15. **协议类地址格式** → 离线实证（`TranslateToModbusAddress`），不做前缀剥离等转换；InovanceTcpNet 用软元件格式且必须显式系列（H5U），ModbusTcpNet 用纯数字（ERR-022）
 16. **后台线程更新 UI** → SynchronizationContext 必须构造时捕获存字段，严禁后台事件里现取 `Current ?? new`（Post 静默丢失）；UI 线程 Wait 异步任务用 `Task.Run` 包裹防死锁（ERR-023）
+17. **跨运行时 SDK（.NET Framework）** → net10.0 禁止直引 GAC 的 Framework 程序集；用桥接进程（net48 独立项目承载 SDK + 命名管道 + **双侧共享同一份协议源码**）隔离；协议「分隔符约定」构建/解析两端同步实现并以往返测试锁死（ERR-025）；主 csproj 必须 `Compile Remove="tools\**"` 防 glob 误收（同 tests 教训）
+18. **PowerShell 5.1 临时脚本** → 无 BOM UTF-8 按 ANSI 解析，中文字面量变乱码；传中文用环境变量 + Base64 / `GetFolderPath` / `[char]` 拼接，或干脆避免脚本内非 ASCII 字面量（v1.24 实测）
 
 ## 沉淀出口
 

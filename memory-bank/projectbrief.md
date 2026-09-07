@@ -45,5 +45,6 @@
    - ✅ 单元测试（xUnit，tests/UiTopMachine.Tests + .slnx，165 用例全绿；2026-09-03 固化「每次任务修改功能必须配套测试并全绿」工作流）
   - ✅ PLC 抽屉物料接入（v1.12）：连续读取 M1000 起 19 个 bool（下标 1~18 对应抽屉，true=有料），变化推送驱动抽屉状态灯；PLC 为物料唯一真值源（Mock 随机监控停用）
    - ✅ 窗口控制按钮布局抽取（v1.23b）：`Views/WindowButtonLayout.cs` 纯函数布局 + MainForm Resize 重算（禁用 Anchor）+ WindowButtonLayoutTests 10 守护用例
-   - ⏳ 待办：IDrawerService 真实 PLC 版替换 Mock（配方下发等）、图像页真实服务接入
+   - ✅ VisionMaster 真实方案加载（v1.24）：图像页接入海康 VisionMaster 4.4.0——桥接进程方案（tools/VmVisionBridge net48 承载 SDK + 命名管道 + 共享帧协议），Test.sol 真实加载 + 流程运行 + PNG 结果图回传全链路实证；图像页 Mock 模拟退出历史舞台（保留可切回）
+   - ⏳ 待办：IDrawerService 真实 PLC 版替换 Mock（配方下发等）
   

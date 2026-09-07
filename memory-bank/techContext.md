@@ -7,7 +7,8 @@
 | 语言 | C# (.NET 10) | SDK 10.0.400（用户指定） |
 | UI 框架 | WinForms | `net10.0-windows`，高 DPI SystemAware |
 | 架构模式 | MVVM | WinForms 手写基础设施（非 CommunityToolkit） |
-| DI 容器 | Microsoft.Extensions.DependencyInjection 10.0.11 | NuGet，唯一外部依赖 |
+| DI 容器 | Microsoft.Extensions.DependencyInjection 10.0.11 | NuGet |
+| 视觉 SDK | 海康 VisionMaster 4.4.0（VM.Core/VM.PlatformSDKCS，GAC） | 仅 tools/VmVisionBridge 桥接进程引用（net48 x64），主程序经命名管道访问（v1.24） |
 | 目标平台 | Windows | 工业上位机（工业 PC / 工控机） |
 | 版本控制 | Git | 仓库位于 d:\GitRepo |
 
@@ -16,11 +17,13 @@
 - **操作系统**：Windows 10
 - **IDE**：Visual Studio Code（兼容 Visual Studio）
 - **.NET SDK**：10.0.400（`dotnet --version` 已验证）
+- **VisionMaster**：4.4.0 装于 `D:\visionmaster\VisionMaster4.4.0`（SDK 程序集在 GAC；Development\V4.x\Samples\C# 为官方示例）
 
 ## 项目构建
 
 ```powershell
-dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 csproj）
+dotnet build UiTopMachine.csproj              # 主程序构建
+dotnet build tools/VmVisionBridge/VmVisionBridge.csproj   # 视觉桥接进程构建（v1.24）
 .\bin\Debug\net10.0-windows\UiTopMachine.exe   # 运行
 ```
 
@@ -35,6 +38,7 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 | 自绘控件 | DrawerIndicatorControl / FlatButton / LogPanelControl（双缓冲 + AntiAlias） |
 | 日志 | ILogService 事件推送 + 落盘 `logs/yyyyMMdd.log` |
 | 异常处理 | Program.cs 全局异常捕获；VM 捕获业务异常记日志；Service 返回 Result 不抛 UI |
+| 视觉桥接（v1.24） | `Common/VmBridge/VmBridgeProtocol.cs` 共享协议源码（双侧 link 编译）+ `VisionMasterBridgeInspectionService` 管道客户端（懒启动/分级超时/崩溃自动重启）+ tools/VmVisionBridge 管道服务（SDK 封装在桥接进程内） |
 
 ## 技术约束与注意点
 
@@ -46,6 +50,8 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 6. **AntdUI Table 事件语义**：`CellFocused` 鼠标单击不触发（键盘焦点用），跟踪鼠标选中必须订阅 `CellClick`（详 ERR-012）；第三方事件勿望文生义，先反射实证。**索引基准（二轮运行时实证，ERR-017）**：`CellEndEdit`/`CellClick`/`CellFocused` 的 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头，首条数据行=1），**ColumnIndex 为 0 基**；`SelectedIndex` 亦为 1 基——传 0 基数据源（DataTable）前行必须减 1，恢复高亮反向 +1；编辑与删除链路共用此换算
 7. **ClosedXML 空行语义**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端整行全空时首列空格占位 + 读端 `LastRowUsed().RowNumber()` 行号循环逐行装载」，不要依赖 RowsUsed 枚举（详 ERR-014）
 8. **HslCommunication 大版本 API**：引入/升级前以包内 XML 文档核对签名与命名空间（`.nuget/packages/hslcommunication/<ver>/lib/*/HslCommunication.xml`）；过时 API 查注释中的替代方案（详 ERR-021）。**协议地址格式必须离线实证**：`TranslateToModbusAddress(address, functionCode)` 一行验证（InovanceTcpNet 需软元件格式 + 显式系列，详 ERR-022）
+9. **VisionMaster SDK（v1.24）**：.NET Framework 程序集装 GAC，net10.0 禁止直引——必须经 tools/VmVisionBridge 桥接进程（详 systemPatterns「VisionMaster 桥接进程模式」）；SDK 关键 API（Load/Instance[名]/Run/GetOutputImageV2/ToBitmap/VmException）已反射实证沉淀于 systemPatterns；主 csproj 必须排除 `tools\**`（防 glob 误收 net48 源码，同 tests 教训）
+10. **PowerShell 5.1 编码坑（v1.24 实测）**：无 BOM UTF-8 脚本按 ANSI 解析，中文字面量变乱码——临时测试脚本传中文用环境变量 + Base64 / `GetFolderPath` / `[char]` 拼接，避免脚本内非 ASCII 字面量
 
 ## 依赖清单
 
@@ -55,6 +61,8 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 | AntdUI | 2.4.7 | ✅ 已安装（配方页 Table 展示/双击编辑） |
 | ClosedXML | 0.105.1 | ✅ 已安装（配方 xlsx 读写，MIT 免费） |
 | HslCommunication | 12.9.2 | ✅ 已安装（v1.10：PLC Modbus TCP，客户端类 InovanceTcpNet 192.168.1.88:502 站号1、构造参数可切 ModbusTcpNet；**V12 默认长连接，SetPersistentConnection 过时不调**；InovanceTcpNet 位于 `HslCommunication.Profinet.Inovance`，ERR-021；⚠️ 新版本有商业授权检查，真机运行若触发授权提示需处理） |
+| Microsoft.NETFramework.ReferenceAssemblies | 1.0.3 | ✅ 已安装（tools/VmVisionBridge net48 构建兜底，PrivateAssets） |
+| VisionMaster 4.4.0 SDK（VM.Core/VM.PlatformSDKCS） | 4.4.0 | ✅ GAC 程序集（HintPath 指 GAC 物理路径，Private=false），仅桥接项目引用；Test.sol 实测加载/运行/取图全链路通过（v1.24） |
 | xUnit | 2.9.3（Test.Sdk 17.14.1 / runner 3.1.4 / coverlet 6.0.4） | ✅ 已接入（tests/UiTopMachine.Tests） |
 
 ## 工具使用模式（Cline 环境经验）
@@ -62,9 +70,9 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 > 环境类坑的完整条目见 [errorlog.md](errorlog.md)（ERR-006/008/009/011），此处仅留操作要点：
 
 - 终端实际为 **PowerShell**：命令用单命令或 `;` 分隔（禁 `&&`，详 ERR-008）；建目录用 `New-Item -ItemType Directory -Force`（详 ERR-011）
-- `dotnet build` 输出为 GBK 乱码（凭“0 个警告 0 个错误”/“已成功生成”辨识，详 ERR-009），管道接 `| Out-String` 可读性更好
+- `dotnet build` 输出为 GBK 乱码（凭“0 个警告 0 个错误”/“已成功生成”辨识，详 ERR-009）；终端输出捕获不稳时用 `| Out-File -Encoding utf8 <文件>` 落盘再 read_file
 - 启动 GUI：`Start-Process "完整路径.exe"`；构建前确认 exe 未运行（详 ERR-006）
-- 构建排错流程：先 `dotnet build` 拿真实错误（obj/build_result.txt 可能是过期缓存，不可信）→ 按 CS 错误码定位文件行号 → 修复后重跑构建验证
+- 构建排错流程：先 `dotnet build` 拿真实错误 → 按 CS 错误码定位文件行号 → 修复后重跑构建验证
 
 ## 测试工作流（2026-09-03 固化，每次任务强制执行）
 
@@ -79,7 +87,7 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
    ```
 3. **结果记录**：当场看控制台（失败: 0, 通过: N）→ trx 留档 → 摘要写入 activeContext「测试记录」表 → errorlog 记录返工级失败
 4. **测试资产**：历史修复配套用例永不过期（如 ERR-014 空行往返、ERR-013 命令恢复），每次 dotnet test 自动回归全部历史修复
-5. **结构**：测试类按被测对象分文件（RelayCommandTests / DrawerItemViewModelTests / RecipeFileServiceRoundTripTests / RecipePageViewModelTests），公共桩在 TestDoubles.cs；用例名中文自描述并关联 ERR 编号
+5. **结构**：测试类按被测对象分文件（RelayCommandTests / DrawerItemViewModelTests / RecipeFileServiceRoundTripTests / RecipePageViewModelTests / VmBridgeProtocolTests），公共桩在 TestDoubles.cs；用例名中文自描述并关联 ERR 编号
 
 ## 开发 setup
 
@@ -90,3 +98,4 @@ dotnet build UiTopMachine.csproj        # 构建（当前无 .sln，直接用 cs
 - [x] 建立 errorlog.md 错误归档机制（2026-09-02，编码前必查防回归清单）
 - [x] 创建解决方案 UiTopMachine.slnx（2026-09-03，.NET 10 新格式，挂载主项目 + 测试项目）
 - [x] 搭建单元测试基础设施（2026-09-03，xUnit + .gitignore，55 用例全绿）
+- [x] VisionMaster 桥接进程接入（2026-09-07，tools/VmVisionBridge net48 + 共享协议 + 管道服务，slnx 挂载，180 用例全绿）

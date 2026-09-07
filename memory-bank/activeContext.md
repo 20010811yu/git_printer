@@ -2,7 +2,16 @@
 
 ## 当前工作焦点
 
-**窗口按钮布局抽取 + 测试守护（v1.23b）✅ 已完成** —— v1.23 收尾强化：右上角三按钮的布局常量与位置计算从 MainForm 抽取为纯函数静态类，并以单元测试锁死「任意容器宽度下按钮都落在容器内且右对齐」不变量。落地：
+**VM 方案加载换真实 .sol（v1.24）✅ 已完成** —— 用户需求：「vm方案加载换成实际的sol」——图像页从 Mock 模拟图切换为真实海康 VisionMaster 4.4.0 加载 `D:\OneDrive\桌面\Test.sol` 并运行检测。因 VM SDK 为 .NET Framework 程序集（GAC，net10.0 无法直引），采用**桥接进程方案**（用户确认方案 A）：
+- **新增 `tools/VmVisionBridge/`（net48 x64 桥接进程）**：承载 VmSolution SDK——服务模式监听命名管道 `UiTopMachine.VmBridge`，按二进制帧协议（命令1B+长度4B+payload）处理 Ping/Load/Run/Close/ListProcedures；检测运行 `VmSolution.Load(path,pwd,false)` → `Instance["流程1"] as VmProcedure` → `Run()` → `ModuResult.GetOutputImageV2("ImageData")` → `ImageBaseData.ToBitmap()` → PNG 回帧；`--probe "sol路径"` 探测模式枚举流程名
+- **新增 `Common/VmBridge/VmBridgeProtocol.cs`（共享源码）**：主程序与桥接项目 link 同一份文件编译，帧编解码 + 响应构建/解析（头部 key=value 行 + `\n\n` 分隔 + PNG 二进制，中文 Base64 编码），杜绝两侧漂移
+- **新增 `Services/VisionMasterBridgeInspectionService.cs`**：实现 `IImageInspectionService`——懒启动桥接进程 + `NamedPipeClientStream` 收发（带 20s 启动/120s 加载/30s 运行超时）；进程异常退出下次调用自动重启；全部失败走 `Result.Fail` 不抛 UI 异常；SDK 对象全封装在桥接进程内（符合"SDK 不外泄"规则）
+- **DI 切换**：Program.cs 注册 `VisionMasterBridgeInspectionService`（方案路径 `D:\OneDrive\桌面\Test.sol`、流程名 `流程1`——probe 实测枚举结果）；Mock `ImageInspectionService` 保留可随时切回
+- **端到端联调实证**：桥接进程 + 管道客户端全链路——Ping OK → Load Test.sol OK → List 返回「流程1」→ **Run 返回 986×645 PNG 结果图（isok=1）** → Close OK
+- **测试**：新增 `VmBridgeProtocolTests` 15 用例（帧编解码往返/响应构建解析往返含中文 Base64/PNG 边界/服务失败路径不启动真实进程）；测试暴露并修复协议真 Bug（BuildResponse 头部缺 `\n\n` 结束标记致 PNG 解析丢失）；dotnet test **180/180 PASS**、构建 **0 警告 0 错误**
+- **下一步：图像页人工验证**（切换图像页确认方案自动加载 + 单次/连续检测出真实图）；生产部署建议把 Test.sol 放固定目录并同步改 Program.cs 方案路径
+
+### 上一焦点（v1.23b 已完成的背景）
 - **新增 `Views/WindowButtonLayout.cs`**：布局常量（ButtonWidth=56/ButtonHeight=42/RightMargin=16/Spacing=8/TopBarHeight=76/TopMargin 垂直居中推导）+ 纯函数 `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)`（右对齐 + 从右向左依次排列）——纯函数无 UI 依赖，可直接单测
 - **MainForm 改造**：`CreateWindowButton` 尺寸改用 WindowButtonLayout 常量；**彻底禁用 Anchor**（ERR-024 教训：Anchor=Right 在顶栏 Dock 宽度未定型时冻结负右缘距离把按钮推出窗口外）；新增 `LayoutWindowButtons()` 由 `_topBar.Resize` 事件按当前宽度实时重算三按钮位置，初始手动调用一次
 - **测试守护**：新增 `WindowButtonLayoutTests` 10 用例（常量自洽性 1 + 任意宽度容器内右对齐 Theory 6 组含 ERR-024 元凶宽度 200/最大化宽度 1870/2K 屏 2560 + 从右向左排列间距一致 Theory 3 组）；dotnet test **165/165 PASS**、构建 **0 警告 0 错误**
@@ -160,6 +169,7 @@
 | 2026-09-04 | 图像页编写（v1.20） | 新增 ImageInspectionServiceTests 5 用例（未加载拒绝/加载成功幂等+事件/空路径失败/检测返回结果图与序号/Shutdown 拒绝）+ ImagePageViewModelTests 5 用例（自动加载翻转状态/单次检测计数/连续启停产生结果/未加载命令不可用/Shutdown 取消循环） | ✅ 152/152 PASS |
 | 2026-09-04 | 品牌 Logo/标题/图标（v1.22） | 无新增逻辑用例（纯视觉改造）；转换真 ICO 实证（Icon 加载校验 64×64）；运行截图实证窗口标题"上海寅铠"、顶栏 tittle.png logo、标题栏图标 | ✅ 155/155 PASS |
 | 2026-09-07 | 窗口按钮布局抽取+测试守护（v1.23b） | 新增 WindowButtonLayoutTests 10 用例（常量自洽 1/任意宽度容器内右对齐 Theory 6 含 ERR-024 元凶宽度 200 与最大化 1870/从右向左排列间距一致 Theory 3）；布局逻辑抽取为纯函数静态类，MainForm 改 Resize 重算禁用 Anchor | ✅ 165/165 PASS |
+| 2026-09-07 | VM 方案加载换真实 .sol（v1.24） | 新增 VmBridgeProtocolTests 15 用例（帧编解码往返 4/响应构建解析往返含中文 Base64 与 PNG 边界 5/服务失败路径与构造校验 6，不启动真实桥接进程）；测试暴露并修复 BuildResponse 头部缺 `\n\n` 结束标记致 PNG 解析丢失的真 Bug；另端到端管道联调实证（Ping/Load Test.sol/List「流程1」/Run 返回 986×645 PNG isok=1/Close 全链路） | ✅ 180/180 PASS |
 
 ## 当前处理中的错误
 
@@ -174,6 +184,14 @@
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
 
 ## 最近变更（2026-09-07）
+
+1.24 ✅ **VM 方案加载换真实 .sol（VisionMaster 桥接进程）**（用户需求：「vm方案加载换成实际的sol」）：
+    - **新增 `tools/VmVisionBridge/`**（net48 x64 桥接进程，承载 VmSolution SDK）：命名管道服务（Ping/Load/Run/Close/ListProcedures 二进制帧协议）+ `--probe` 流程名探测模式；GAC 引用 VM.Core + VM.PlatformSDKCS
+    - **新增 `Common/VmBridge/VmBridgeProtocol.cs`**：主程序与桥接共享同一份协议源码（link 编译），帧编解码 + 响应构建/解析（中文 Base64 + PNG 二进制）
+    - **新增 `Services/VisionMasterBridgeInspectionService.cs`**：IImageInspectionService 真实实现——懒启动桥接进程、管道收发带超时、进程崩溃自动重启、Result.Fail 全捕获；SDK 对象零外泄
+    - **DI 切换**：Program.cs 注册真实服务（Test.sol + 流程名「流程1」probe 实测）；csproj 排除 tools 目录（防 glob 误收，同 tests 教训）；slnx 挂载桥接项目
+    - **端到端联调实证**：Ping OK → Load Test.sol OK → List「流程1」→ Run 返回 986×645 PNG（isok=1）→ Close OK
+    - **测试**：新增 VmBridgeProtocolTests 15 用例；暴露修复 BuildResponse 头部缺 `\n\n` 结束标记真 Bug；**180/180 PASS、0 警告 0 错误**
 
 1.23b ✅ **窗口按钮布局抽取 + 测试守护**（v1.23 收尾强化：布局常量与位置计算抽取为纯函数 + 单元测试锁死不变量）：
     - **新增 `Views/WindowButtonLayout.cs`**：布局常量（56×42/右边距 16/间距 8/顶栏高 76）+ `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)` 纯函数（右对齐、从右向左、垂直居中）

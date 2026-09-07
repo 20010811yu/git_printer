@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using UiTopMachine.Communications.Plc;
@@ -73,8 +74,19 @@ namespace UiTopMachine
             services.AddSingleton<IRecipeFileService, RecipeFileService>();
             // ZPL 打印服务（打印页走 Spooler RAW 连接打印机名 "zpl"，TCP 直连 192.168.1.200:9100 为备用通道；流水号持久化 D:\Printer\Data\SerialNumber.txt）
             services.AddSingleton<IPrintService, ZplPrinterService>();
-            // 图像视觉检测服务（Mock：GDI+ 生成模拟检测图；真机接入海康 VisionMaster SDK 后替换实现类即可，图像页无需改动）
-            services.AddSingleton<IImageInspectionService, ImageInspectionService>();
+            // 图像视觉检测服务（真实版 v1.24）：VisionMaster 桥接进程方案——
+            // 主程序 net10.0 无法直接引用 VM SDK（.NET Framework 程序集），由 tools/VmVisionBridge（net48）
+            // 承载 VmSolution SDK，本服务经命名管道收发命令与 PNG 结果图；
+            // 桥接 exe 缺失/启动失败自动降级报错，Mock 实现（ImageInspectionService）保留可随时切回
+            var solutionPath = @"D:\OneDrive\桌面\Test.sol";
+            var bridgeExePath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
+                "tools", "VmVisionBridge", "bin", "Debug", "net48", "VmVisionBridge.exe");
+            services.AddSingleton<IImageInspectionService>(sp =>
+                new VisionMasterBridgeInspectionService(
+                    bridgeExePath: Path.GetFullPath(bridgeExePath),
+                    solutionPath: solutionPath,
+                    procedureName: "流程1", // 流程名：2026-09-07 桥接 --probe 实测 Test.sol 枚举结果
+                    logService: sp.GetRequiredService<ILogService>()));
             // PLC 传输层（InovanceTcpNet 走 Modbus TCP 502 站号 1，长连接；可切标准 ModbusTcpNet；IP 当前为本地调试 127.0.0.1，真机改 192.168.1.88）
             services.AddSingleton<IPlcTransport>(new HslModbusTransport("127.0.0.1", 502, 1, useInovance: true));
             // PLC 通讯服务（后台自动连接 + 心跳：心跳与抽屉物料合一——周期读 M1000×19，读成功即通讯正常并驱动抽屉，连续 3 次读失败判心跳丢失并重连）

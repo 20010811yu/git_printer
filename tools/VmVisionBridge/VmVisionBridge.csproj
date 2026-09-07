@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>8.0</LangVersion>
+    <!-- annotations：接受 NRT 注解（共享协议源码带 ? 注解）但不产生可空警告 -->
+    <Nullable>annotations</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>VmVisionBridge</RootNamespace>
+    <AssemblyName>VmVisionBridge</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <Description>海康 VisionMaster 4.4.0 桥接进程（.NET Framework）：命名管道 IPC 提供 VmSolution 加载/运行/取图服务</Description>
+    <!-- net48 SDK-style 需引用 targeting pack（本机装了 VS/SDK 即有）；CI 无 pack 时用下面 NuGet 包兜底 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- VM SDK（GAC 程序集，HintPath 指向 GAC 物理路径；运行时同样从 GAC 解析） -->
+  <ItemGroup>
+    <Reference Include="VM.Core">
+      <HintPath>C:\Windows\Microsoft.Net\assembly\GAC_MSIL\VM.Core\v4.0_1.0.0.0__61600122bc9264b9\VM.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="VM.PlatformSDKCS">
+      <HintPath>C:\Windows\Microsoft.Net\assembly\GAC_MSIL\VM.PlatformSDKCS\v4.0_1.0.0.0__c1484a72052ee3d4\VM.PlatformSDKCS.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 与主程序共享同一份协议源码（杜绝两侧漂移） -->
+  <ItemGroup>
+    <Compile Include="..\..\Common\VmBridge\VmBridgeProtocol.cs" Link="VmBridgeProtocol.cs" />
+  </ItemGroup>
+
+</Project>

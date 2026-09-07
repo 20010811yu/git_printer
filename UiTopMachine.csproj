@@ -34,4 +34,10 @@
     <None Remove="tests\**" />
   </ItemGroup>
 
+  <!-- 排除桥接工具目录：tools/VmVisionBridge 为独立 net48 项目（承载 VisionMaster SDK），不随主程序编译 -->
+  <ItemGroup>
+    <Compile Remove="tools\**\*.cs" />
+    <None Remove="tools\**" />
+  </ItemGroup>
+
 </Project>

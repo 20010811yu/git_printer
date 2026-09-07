@@ -2,7 +2,17 @@
 
 ## ✅ 已完成功能
 
-### 窗口按钮布局抽取 + 测试守护（2026-09-07）⭐ 最新
+### VM 方案加载换真实 .sol（VisionMaster 桥接进程）（2026-09-07）⭐ 最新
+
+- [x] **需求（v1.24）**：「vm方案加载换成实际的sol」——图像页从 Mock 模拟图切换为真实海康 VisionMaster 4.4.0 加载方案并运行检测
+- [x] **架构决策**：VM SDK 为 .NET Framework 程序集（GAC：VM.Core/VM.PlatformSDKCS，net10.0 无法直引）→ 用户确认**桥接进程方案**——tools/VmVisionBridge（net48 x64）承载 SDK，主程序经命名管道按共享二进制帧协议收发（PNG 结果图跨进程传输）
+- [x] **实现**：`tools/VmVisionBridge/`（管道服务 + --probe 流程名探测）+ `Common/VmBridge/VmBridgeProtocol.cs`（共享协议源码，两侧 link 编译杜绝漂移）+ `Services/VisionMasterBridgeInspectionService.cs`（懒启动/超时/崩溃自动重启/Result 全捕获）；Program.cs DI 切换（Test.sol + 流程名「流程1」）；csproj 排除 tools；slnx 挂载
+- [x] **端到端联调实证**：桥接进程 + 管道客户端——Ping OK → Load Test.sol OK → List「流程1」→ **Run 返回 986×645 PNG（isok=1）** → Close OK；probe 模式实测枚举流程名
+- [x] **测试**：新增 `VmBridgeProtocolTests` 15 用例（帧编解码/响应解析含中文 Base64 与 PNG 边界/服务失败路径）；测试暴露并修复 BuildResponse 头部缺 `\n\n` 结束标记的真 Bug
+- [x] 验证：dotnet test **180/180 PASS** + dotnet build **0 警告 0 错误**（主项目与桥接项目均 0/0）
+- [x] Memory Bank 同步更新（activeContext/progress/projectbrief/systemPatterns/techContext/errorlog）
+
+### 窗口按钮布局抽取 + 测试守护（2026-09-07）
 
 - [x] **需求（v1.23b）**：v1.23 收尾强化——右上角窗口控制按钮的布局常量与位置计算从 MainForm 抽取为纯函数静态类，并以单元测试锁死「任意容器宽度下按钮都落在容器内且右对齐」不变量
 - [x] **实现**：新增 `Views/WindowButtonLayout.cs`（常量 ButtonWidth=56/ButtonHeight=42/RightMargin=16/Spacing=8/TopBarHeight=76 + `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)` 纯函数）；MainForm 尺寸改用常量、**彻底禁用 Anchor**（ERR-024 教训：Anchor=Right 在容器未定型时冻结负右缘距离）、`_topBar.Resize → LayoutWindowButtons()` 实时重算 + 初始调用一次
