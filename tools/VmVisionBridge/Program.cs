@@ -44,6 +44,30 @@ namespace VmVisionBridge
 
         private static bool _solutionLoaded;
         private static readonly object SolutionLock = new object();
+        private static readonly string DiagLogPath =
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log", "VmBridge-diag.log");
+
+        /// <summary>
+        /// 诊断日志追加落盘（取图回退/输出清单等关键排障信息；stderr 无重定向会丢失）
+        /// </summary>
+        private static void DiagLog(string message)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(DiagLogPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                File.AppendAllText(DiagLogPath,
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff ") + message + Environment.NewLine);
+            }
+            catch
+            {
+                // 诊断日志尽力而为
+            }
+        }
 
         // ══════════════ 入口 ══════════════
 
@@ -246,22 +270,18 @@ namespace VmVisionBridge
                 procedure.Run(); // 同步执行（采集 + 流程）
                 sw.Stop();
 
-                // 取流程输出图（官方约定输出键 "ImageData"；失败回退模块渲染图）
-                ImageBaseData imageData = null;
-                try
-                {
-                    imageData = procedure.ModuResult.GetOutputImageV2("ImageData");
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine("[VmBridge] GetOutputImageV2 失败：" + ex.Message);
-                }
+                // 取流程输出图：优先官方约定输出键 "ImageData"，为空时枚举其余图像输出键回退；
+                // 全部为空且流程成功（ErrorCode=0）视为「本运行无新帧」——低速图像源下属常态，
+                // 返回成功无图（主程序按跳过处理），不算错误
+                var imageData = TryGetOutputImage(procedure, "ImageData");
 
                 if (imageData == null)
                 {
-                    return VmBridgeProtocol.BuildResponse(
-                        false, "流程无输出图（GetOutputImageV2(\"ImageData\") 为空，请在方案中配置图像输出）",
-                        null, false, sw.Elapsed.TotalMilliseconds, 0, 0, null);
+                    var isOkNoFrame = procedure.ModuResult.ErrorCode == 0;
+                    DiagLog($"Run 无输出图，ErrorCode={procedure.ModuResult.ErrorCode}，按{(isOkNoFrame ? "无新帧跳过" : "执行失败")}返回");
+                    return VmBridgeProtocol.BuildResponse(isOkNoFrame,
+                        isOkNoFrame ? null : $"流程执行失败，ErrorCode={procedure.ModuResult.ErrorCode}（无输出图）",
+                        null, isOkNoFrame, sw.Elapsed.TotalMilliseconds, 0, 0, null);
                 }
 
                 using (var bitmap = imageData.ToBitmap())
@@ -275,6 +295,70 @@ namespace VmVisionBridge
                         sw.Elapsed.TotalMilliseconds, bitmap.Width, bitmap.Height, pngStream.ToArray());
                 }
             }
+        }
+
+        /// <summary>
+        /// 按输出键取流程结果图：指定键为空时枚举全部输出回退尝试其余图像输出键，
+        /// 并打印流程实际输出清单（诊断输出键名与间歇为空问题）
+        /// </summary>
+        private static ImageBaseData TryGetOutputImage(VmProcedure procedure, string preferredKey)
+        {
+            ImageBaseData TryRead(string key)
+            {
+                try
+                {
+                    return procedure.ModuResult.GetOutputImageV2(key);
+                }
+                catch
+                {
+                    return null; // 非图像类型输出键会抛类型不匹配异常，属预期
+                }
+            }
+
+            var image = TryRead(preferredKey);
+            if (image != null)
+            {
+                return image;
+            }
+
+            // 首选键为空：枚举全部输出名回退尝试（跳过首选键本身），同时打印清单供排障
+            List<string> allKeys = new List<string>();
+            try
+            {
+                foreach (var info in procedure.ModuResult.GetAllOutputNameInfo())
+                {
+                    if (!string.IsNullOrEmpty(info.Name))
+                    {
+                        allKeys.Add(info.Name);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[VmBridge] GetAllOutputNameInfo 失败：" + ex.Message);
+            }
+
+            Console.Error.WriteLine("[VmBridge] 输出键「" + preferredKey + "」为空，流程输出清单：" +
+                                    (allKeys.Count > 0 ? string.Join(",", allKeys) : "（枚举为空）"));
+            DiagLog($"Run 输出键「{preferredKey}」为空，流程输出清单：{(allKeys.Count > 0 ? string.Join(",", allKeys) : "（枚举为空）")}");
+
+            foreach (var key in allKeys)
+            {
+                if (key == preferredKey)
+                {
+                    continue;
+                }
+
+                image = TryRead(key);
+                if (image != null)
+                {
+                    Console.Error.WriteLine("[VmBridge] 回退输出键「" + key + "」取图成功");
+                    DiagLog($"回退输出键「{key}」取图成功");
+                    return image;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

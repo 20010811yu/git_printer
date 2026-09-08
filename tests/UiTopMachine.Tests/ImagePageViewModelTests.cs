@@ -121,6 +121,46 @@ namespace UiTopMachine.Tests
             Assert.Contains(_panel.Entries, e => e.Level == LogLevel.Error && e.Message.Contains("视觉检测失败"));
         }
 
+        /// <summary>测试桩：返回无图成功结果（模拟低速图像源"无新帧"，ERR-028）</summary>
+        private class NoFrameInspectionService : IImageInspectionService
+        {
+            public bool IsSolutionLoaded { get; set; } = true;
+
+            public string ProcedureName => "流程1";
+
+#pragma warning disable CS0067 // 测试桩无需真正触发事件
+            public event EventHandler? SolutionLoaded;
+#pragma warning restore CS0067
+
+            public Task<Result<bool>> LoadSolutionAsync(string? solutionPath = null) =>
+                Task.FromResult(Result<bool>.OK(true));
+
+            public Task<Result<ImageInspectionResult>> RunInspectionAsync() =>
+                Task.FromResult(Result<ImageInspectionResult>.OK(new ImageInspectionResult
+                {
+                    Image = null,
+                    IsOk = true,
+                    Sequence = 1
+                }));
+
+            public void Shutdown()
+            {
+            }
+        }
+
+        [Fact]
+        public async Task 检测结果无新帧_跳过显示不计数不报错()
+        {
+            var vm = new ImagePageViewModel(_log, new NoFrameInspectionService(), _panel);
+
+            await vm.CaptureOnceCommand.ExecuteAsync(null);
+
+            Assert.Equal(0, vm.OkCount + vm.NgCount); // 无新帧不计数
+            Assert.Equal("—", vm.CurrentVerdict); // 结论不变
+            Assert.DoesNotContain(_panel.Entries, e => e.Level == LogLevel.Error); // 不报错
+            Assert.Contains(_log.Entries, e => e.Message.Contains("无新帧")); // 仅记 Info 日志
+        }
+
         [Fact]
         public async Task 单次检测_更新结果图与计数_互不干扰()
         {

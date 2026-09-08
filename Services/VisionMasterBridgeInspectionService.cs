@@ -194,7 +194,20 @@ namespace UiTopMachine.Services
 
                     if (response.PngBytes == null || response.PngBytes.Length == 0)
                     {
-                        return Result<ImageInspectionResult>.Fail("视觉检测无结果图");
+                        if (response.Ok)
+                        {
+                            // 流程执行成功但本运行无新帧（低速图像源常态，ERR-028）：
+                            // 返回无图结果，上层按跳过处理（保留上一张图、不计数、不报错）
+                            return Result<ImageInspectionResult>.OK(new ImageInspectionResult
+                            {
+                                Image = null,
+                                IsOk = response.IsOk,
+                                Sequence = Interlocked.Increment(ref _sequence),
+                                Elapsed = TimeSpan.FromMilliseconds(response.ElapsedMs)
+                            });
+                        }
+
+                        return Result<ImageInspectionResult>.Fail(response.Error ?? "视觉检测无结果图");
                     }
 
                     Bitmap image;

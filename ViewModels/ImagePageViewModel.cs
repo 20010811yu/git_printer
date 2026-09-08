@@ -311,10 +311,18 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 应用检测结果（必须 UI 线程调用）：更新结果图、结论、OK/NG 计数
+        /// 应用检测结果（必须 UI 线程调用）：更新结果图、结论、OK/NG 计数；
+        /// Image 为 null 表示本运行无新帧（图像源帧率低于轮询频率，ERR-028）——
+        /// 保留上一张结果图与计数，仅记 Info 日志
         /// </summary>
         private void ApplyInspectionResult(ImageInspectionResult data)
         {
+            if (data.Image is null)
+            {
+                _logService.Info($"检测轮询无新帧（第 {data.Sequence} 次），跳过显示");
+                return;
+            }
+
             CurrentImage = data.Image;
             CurrentVerdict = data.IsOk ? "OK" : "NG";
             if (data.IsOk)
