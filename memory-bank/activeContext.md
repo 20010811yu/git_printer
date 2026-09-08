@@ -4,19 +4,15 @@
 
 ## 当前工作焦点
 
-**图像页 v1.26 重构（ERR-030）✅ 已完成** —— 用户需求：删除「加载方案」按钮、程序启动自动加载、删除总数/OK/NG 统计显示、用 VMRenderControl 显示方案图（可拖拽平移、滚轮缩放）。落地：
-- **关键探索（冒烟实证）**：net10.0 直引 VM SDK 引擎（VM.Core/VM.PlatformSDKCS）→ `VmRenderControl` 实例化 OK 但 `VmSolution.Load` **原生层无声崩溃**（引擎为 C++/CLI 混合程序集链，详见 [errorlog.md](errorlog.md) ERR-030）→ 采用**混合架构**：检测引擎留桥接进程（PNG 回传不变），显示层引入纯托管的 `VmRenderControl`（VMControls）——自实现 `IImageData`（`Views/Controls/VmBitmapImageData.cs`）包装 Bitmap 像素喂 `ImageSource`，**拖拽平移 + 滚轮缩放为控件内置能力**；控件静态依赖 VM.PlatformSDKCS（GAC）由 Program.cs `AssemblyResolve` 兜底补加载
-- **改动**：`ImagePage`（删按钮/删统计/PictureBox→VmRenderControl）、`ImagePageViewModel`（删 LoadSolutionCommand/删 OkCount/NgCount/StatisticsText）、`MainForm.Load` 追加 `_imageViewModel.InitializeAsync()`（**启动即自动加载**，页面内调用幂等）、`Program.cs`（GAC resolver）、csproj（VMControls 直引）、`ImageInspectionResult.Image` 改 `Image?`（ERR-028 null 语义补正）
-- **验证**：删 bin/obj 强制重建 0 警告 0 错误 + **191/191 测试全绿** + 产物符号实证（VMControls DLL 7 个随程序分发）
-- **下一步：真机联调**（不变；图像页新版待用户真机确认平移/缩放手感与渲染效果）
+**图像页按钮绑定修复（ERR-031，v1.27）✅ 已完成** —— 用户报告「图像管理页面无法显示图片」。逐层实证：方案加载成功、桥接管道 Load+Run 手动复现正常出图、诊断日志 15:33 的空图属 ERR-028 旧态；真机 GUI 实测点击「单次检测」**日志零痕迹**——根因 = v1.26 重构把 `BindViewModel` 里三个检测按钮的 `CommandManagerHelper.Bind` 绑定整体遗漏，命令从未执行。修复：补回三行绑定；新增 `ImagePageViewBindingTests` 守护（未加载方案时按钮必须禁用，测试进程内复制 GAC AssemblyResolve 兜底）。真机验证：单次检测出图 1024×576/OK、连续检测启停正常。192/192 测试全绿。
+
+### 上一焦点（v1.26，2026-09-08）
+
+**图像页 v1.26 重构（ERR-030）✅** —— 删加载按钮+启动自动加载+删统计+VmRenderControl 混合显示（引擎留桥接进程、控件进主程序、GAC 依赖 AssemblyResolve 兜底）。191/191 全绿。详 [errorlog.md](errorlog.md) ERR-030。
 
 ### 上一焦点（v1.25e，2026-09-08）
 
-**图像显示链路修复（ERR-029）✅** —— INPC 三绑定静默失效（黑屏），改 View 500ms `Windows.Forms.Timer` 轮询兜底（`SyncDisplayFromViewModel`，对线程/编组/绑定免疫）；图像所有权移交 View。dotnet test 191/191；真机实证出图。详 [errorlog.md](errorlog.md) ERR-029。
-
-### 上一焦点（v1.25d，2026-09-08）
-
-**连续检测无新帧跳过（ERR-028）✅** —— 桥接无图+成功 → 成功无图响应三层降级；新增 DiagLog。191/191 PASS；真机 29 完成+18 跳过。详 [errorlog.md](errorlog.md) ERR-028。
+**图像显示链路修复（ERR-029）✅** —— INPC 三绑定静默失效（黑屏），改 View 500ms `Windows.Forms.Timer` 轮询兜底（`SyncDisplayFromViewModel`，对线程/编组/绑定免疫）；图像所有权移交 View。详 [errorlog.md](errorlog.md) ERR-029。
 
 > 更早焦点（v1.25c 及之前 v0.x~v1.25 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
@@ -26,9 +22,9 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-08 | 图像页按钮绑定修复（v1.27，ERR-031；+1 View 绑定守护用例；真机单次/连续检测出图实证） | ✅ 192/192 PASS |
 | 2026-09-08 | 图像页 v1.26（删按钮/启动自动加载/删统计/VmRenderControl 混合显示；测试桩改 Static/Shutdown 语义改引用稳定） | ✅ 191/191 PASS |
 | 2026-09-08 | 图像显示链路修复（v1.25e，ERR-029；View 轮询纯 UI 行为，`--grab` 落盘实证） | ✅ 191/191 PASS |
-| 2026-09-08 | 连续检测无新帧跳过（v1.25d，ERR-028；+1 用例；真机 29 完成+18 跳过+0 失败） | ✅ 191/191 PASS |
 
 ## 当前处理中的错误
 

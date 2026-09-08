@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using UiTopMachine.Common.Commands;
 using UiTopMachine.ViewModels;
 using UiTopMachine.Views.Controls;
 using VMControls.Winform.Release;
@@ -213,6 +214,11 @@ namespace UiTopMachine.Views.Pages
                 false, DataSourceUpdateMode.Never);
             _solutionStatusLabel.DataBindings.Add(nameof(Label.Text), _viewModel, nameof(ImagePageViewModel.SolutionStatusText),
                 false, DataSourceUpdateMode.Never);
+
+            // 检测控制命令绑定（ERR-031：v1.26 重构遗漏按钮绑定，点击无响应 → 检测不运行 → 页面无图）
+            CommandManagerHelper.Bind(_captureOnceButton, _viewModel.CaptureOnceCommand);
+            CommandManagerHelper.Bind(_startContinuousButton, _viewModel.StartContinuousCommand);
+            CommandManagerHelper.Bind(_stopContinuousButton, _viewModel.StopContinuousCommand);
         }
     }
 }
