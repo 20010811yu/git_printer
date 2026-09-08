@@ -1,5 +1,7 @@
 # 系统模式 (System Patterns)
 
+> 防膨胀说明：本文件执行 `.clinerules/memory-bank.md` §3.3 体积红线（≤210 行）——新增模式时同步删除被取代/重复的旧描述；历史版本的完整实现细节见 [archive/history-2026-09.md](archive/history-2026-09.md)。
+
 ## 系统架构
 
 采用 **MVVM（Model-View-ViewModel）分层架构**，结合工业上位机场景扩展通信层与数据访问层：

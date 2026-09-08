@@ -1,70 +1,16 @@
 # 错误日志 (Error Log)
 
-> 项目"问题—解决方式"的**唯一事实来源**。其他记忆库文件只留摘要 + 指向本文件编号，避免重复膨胀。
+> 项目“问题—解决方式”的**唯一事实来源**。其他记忆库文件只留摘要 + 指向本文件编号，避免重复膨胀。
 >
 > **记录原则**：必须记录——导致任务中断或返工的错误、多次尝试才解决的问题、环境与依赖相关的坑、AI 生成代码的典型错误模式；不予记录——当场修复且无副作用的一次性笔误。
 >
 > **生命周期**：🔴 未解决 → 🟡 规避中 → 🟢 已解决（复现时更新原条目，不新建）
+>
+> **防膨胀说明**：本文件执行 `.clinerules/memory-bank.md` §3.3——🟡 未解决条目保留完整版；🟢 已解决条目压缩为一行摘要（完整过程见 [archive/history-2026-09.md](archive/history-2026-09.md) 第七节）；**防回归清单完整保留永不压缩**。
 
 ---
 
-## 错误条目
-
-### ERR-001：WinForms 透明背景 ArgumentException
-- **错误现象**：自绘控件设置 `BackColor = Color.Transparent` 抛 `ArgumentException: 控件不支持透明的背景色`
-- **发生上下文**：`DrawerIndicatorControl` / `TabItemControl` 等自绘控件绘制背景时
-- **根本原因**：普通 Control 未通过 `SetStyle(ControlStyles.SupportsTransparentBackColor, true)` 启用透明支持，直接赋值 Transparent 非法
-- **解决方式**：背景色用与父容器一致的具体色（白色）；半透明效果改用 GDI+ `Color.FromArgb` 画刷实现（不受背景色影响）
-- **验证结果**：🟢 已解决——18 抽屉网格与 Tab 导航渲染正常
-- **教训**：WinForms 自绘控件慎用 Transparent，GDI+ 半透明画刷是更可控的替代
-
-### ERR-002：CS0104 Timer 引用歧义
-- **错误现象**：编译错误 `CS0104: Timer 是 "System.Windows.Forms.Timer" 和 "System.Threading.Timer" 之间的不明确引用`
-- **发生上下文**：Service 层（MockDrawerService）使用 Timer 时
-- **根本原因**：ImplicitUsings + csproj 的 UseWindowsForms 同时引入两个命名空间，`Timer` 类型歧义
-- **解决方式**：Service 层用 `System.Threading.Timer` 完全限定名
-- **验证结果**：🟢 已解决——构建 0 警告 0 错误
-- **教训**：WinForms 项目中后台定时器一律完全限定，避免依赖 using 顺序
-
-### ERR-003：CS0067 事件未使用警告
-- **错误现象**：编译警告 `CS0067: 事件 "EventHandler" 从未使用过`
-- **发生上下文**：RelayCommand 的 `CanExecuteChanged` 事件声明后，编译器找不到触发点
-- **根本原因**：编译器静态分析看不到事件被 invoke 的代码路径
-- **解决方式**：`RaiseCanExecuteChanged()` 中实际调用 `EventHandler?.Invoke(this, EventArgs.Empty)`
-- **验证结果**：🟢 已解决——构建 0 警告
-- **教训**：ICommand 实现里 CanExecuteChanged 必须有真实触发点，WinForms 无 CommandManager 自动刷新
-
-### ERR-004：参数化命令 CanExecute(null) 误判禁用
-- **错误现象**：底部 Tab 全部被禁用，点击无响应
-- **发生上下文**：CommandManagerHelper 统一用 `CanExecute(null)` 刷新所有绑定命令时
-- **根本原因**：NavigateCommand 带 PageType 参数，`CanExecute` 校验 `parameter is PageType`，传 null 被误判为不可执行 → 控件 Enabled 全刷为 false
-- **解决方式**：绑定时存储 `(Control, Parameter)` 元组，刷新时用**原参数**调 CanExecute；后续升级为 `(Control, Func<object?> 参数提供器)` 支持动态参数
-- **验证结果**：🟢 已解决——Tab 导航正常切换
-- **教训**：⚠️ WinForms ICommand 无泛型约束，参数化命令的刷新必须携带原参数；动态参数（如当前选中单元格）用 ProxyCommand + 参数提供器实时取值，CanExecute 与 Execute 取同一参数源保证一致性
-
-### ERR-005：CS0535 接口升级后实现类未同步
-- **错误现象**：`dotnet build` 报 3 个 CS0535——`RecipeFileService` 未实现 `IRecipeFileService.LoadAsync(string)` / `SaveAsync(DataTable, string)` / `CreateBlankAsync(string, string)`
-- **发生上下文**：IRecipeFileService 升级为多配方接口（2026-09-02），实现类未同步
-- **根本原因**：接口加了带路径重载与 CreateBlankAsync 带参版本，但实现类仍是旧版方法签名；且 ViewModel 还在调用接口上已不存在的旧方法 `CreateBlankFileAsync()`（修完 Service 还会在 VM 处二次报错）
-- **解决方式**：① 重写 RecipeFileService——提取私有核心 `LoadCoreAsync/SaveCoreAsync` 消除重复，带路径重载成功后切换 `FilePath`（private set），实现 `CreateBlankAsync(recipeName, recipeId)`；② 全局搜索 VM 中旧方法名调用并同步修正
-- **验证结果**：🟢 已解决——构建 0 警告 0 错误
-- **教训**：⚠️ 接口升级必须同步实现类 + 全局搜索所有调用方（Service 修完不等于修完，VM 层旧调用是第二波编译错误）
-
-### ERR-006：MSB3027 程序运行锁定 exe
-- **错误现象**：构建错误 `MSB3027: 无法复制 bin\...\UiTopMachine.exe 到 ...，文件正被另一进程使用`
-- **发生上下文**：程序仍在运行时执行 `dotnet build`
-- **根本原因**：Windows 下运行中的 exe 被锁定，覆盖输出失败
-- **解决方式**：`taskkill /f /im UiTopMachine.exe` 结束进程后重试构建
-- **验证结果**：🟢 已解决——重试构建成功
-- **教训**：构建前确认目标 exe 未在运行；GUI 调试循环"改代码→构建→运行"尤其易踩
-
-### ERR-007：并发保存 xlsx 抛 IOException 文件锁冲突
-- **错误现象**：`System.IO.IOException: The process cannot access the file ... because it is being used by another process`
-- **发生上下文**：配方页验证时，单元格编辑触发的自动保存与手动保存按钮并发写同一 `Recipe.xlsx`
-- **根本原因**：ClosedXML `SaveAs` 写盘期间独占文件句柄，两个保存并发时后者拿不到锁
-- **解决方式**：ViewModel 层加 `SemaphoreSlim(1,1) _saveLock`，所有保存统一走 `SaveCoreAsync` 串行化写盘
-- **验证结果**：🟢 已解决——连续快速编辑+保存不再报错
-- **教训**：⚠️ 自动保存类后台 IO 必须考虑与用户手动操作并发，同一资源的写入用信号量排队
+## 错误条目（🟡 完整保留 / 🟢 一行摘要）
 
 ### ERR-008：Cline 终端 `&&` 命令分隔符报错
 - **错误现象**：`cd xxx && dotnet build` 报错 `标记"&&"不是此版本中有效的语句分隔符`
@@ -78,17 +24,9 @@
 - **错误现象**：PowerShell 中 `dotnet build` 中文输出显示为乱码
 - **发生上下文**：所有构建命令
 - **根本原因**：MSBuild 输出编码（GBK/CP936）与终端解码不匹配
-- **解决方式**：🟡 规避中——仅显示问题，凭关键字辨识："已成功生成"/"0 个警告"/"0 个错误" 即成功；错误码（CS/MSB）为 ASCII 不受影响；管道接 `| Out-String` 可读性更好
+- **解决方式**：🟡 规避中——仅显示问题，凭关键字辨识：“已成功生成”/"0 个警告"/"0 个错误" 即成功；错误码（CS/MSB）为 ASCII 不受影响
 - **验证结果**：可正常解读构建结果
 - **教训**：乱码不等于构建失败，先找 CS/MSB 错误码再判断
-
-### ERR-010：AntdUI Table 不支持 DataTable 直接绑定
-- **错误现象**：将 `DataTable` 传入 `table.Binding(...)` 编译/运行类型不匹配
-- **发生上下文**：配方页 AntdUI Table 化时尝试直接绑定 DataTable 数据源
-- **根本原因**：AntdUI 2.4.7 `Table.Binding<T>` 只接受 `AntList<T>` 或 `BindingList<T>`（反射确认签名）
-- **解决方式**：View 层写 `BindTable(DataTable)` 适配方法——按 DataTable 列重建 `Column(key, title)`，逐行转 `AntItem(key, value)[]` 装入 `AntList<AntItem[]>` 后 Binding；TableVersion++ 通知 View 重建
-- **验证结果**：🟢 已解决——Excel 任意表头动态列正常展示
-- **教训**：⚠️ 第三方 UI 库 API 以反射/编译用例实证为准，不凭文档臆测；反射检查套路：临时控制台项目 LoadFrom DLL 导出签名（需 UseWindowsForms=true 解析依赖），用完即删
 
 ### ERR-011：PowerShell `mkdir` 多参数不可用
 - **错误现象**：`mkdir a b c` 报错（cmd 语法可一次建多个，PowerShell 不行）
@@ -98,194 +36,38 @@
 - **验证结果**：目录创建正常
 - **教训**：环境类坑优先查实际 shell 类型（见 ERR-008）
 
-### ERR-013：AddRowCommand 永久禁用（RaiseCanExecuteChanged 漏刷）
-- **错误现象**：「新增行」按钮在数据加载完成后仍为灰色不可点击
-- **发生上下文**：配方页 v1.4，`AddRowCommand.CanExecute = !IsLoading && RecipeTable.Columns.Count > 0`——初始空表（0 列）时绑定为禁用，但数据加载成功后**没有任何代码触发该命令的 CanExecuteChanged**，按钮停留在禁用态
-- **根本原因**：VM 多个属性 setter（RecipeTable/IsLoading/IsSaving）各自手动列举要刷新的命令，`AddRowCommand` 被遗漏——逐个列举的维护方式天然易漏
-- **解决方式**：VM 提取 `RefreshAllCommandStates()` 统一刷新全部 8 个命令，三个属性 setter 全部改调此方法；属性变化 → 全量刷新，简单可靠不再遗漏
-- **验证结果**：🟢 已解决——构建 0 警告 0 错误，运行验证按钮恢复正常（PID 24312）
-- **教训**：⚠️ WinForms 无自动命令刷新机制，**属性变化影响命令可用性时必须显式通知**；多个命令依赖同一属性时用「全量刷新」替代「逐个列举」，遗漏一次就是永久禁用；评审命令 CanExecute 时同步检查其依赖属性的每个 setter 是否触发了刷新
+---
 
-### ERR-014：新增行刷新后消失（ClosedXML 空行不落盘 + RowsUsed 跳过空行）
-- **错误现象**：配方页点击「新增行」后日志显示「已新增第 19 行」且自动保存成功，但点击刷新后表格回到 18 行——新行凭空消失，数据无处录入（用户反馈「新增行不能添加数据，刷新之后不显示」）
-- **发生上下文**：配方页 v1.4，配方文件为无「配方编号」列的工业参数表（26 列），新增行全空
-- **发生时间**：2026-09-02 14:44（用户日志 4 次复现同一模式）
-- **根本原因**：两端叠加——① **写入端**：ClosedXML 对纯空字符串单元格不落任何痕迹，整行全空时该行在 xlsx 文件 XML 层面不存在；② **读取端**：`LoadCoreAsync` 用 `usedRange.RowsUsed().Skip(1)` 枚举数据行，`RowsUsed()` **只返回有内容的行，空行被直接跳过**。保存的空行重新加载时被过滤 →「新增空行→保存→刷新」= 行蒸发
-- **解决方式**：`RecipeFileService` 双端修复——① `SaveCoreAsync`：逐行检测整行全空时向首列写入单个空格 `" "` 占位，保证该行在文件中真实存在；② `LoadCoreAsync`：放弃 `RowsUsed()` 枚举，改用 `ws.LastRowUsed().RowNumber()` 确定末行行号，从第 2 行逐行循环装载（空行/中间空行全部保留），空格占位单元格经 `Trim` 还原为空字符串。附带修复：中间行被用户清空后刷新不再消失
-- **解决时间**：2026-09-02 15:44
-- **验证结果**：🟢 已解决——构建 0 警告 0 错误；临时控制台往返验证 8 PASS / 0 FAIL（空行保留/中间空行位置不变/有数据行完整/真实文件可加载）
-- **教训**：⚠️ ClosedXML 的 `RowsUsed()` 语义是「有内容的行」不是「表格的行」，读写循环必须**自己维护行号**（`LastRowUsed().RowNumber()` + for 循环）而非依赖枚举器；空 DataTable 行写入 Excel 必须显式占位；单元格值 `Trim` 需评估业务影响（本例占位空格还原为空是预期行为）
+### 🟢 已解决条目摘要（26 条，完整过程见归档第七节）
 
-### ERR-015：加载特定列结构的配方文件失败（表头重命名 DuplicateNameException）
-- **错误现象**：加载列名与默认表头部分重合的配方 xlsx（如「配方编号/配方名称/备注」3 列）时，`LoadAsync` 返回失败，用户无法打开正常配方文件
-- **发生上下文**：2026-09-03 搭建单元测试（tests/UiTopMachine.Tests），首个 VM 业务测试套件运行时 17 个用例连锁失败，失败断言暴露「前置加载失败：A column named '备注' already belongs to this DataTable」
-- **发生时间**：2026-09-03 10:38
-- **根本原因**：`RecipeFileService.LoadCoreAsync` 读表头采用「预置默认表头 + 逐列重命名」方式——当文件某列名与默认表头中**其它列**重名时（本例：文件第 3 列「备注」重命名默认列时与默认第 5 列「备注」冲突），DataTable 抛 `DuplicateNameException`，整个加载失败。该缺陷自 0.8 版本引入后一直未被发现（无「文件列结构 ≠ 默认 5 列」场景的自动化验证），正是单元测试要捕获得回归类型
-- **解决方式**：`LoadCoreAsync` 弃用重命名方式，改为按文件实际表头**新建 DataTable 重建列结构**（空表头用「列N」兜底），数据行装载与返回均基于文件真实列。附带收益：文件列结构与加载结果严格一致，不再残留默认表头多余列
-- **解决时间**：2026-09-03 10:40
-- **验证结果**：🟢 已解决——dotnet test 55/55 全部通过；dotnet build 0 警告 0 错误
-- **教训**：⚠️ 「重命名」式适配表头隐含全局唯一性约束，列名来自外部文件时必须改用「重建」语义；**产品 Bug 被历史版本携带数月而测试首轮即暴露**，验证了「每次任务修改功能必须配套测试」工作流的价值；防回归测试用例 `ERR014_保存含末尾空行的表_重载后行数不变` 系列 + VM 套件已永久守护
-
-### ERR-016：带首尾空格的编号绕过唯一性校验（重载 Trim 后撞车 / 数据漂移）
-- **错误现象**：① 用户输入带首尾空格的编号（如 `" R001 "`）可通过单元格唯一性校验保存，刷新重载后被 `Trim` 成 `"R001"`，与已有行编号撞车，破坏「编号唯一」不变量；② 所有单元格输入的空格在重载后悄然消失（内存值 ≠ 重载值，数据漂移）
-- **发生上下文**：2026-09-03 用户要求「对配方页面修改功能进行测试」——按测试工作流为 `TryCommitCellEdit` 修改链路补写空格规范化用例，4 个用例全部失败暴露缺陷
-- **发生时间**：2026-09-03 10:53
-- **根本原因**：`LoadCoreAsync` 重载时对**全部单元格**做 `Trim`（ERR-014 修复引入），但 VM 修改链路仍是**原文写入 + 原文比较**——两端口径不一致：`TryCommitCellEdit` 未 Trim、`IsDuplicateRecipeId`/`ValidateRecipeIdUnique`/`GenerateUniqueRecipeId` 均用原文 Ordinal 比较，`" R001 "` 与 `"R001"` 被判为「不同」
-- **解决方式**：VM 修改链路四处对齐 Trim 口径——① `TryCommitCellEdit` 提交前 `(newValue ?? "").Trim()` 规范化（写盘值即最终值，杜绝漂移）；② `IsDuplicateRecipeId` 比较值 Trim；③ `ValidateRecipeIdUnique` 收集值 Trim；④ `GenerateUniqueRecipeId` 已占用收集 Trim
-- **解决时间**：2026-09-03 10:54
-- **验证结果**：🟢 已解决——dotnet test 59/59 全部通过（含 4 个新空格规范化回归用例）；dotnet build 0 警告 0 错误
-- **教训**：⚠️ **同一数据在读写两端必须同一规范化口径**——读端有 Trim，写端/校验端就必须 Trim，否则「校验时不同、重载后相同」是必然漏洞；数据不变量（如编号唯一）的守护要放在**规范化后的值域**上，而非原始输入上
-
-### ERR-017：单元格修改错位写入（AntdUI 行事件索引为含表头的 1 基 INDEX——首轮误诊后二次实证修正）
-- **错误现象**（两轮症状方向相反，均源于同一根因）：
-  - 第一轮（返回 true 时）：值错位写到**上一行**、首行永远改不到（AntdUI 内部按事件索引 1 基落值 + UI 显示以其错误值为准）
-  - 第二轮（恒返回 false + VM 提交后）：值错位写到**下一行同列**、编辑末行静默失败「改不动」、编号查重「失效」（重输自身原编号被误报已存在 / 输入与下一行相同编号被未变化短路跳过）——用户反馈「保存刷新之后修改的内容到了下一行同列，修改编号列未进行查重校验」
-- **发生上下文**：2026-09-03 用户首轮反馈错位；修复后同日用户二次反馈「错到下一行 + 编号查重未生效」
-- **发生时间**：2026-09-03 11:00（首轮）/ 2026-09-03 12:00 前后（二次复现）
-- **根本原因**（第二轮运行时实证，bin/inspect/InspectRowIndex.cs 双实验对照）：AntdUI 2.4.7 `CellEndEdit`、`CellClick`、`CellFocused` 三事件的 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头 INDEX=0，首条数据行 INDEX=1，事件值与内部 INDEX 一致），而 **ColumnIndex 为 0 基**、`SelectedIndex` 亦为 1 基 INDEX。首轮修复误诊「事件 0 基、内部提交 1 基」，保留「恒返回 false + VM 提交」但**仍把 1 基 RowIndex 直接传给 VM 的 0 基 DataTable** → 全部偏移 +1 写到下一行：末行（事件值=行数）越界静默返回 false；查重用错位行读 oldValue，被「未变化」分支短路跳过或 excludeRowIndex 排除错行误报。首轮第一版（恒 true）的症状方向相反是因为 AntdUI 内部落值与 VM 双写叠加
-- **解决方式**（VM 唯一事实源 + 索引换算三处）：① View `CellEndEdit` **恒返回 false**（实证确认零内部写入）+ `TryCommitCellEdit(e.RowIndex - 1, e.ColumnIndex, ...)` 行减 1 换算（列 0 基原样）；② `UpdateFocus`（CellClick/CellFocused 共用）同样 RowIndex-1 换算（<1 即表头/空白视为取消选中）——**删除行/列链路同样存在此错位，一并修正**；③ `BindTable` 恢复高亮 `SelectedIndex = _focusedRowIndex + 1` 反向换算；VM 提交成功后 `TableVersion++` 重建表格
-- **解决时间**：2026-09-03 12:20
-- **验证结果**：🟢 已解决——dotnet test **65/65** 全绿（新增 2 个用例：编号列重输自身原值不误报 / 末行可编辑且落在末行）；dotnet build 0 警告 0 错误；实证工具双实验确认索引基准与零内部写入
-- **教训**：⚠️ **第三方 UI 库的索引基准必须实证且不可想当然**——首轮「实证」实际只验证了内部落值行为，未对事件索引基准做对照实验（拿事件值直接当 0 基用），导致修复引入反向错位；正确套路 = 同一次交互同时捕获已知正确的基准事件（如坐标模拟双击的视觉行）与待测事件的索引做对照。⚠️ 行/列基准可能不一致（本例行 1 基、列 0 基），必须分别验证。⚠️ 一个索引错位会级联放大成多个「看似无关」的症状（错位写 + 查重失效 + 末行改不动 + 高亮偏移），排查时从共同根因入手而非逐症状打补丁
-
-### ERR-018：编号查重在真实配方表上静默失效（查重列名硬编码「配方编号」，用户表头为「编号」）
-- **错误现象**：用户反馈「没有对编号列设置防重复——修改编号列/给新建行录入编号时，与现有编号重复仍成功保存并写进 Excel」；且校验失败仅写日志面板无弹窗，用户无法感知「被拒绝」
-- **发生上下文**：2026-09-03 用户反馈编号防重未生效；经确认用户真实配方表编号列表头为「**编号**」
-- **发生时间**：2026-09-03 12:44
-- **根本原因**：`RecipePageViewModel.RecipeIdColumn = "配方编号"` 硬编码单列名精确匹配——用户表头「编号」≠「配方编号」→ 三道防线同时静默失效：① `TryCommitCellEdit` 的 `columnName == RecipeIdColumn` 恒 false 跳过编辑查重；② `ValidateRecipeIdUnique` 的 `IndexOf` 返回 -1 视为「无编号列」跳过保存兜底；③ `AddRow` 跳过自动编号（需手输，与用户描述吻合）。附带缺陷：校验失败仅记日志无用户可见反馈、拒绝后未强制重建表格（AntdUI 可能残留编辑值假象）、`LoadCoreAsync` 表头未 Trim（「编号␣」同样失效）
-- **解决方式**（v1.6）：
-  ① **编号列识别宽松化**：`RecipeIdColumnCandidates = { "配方编号", "编号" }` 候选列表 + Trim + 忽略大小写，新增 `FindRecipeIdColumnIndex()` 统一入口替换全部 6 处硬编码调用（TryCommitCellEdit/IsDuplicateRecipeId/ValidateRecipeIdUnique/GenerateUniqueRecipeId/AddRow/DeleteRow 文案）
-  ② **失败弹窗反馈**：新增 `Common/MessageRequestEventArgs.cs`（纯数据）+ VM `MessageRequested` 事件（沿用 VM→View 弹框请求模式）；编辑重复拒绝 → 弹「编号已存在，修改失败」+ 拒绝也 `TableVersion++` 强制重建还原显示；手动保存兜底失败 → 弹「保存失败」（`SaveCoreAsync` 增加 `userInitiated` 参数，自动保存保持静默日志）；View 订阅经 `BeginInvoke` 封送 UI 线程弹 MessageBox
-  ③ **Service 表头 Trim**：`LoadCoreAsync` 读表头 Trim 规范化，消除「编号␣」空格陷阱
-- **解决时间**：2026-09-03 13:00
-- **验证结果**：🟢 已解决——dotnet test **71/71** 全绿（新增 6 用例：「编号」表头编辑重复拒绝+弹窗断言/唯一通过不弹窗/新增行自动编号跳过占用/新增行手改重复拒绝/手动保存兜底拒绝+弹窗/「配方编号」候选兼容）；dotnet build 0 警告 0 错误
-- **教训**：⚠️ **业务规则关联外部数据（列名/表头）时禁止硬编码单一精确名**——用户的文件结构是变的，识别逻辑必须候选列表 + 规范化（Trim/大小写）匹配；⚠️ **校验类功能的「拦截」与「告知」是一体的**——只拦截不告知，用户感知就是「没生效」；⚠️ 沉淀普适教训 → systemPatterns（外部标识符识别模式）
-
-### ERR-019：新建配方文件流转语义理解偏差（另存副本 vs 备份轮转）——返工
-- **错误现象**：v1.7 将「新建配方」实现为「原文件不动 + 另存时间戳副本并切换工作区」，用户指出正确语义应为**备份轮转**：原配方文件改名（原名+时间戳）备份 → 新空白配方**沿用原文件名**（Recipe.xlsx）→ 页面显示新配方。首轮返工
-- **发生上下文**：2026-09-03 用户连续追问「原配方文件怎么处理」后指出流程不对
-- **发生时间**：2026-09-03 13:32
-- **根本原因**：**设计前未与用户对齐「文件流转语义」**——「新建配方」涉及原文件去向/新文件命名两类决策，仅凭「原文件保留不删」的既有决策自行推演了「另存副本」方案（v1.7 直接实施），未先呈现「原文件改名备份、新文件沿用原名」的可能方案让用户确认
-- **解决方式**（v1.7b）：① `CreateBlankAsync(headers, blankRowCount)` 移除 recipeName——新文件固定沿用当前文件名；② Service 轮转：`File.Move` 原文件 → `原名_yyyyMMdd_HHmmss.xlsx`（同秒递增 `_2/_3` 防覆盖），模板表写入原路径，FilePath 不变；③ VM 先经通用 `ConfirmationRequested`（替换 DeletionConfirmRequested，删除行/列迁移共用）请求用户确认，确认后轮转 + 内存构造空白表立即显示；④ 顺带完成同批需求：行序整理 `CompactRows`（加载/编辑/删除后数据连续、空白垫底）+ `EnsureMinRows`（依 View 可见高度补真实可编辑空白行）+ `RowHeight=36/RowHeightHeader=40`
-- **解决时间**：2026-09-03 13:59
-- **验证结果**：🟢 已解决——dotnet test **79/79** 全绿（改写 CreateBlank 7 个 Service 用例 + 新建配方 VM 用例 3 个 + 行序整理/补行用例 4 个）；构建 0 错误（2 个 xUnit 风格 warning 为历史遗留非本次引入）
-- **教训**：⚠️ **涉及文件生命周期（重命名/移动/删除/覆盖）的功能需求，动手前必须先与用户对齐「文件流转语义」**——「原文件保留」存在多种实现（副本另存/改名备份/原位不动），语义错一个字就整体返工；正确流程 = 列出候选方案（原文件去向 × 新文件命名矩阵）让用户选择后再实施
-- **状态**：🟢 已解决
-
-### ERR-020：测试桩通道与生产代码脱节（VM 切换打印通道后 VM 测试静默失效）
-- **错误现象**：v1.8 测试桩 `StubPrintService` 的 `SentZpl` 记录/`FailFromIndex` 失败注入逻辑挂在 `PrintByIpAsync` 上，`PrintBySpoolerAsync` 仅空转返回成功；生产 VM 切换到 Spooler 通道后，4 个 VM 打印用例不再经过桩的记录/失败路径——若当时跑过测试必然红灯，但该次交付未执行 dotnet test，缺陷被带入下一任务
-- **发生上下文**：2026-09-03 打印通道切换（Spooler 为主）任务交付后；本次 v1.9 任务 P0 读测试文件时发现
-- **发生时间**：2026-09-03 16:40
-- **根本原因**：**① 测试桩与生产代码的实现通道无一致性约束**（桩两个方法行为不对称却无注释警示）；**② 违反已固化的「测试全绿才交付」工作流**——只构建未测试就交付
-- **解决方式**（v1.9）：桩的记录/失败注入逻辑迁移到 `PrintBySpoolerAsync`（生产通道），`PrintByIpAsync` 注释标明「备用通道：生产代码当前不走此路径」；补跑 dotnet test 确证 103/103 全绿
-- **解决时间**：2026-09-03 17:05
-- **验证结果**：🟢 已解决——dotnet test **103/103 PASS**（100 + 新增 3 个自定义内容用例），测试工程 0 警告
-- **教训**：⚠️ **生产代码改换实现路径（通道/方法/服务）时必须全局搜索测试桩中对应方法的桩逻辑**；「测试全绿才交付」是硬门槛，构建通过 ≠ 验证通过——跳过测试的交付会把红灯伪装成绿灯
-- **状态**：🟢 已解决
-
-### ERR-021：HslCommunication V12 大版本 API 变化（SetPersistentConnection 过时 + InovanceTcpNet 命名空间迁移）
-- **错误现象**：v1.10 接入 HslCommunication 12.9.2 后构建出现 CS0612 警告「DeviceTcpNet.SetPersistentConnection() 已过时」；且 InovanceTcpNet 不在旧文档记载的 `HslCommunication.Inovance` 命名空间（实际为 `HslCommunication.Profinet.Inovance`）
-- **发生上下文**：2026-09-04 PLC Modbus TCP 连接 + 双向心跳（v1.10）任务，首次引入 HslCommunication 包
-- **根本原因**：HslCommunication V12 起**默认即长连接**，`SetPersistentConnection()` 仅为兼容保留（调用无效且过时）；大版本升级后协议类命名空间重新组织（Inovance 系归入 Profinet），旧版文档/API 记载不能直接沿用
-- **解决方式**：删除 `SetPersistentConnection()` 调用（V12 默认长连接，注释标明）；`InovanceTcpNet` 使用 `HslCommunication.Profinet.Inovance` 命名空间，构造 `new InovanceTcpNet(ip, port, station)`（另有带 `InovanceSeries` 枚举的重载）；API 真实签名以 NuGet 包内 XML 文档核对为准
-- **解决时间**：2026-09-04
-- **验证结果**：🟢 已解决——dotnet build **0 警告 0 错误**，dotnet test **110/110 PASS**
-- **教训**：⚠️ **引入/升级第三方库大版本前，先以包内 XML 文档（`.nuget/packages/<pkg>/<ver>/lib/*/xxx.xml`）核对关键 API 签名与命名空间**，不能凭记忆或旧文档写代码；过时警告（CS0612）出现时查官方注释中的替代方案再动手
-- **状态**：🟢 已解决
-
-### ERR-022：InovanceTcpNet 地址格式假设错误（心跳写失败导致连接无限重连循环）
-- **错误现象**：程序连接 PLC（本机模拟器）TCP 握手成功，但每次连接约 0.5 秒后心跳丢失 → 断开 → 5 秒重连无限循环；日志报「PLC 写入寄存器 100 失败：输入的地址解析失败，可能是该地址格式不支持…」；v1.12 物料地址剥离 M 前缀同样错误
-- **发生上下文**：2026-09-04 v1.12 交付后运行程序检查连接状态时发现
-- **根本原因**：**三层地址假设全错**——① `InovanceTcpNet` 要求**汇川软元件格式**地址（位 "M1000"、字 "D100"），纯数字无法解析，v1.10 心跳地址 "100"/"101" 从一开始就解析不了；② 默认构造（AM 系列）**不支持 D 字地址**，必须显式 `new InovanceTcpNet(InovanceSeries.H5U, ...)`；③ v1.12 的 `ResolveBitAddress` 把 "M1000" 剥成 "1000" 与正确方向相反。单元测试未能发现：FakePlcTransport 不做地址解析（测试桩绕过生产路径，ERR-020 同类）
-- **解决方式**：① 删除 ResolveBitAddress，地址原样透传；② 心跳默认地址改 "D100"/"D101"；③ transport 显式指定 `InovanceSeries.H5U`；④ **实证工具**：`TranslateToModbusAddress(address, functionCode)` 离线可验证地址解析（不需要真机），固化为 `HslModbusAddressTests` 6 用例守护（H5U 翻译 M1000→1000/D100→100/D101→101、纯数字失败、默认系列 D 失败）；另用本机模拟器全链路实证（写 D101=567 回读 567、读 M1000×19）
-- **解决时间**：2026-09-04
-- **验证结果**：🟢 已解决——dotnet test **127/127 PASS**（含 6 个地址守护用例）；修复后程序连接模拟器心跳写读、物料读取全部正常收发
-- **教训**：⚠️ **协议类的地址格式必须离线实证（TranslateToModbusAddress 一行即可验证），不能按基类/文档印象假设**；「连接成功」不等于「通讯正常」——TCP 握手成功后首个读写才会暴露地址问题；涉及 SDK 行为的测试桩无法守护的路径，用 SDK 自身的离线 API 写守护测试
-- **状态**：🟢 已解决
-
-### ERR-023：后台事件现取 SynchronizationContext 导致 UI 永远显示初始状态 + OnFormClosing 退出死锁
-- **错误现象**：① 用户反馈「plc 还是显示未连接」——程序实际已连接（日志连续记录"已连接"、TCP ESTABLISHED），但 Status 面板状态行/消息流永远停留初始"未连接/暂无消息"；② 用户点退出后窗体关闭但进程残留（无窗口僵尸进程，PLC 服务与 TCP 连接仍存活）
-- **发生上下文**：2026-09-04 v1.13（状态行）上线后即存在，v1.15 后用户再报才深挖发现
-- **根本原因**：**两个独立的线程调度错误**——① PLC 状态事件来自后台线程，事件处理里现取 `SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext()`：后台线程 Current 为 null，**新建的 WindowsFormsSynchronizationContext 绑定在无消息泵的后台线程上，Post 的回调永远不执行**（PlcStatusText/面板条目/抽屉物料推送全部静默丢失；日志是同步写文件所以正常，形成"日志正常 UI 不动"的假象）；② `OnFormClosing` 在 UI 线程直接 `Wait` 异步停止任务——任务延续需回 UI 线程 SynchronizationContext，而 UI 线程正被 Wait 阻塞 → 死锁 3 秒超时后窗体已关、进程未退
-- **解决方式**：① `MainViewModel` **构造时捕获** UI 上下文存字段 `_uiContext`（构造发生在 UI 线程），全部后台事件处理改用 `_uiContext.Post`（4 处）；② `OnFormClosing` 改 `Task.Run(() => ShutdownAsync()).Wait(3s)`（延续在线程池，不回 UI 线程，无死锁）；③ **守护测试**：`后台线程触发PLC事件_状态行仍更新`——用 `new Thread` 在无上下文的后台线程触发事件（断言 Current 为 null 前置），回归可测
-- **解决时间**：2026-09-04
-- **验证结果**：🟢 已解决——dotnet test **128/128 PASS**；重启程序截图实证：状态行绿色「PLC：已连接 127.0.0.1:502 站号1」、消息流恢复显示、抽屉物料联动正常
-- **教训**：⚠️ **SynchronizationContext 必须在 UI 线程构造时捕获存字段，严禁后台事件里现取**（`Current ?? new ...` 模式在后台线程是静默丢失，无异常无日志，只能靠"日志正常 UI 不动"的反常推断）；**同类 UI 更新点要成批排查**（本次 4 处全错）；UI 假死/进程残留先查 UI 线程 Wait 异步任务的死锁；测试须还原生产的线程环境（事件来自无上下文的后台线程），否则测试全绿带病上线
-- **状态**：🟢 已解决
-
-### ERR-024：控件未加入容器时设置 Anchor=Right，冻结错误右缘距离把按钮推出窗口外
-- **错误现象**：无边框窗体右上角自绘的最小化/最大化/关闭三按钮 UIA 树可见（bounds 正确语义存在）、点击有效，但屏幕右上角看不到（窗口右上角空白）；实际按钮 bounds 被排到 x=3026（窗口右缘 1870，超出 1156px）
-- **发生上下文**：2026-09-04 v1.23 右上角窗口控制按钮任务
-- **根本原因**：`CreateWindowButton` 的对象初始化器中 **`Anchor = Top|Right` 在控件 Location 仍为 (0,0)、且尚未加入容器（容器未定型）时设置**——WinForms 冻结"控件右缘到容器右缘的距离"为负值（基于默认 200×100 容器计算），之后控件加入真实容器（宽 1500）按冻结距离定位 → 按钮被推出窗口外 1156px。UIA press 仍可命中（语义层直按不依赖视觉），形成"点击有效但看不见"的隐蔽组合
-- **解决方式**：① 去掉 Anchor=Right（改默认 Top|Left）；② 按钮位置由 `_topBar.Resize` 事件统一重算（`LayoutWindowButtons()`：右缘三按钮 = ClientSize.Width-144/-96/-48），初始手动调用一次；③ **位置正确后原生 Button 仍不渲染**（PrintWindow 离屏 + 全屏截图双重实证右上角空白），最终放弃原生 Button 改用 **AntdUI.Button**（原红色退出按钮同款组件——该组件 + Anchor Top|Right + Location 布局模式在此窗体长期渲染正常），**先加入容器、再设置 Anchor** 规避时序坑；④ 截图右上角空白在窗口最小化恢复后可能为截图位图失真，以 UIA bounds + 交互实证为准
-- **解决时间**：2026-09-04
-- **验证结果**：🟢 已解决——UIA bounds 实证三按钮紧贴窗口右上角；点击最小化按钮窗口真实最小化；最终以 AntdUI.Button 重写后**截图实证右上角三按钮清晰渲染**（✕ □ —）；dotnet test **155/155 PASS**
-- **教训**：⚠️ **Anchor=Right/Bottom 必须在控件加入容器且容器尺寸定型之后再设置**（或干脆用 Resize 事件重算位置）；"UIA 树里有 + 点击有效 + 屏幕上看不见"= 控件在窗口外的典型组合，先查 bounds 绝对坐标再查渲染；**原生 Button 渲染异常时换已实证的组件体系（AntdUI.Button）是最快收敛路径**——同一布局模式在成熟组件上工作正常
-- **状态**：🟢 已解决
-
-### ERR-025：共享协议 BuildResponse 头部缺 `\n\n` 结束标记（单元测试暴露 PNG 解析丢失）
-- **错误现象**：VmBridgeProtocolTests「响应往返_成功含PNG」用例失败——`ParseResponse` 返回的 `PngBytes` 为 null，PNG 结果图字节被静默丢弃
-- **发生上下文**：2026-09-07 v1.24 VM 桥接协议测试（新协议首次编写配套测试即暴露）
-- **发生时间**：2026-09-07 13:36
-- **根本原因**：`BuildResponse` 生成头部文本后直接拼 PNG 字节，**头部末尾没有追加空行（`\n\n`）**；而 `ParseResponse` 依赖「头部结束 = `\n\n`」切分 PNG 二进制——找不到分隔符时把整个 payload 当 headerText 解析，PNG 字节（二进制噪声）混进 key=value 行被丢弃
-- **解决方式**：`BuildResponse` 在含 PNG 的响应头部末尾补 `sb.Append('\n')` 形成 `\n\n` 结束标记；构建/解析两端往返由测试锁死
-- **解决时间**：2026-09-07 13:36
-- **验证结果**：🟢 已解决——dotnet test 180/180 全绿（含 PNG 往返、中文错误 Base64、流程名列表等 15 个协议用例）；端到端管道联调实证 Run 命令返回 986×645 PNG（isok=1）
-- **教训**：⚠️ **自定义二进制/文本混合协议的「分隔符约定」必须构建端与解析端同步实现**——只改一端（或构建端忘了写分隔符）解析端会静默丢数据；这类跨端契约 Bug 首选「构建→解析往返测试」当场暴露（本次首轮测试即红）
-- **状态**：🟢 已解决
-
-### ERR-026：桥接 exe 相对路径回溯级数错误（4 级应为 3 级，解析到仓库外致「桥接进程不存在」）
-- **错误现象**：图像页加载方案报「视觉方案加载失败：桥接进程不存在：D:\tools\VmVisionBridge\bin\Debug\net48\VmVisionBridge.exe」——实际文件存在于 D:\GitRepo\tools\ 下
-- **发生上下文**：2026-09-07 v1.25 方案路径切换任务交付后用户运行程序时反馈
-- **发生时间**：2026-09-07 16:49
-- **根本原因**：`Program.cs` 中 `Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ...)` 从 `bin\Debug\net10.0-windows\` 回溯到仓库根只需要 **3 级**（net10.0-windows→Debug→bin→GitRepo），误写 4 级多退一级解析到 `D:\tools\...`（不存在）；`EnsureBridgeReadyNoLock` 的 `File.Exists` 检查如实报错——错误信息里打印的完整解析路径就是最直接的破案线索
-- **解决方式**：回溯级数改 3 级并注释推导链（net10.0-windows → Debug → bin → 仓库根）；修复后桥接 `--probe` 模式端到端实证 `PROBE_OK procedures=流程1`（VisionTesting.sol 加载成功且流程名匹配）
-- **解决时间**：2026-09-07 16:58
-- **验证结果**：🟢 已解决——主程序与桥接项目构建各 0 警告 0 错误；probe 实证方案加载 + 流程名枚举通过；单元测试 180/180 不受影响（纯 DI 路径参数）
-- **教训**：⚠️ **相对路径回溯级数必须以 AppContext.BaseDirectory 的实际值逐级推导**（`bin\Debug\<TFM>\` 是 3 级不是 4 级），不要凭感觉多写一个 `..`；此类错误构建/测试全绿（DI 参数为纯字符串），只有运行时才会暴露——错误信息中打印完整解析路径是必备的排障手段；下次可加「启动时路径存在性自检日志」提前暴露
-- **状态**：🟢 已解决
-
-### ERR-027：桥接进程加密狗授权失败后被复用（SDK 授权初始化每进程仅一次，失败永久带病无法自愈）
-- **错误现象**：图像页加载方案报「视觉方案加载失败：VmException 0xE0000700: IMVS_EC_ENCRYPT_DONGLE_OUTDATE:Dongle not detected!」且重试永远失败；但加密狗实际正常（VM 客户端可识别、全新桥接进程 `--probe` 一次成功）
-- **发生上下文**：2026-09-08 早 v1.25b 交付后用户反馈；当日上午机器重启后首次加载失败（诱因：开机后加密狗驱动未就绪或加载瞬间授权被占用，已不可考）
-- **发生时间**：2026-09-08 08:44
-- **根本原因**：三层叠加——① VM SDK 的授权登录（SM_Init/MV_LoginLicense）**每个进程只执行一次**，进程内失败后后续 `VmSolution.Load` 全部复现同一错误，无法自愈；② 桥接进程 `HandleCommand` 捕获 VmException 后以 ERR 响应回帧、**进程继续存活**；③ 服务层 `LoadCore` 收到 ERR 业务失败响应时**不清理桥接进程**（仅管道/进程异常才清理）→ 带病进程被无限复用，主程序重试 15 次全失败，而全新进程一次成功
-- **破案线索**：桥接进程 `log/SDK/PlatformSDK.log` 的 `SDK: Dongle check fail. DongleStatus=[e0000700]`（对比 9-7 16:58 成功记录 `dongle state[0]`）与 `log/Server/Monitor.log` 的 `MV_LoginLicense ret[5] "There are no available local locks"`——**主程序日志只有上层错误，SDK 底层日志才分清「狗真不在」vs「进程带病」**
-- **解决方式**：服务层 `LoadCore` 收到 Load 失败响应即 `CleanupBridgeNoLock` 清理桥接进程（下次调用自动以全新进程重试）；`VmBridgeProtocol` 新增 `IsDongleLicenseError`（识别 0xE0000700/IMVS_EC_ENCRYPT/Dongle/本地锁）+ `DongleLicenseHint` 用户指引文案（加密狗插入/驱动正常/VM 客户端不占用授权）
-- **解决时间**：2026-09-08 09:05
-- **验证结果**：🟢 已解决——dotnet test **190/190 PASS**（新增 10 个加密狗识别用例）、构建 0 警告 0 错误（共享源码需 net48 兼容：`string.Contains(str, StringComparison)` 重载不存在，须用 `IndexOf`）；probe 回归 `PROBE_OK procedures=流程1`；真机端到端实证——切图像页自动加载「视觉方案加载成功（VisionTesting.sol）」+ 连续检测出图
-- **教训**：⚠️ **子进程内「一次性初始化」失败是永久性的，调用方收到业务失败响应也必须当进程已污染处理**——不能只依赖「进程退出才重启」；排除此类问题必须看子进程自己的底层日志（SDK/授权层），主程序日志只有回显错误；加密狗类环境故障（驱动未就绪/授权被占）重启后高发，服务层必须自带「失败换新进程」的自愈路径
-- **状态**：🟢 已解决
-
-### ERR-028：流程执行成功但输出图间歇为空（图像源帧率低于轮询频率，误报为检测错误）
-- **错误现象**：连续检测约 1/3~1/2 运行报「视觉检测失败：流程无输出图（GetOutputImageV2("ImageData") 为空）」，结果图黑屏间歇出现；用户确认 sol 方案中流程 1 存在输出图像
-- **发生上下文**：2026-09-08 ERR-027 修复后真机验证连续检测时发现
-- **根本原因**：诊断日志（桥接 `log/VmBridge-diag.log`）实证——失败的运行中输出清单**就是 ImageData**（键注册正常）但值为空，`ErrorCode=0`（流程执行成功），500ms×5 重试仍空（排除时序问题）→ 结论：方案内图像源帧率低于 1s 轮询频率，**无新帧的运行图像输出值为空属方案常态行为**，上层把它当检测错误是语义错位
-- **解决方式**：三层降级——① 桥接 `HandleRun` 取图为空且 `ErrorCode=0` → 返回成功无图（`ErrorCode!=0` 才报执行失败）；② 服务层收到成功无图响应 → 返回 `Image=null` 的 OK 结果（新增语义：Image=null=无新帧）；③ `ImagePageViewModel.ApplyInspectionResult` 对 `Image=null` 仅记 Info「检测轮询无新帧，跳过显示」——保留上一张结果图、不计数、不报错；另 `TryGetOutputImage` 枚举 `GetAllOutputNameInfo()` 回退其余图像输出键（防方案输出键名不同）
-- **诊断手段沉淀**：桥接进程加 `DiagLog`（`log/VmBridge-diag.log` 文件日志）——服务启动方式 stderr 无重定向会丢失，关键排障信息必须落文件
-- **验证结果**：🟢 已解决——dotnet test **191/191 PASS**（新增无新帧跳过用例）；真机实证连续检测 29 次完成 + 18 次无新帧静默跳过 + **0 次失败**，桥接 diag 35 次「按无新帧跳过返回」
-- **教训**：⚠️ **「流程执行成功但无输出」≠「检测失败」**——低速图像源下无新帧是常态，必须按跳过处理而非报错刷屏；间歇性为空先看子进程诊断日志分清「键不存在/值未发布/值真空」三种情形再定方案
-- **状态**：🟢 已解决
-
-
-### ERR-029：图像页 INPC 绑定静默失效（属性更新但界面黑屏——改 View 轮询定时器）
-- **错误现象**：桥接取图链路正常（`--grab` 离线实证 PNG 非空非黑），日志「检测完成 OK」持续输出，但图像区持续黑屏、结论角标与统计文本从不显示；`方案已加载` 标签（同为 INPC 绑定）却正常刷新
-- **发生上下文**：2026-09-08 ERR-028 修复后用户反馈「图像管理中还是黑的没有图片」并提供参考程序截图（`OnWorkStatusEvent` + `vmRenderControl1.ModuleSource` + `SyncRun()`）
-- **排查过程（多层递进）**：① 反射 GAC VM SDK 发现 `SyncRun()`，替换异步触发的 `Run()`——仍间歇无图（排除同步语义因素）；② `KeepModuleLastResult(true)`——无效；③ 桥接加 `--grab` 调试模式：连续 8 次 Run 落盘 PNG，实证图像内容正常且**尺寸各异**（986×645→532×337→1202×676→2400×1441，多分支演示方案，部分运行无分支产图属常态）；④ VM 加临时代码证实 `AttachUiMarshaller` 已注入、`DispatchUi` 回调执行、`CurrentImage/StatisticsText` 的 **INPC 在 UI 线程（thread=2）正常触发**——但绑定控件纹丝不动
-- **根本原因**：WinForms DataBinding 在本环境下对部分绑定**静默失效**（INPC 触发而控件不刷新，无异常无日志）——与 AntdUI/自绘控件混合的复杂窗体环境相关；`方案已加载` 等个别绑定正常，`CurrentImage/CurrentVerdict/StatisticsText` 三个失效，规律无法归纳
-- **解决方式**：放弃这三个属性的 INPC 绑定，**View 端 500ms `Windows.Forms.Timer` 轮询同步**（`SyncDisplayFromViewModel`：结果图引用变化才替换+释放上一张、结论文本与着色、统计文本、方案状态着色与按钮态）——定时器 Tick 固定 UI 线程，对线程/编组/绑定全部免疫；图像所有权移交 View（VM `CurrentImage` 不再 Dispose 旧图，View 替换引用时释放）；保留 `AttachUiMarshaller`（Control.BeginInvoke）供 VM 状态调度；另桥接 `Run()` → `SyncRun()`（与参考程序一致）
-- **附带发现**：本环境 `dotnet build` **增量构建不可靠**（编译陈旧源码、报成功但产物未更新）——验证产物必须 clean 构建 + 检查产物内新符号（PowerShell 读字节搜字符串；方法名为 ASCII 元数据、字符串字面量为 UTF-16）；`Math.Clamp` 在 net48 不存在（用 Min/Max）
-- **验证结果**：🟢 已解决——dotnet test **191/191 PASS**、clean 构建 0 警告 0 错误；真机实证图像区显示灰度测试图、统计「总数：13 OK：13」、结论 OK、连续检测稳定运行
-- **教训**：⚠️ WinForms 绑定失效无任何报错，排障必须逐层实证（INPC 触发了吗？在哪个线程？绑定收到了吗？）而非反复猜测；**显示类需求可用 UI 定时器轮询兜底**——简单、可靠、对线程模型免疫；「参考程序怎么写就怎么对齐」（SyncRun/事件驱动）往往比自创路径更快
-- **状态**：🟢 已解决
-
-### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
-- **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
-- **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
-- **根本原因**：AntdUI 2.4.7 的 `CellFocused` 事件在鼠标单击时**不触发**（偏向键盘焦点导航）；跟踪鼠标选中必须订阅 `CellClick`（`TableClickEventArgs` 含 RowIndex/ColumnIndex，继承 MouseEventArgs）
-- **解决方式**：`CellClick + CellFocused` 双事件订阅，共用 `UpdateFocus` 处理函数（两者参数均含 RowIndex/ColumnIndex）；点击表头（索引 < 0）视为取消选中
-- **验证结果**：🟢 已解决——反射实证两事件委托签名后修正，构建 0 错误
-- **教训**：⚠️ 第三方 UI 库事件名不能望文生义（"Focused"≠鼠标点击），必须反射实证委托签名并用运行时行为验证；同名委托可能是其他组件的（`ClickEventHandler` 首轮全局按名搜索命中了 Chat 组件的同名委托，需从 `Table.GetEvent` 取真实类型）
+| 编号 | 标题 | 一句话教训 |
+|------|------|-----------|
+| ERR-001 | WinForms 透明背景 ArgumentException | 自绘控件慎用 Transparent，GDI+ `FromArgb` 半透明画刷是更可控的替代 |
+| ERR-002 | CS0104 Timer 引用歧义 | WinForms 项目中后台定时器一律完全限定 `System.Threading.Timer` |
+| ERR-003 | CS0067 事件未使用警告 | ICommand 的 CanExecuteChanged 必须有真实触发点（WinForms 无 CommandManager） |
+| ERR-004 | 参数化命令 CanExecute(null) 误判禁用 | 参数化命令刷新必须携带原参数；动态参数用参数提供器实时取值 |
+| ERR-005 | CS0535 接口升级后实现类未同步 | 接口升级必须同步实现类 + 全局搜索所有调用方（VM 层旧调用是第二波编译错误） |
+| ERR-006 | MSB3027 程序运行锁定 exe | 构建前确认目标 exe 未在运行（taskkill 后重试） |
+| ERR-007 | 并发保存 xlsx IOException 文件锁冲突 | 自动保存类后台 IO 必须考虑并发，同一资源写入用 `SemaphoreSlim` 排队 |
+| ERR-010 | AntdUI Table 不支持 DataTable 直接绑定 | 第三方 UI 库 API 以反射/编译用例实证为准，不凭文档臆测 |
+| ERR-012 | AntdUI CellFocused 鼠标单击不触发 | 第三方 UI 库事件名不能望文生义，必须反射实证并运行时验证 |
+| ERR-013 | AddRowCommand 永久禁用（漏刷命令） | 属性变化影响命令可用性必须显式通知；多命令共用时用「全量刷新」 |
+| ERR-014 | 新增行刷新后消失（ClosedXML 空行蒸发） | `RowsUsed()` 语义是「有内容的行」，读写循环必须自己维护行号；空行写入必须显式占位 |
+| ERR-015 | 表头重命名 DuplicateNameException（测试暴露） | 列名来自外部文件时用「重建」语义替代「重命名」；测试首轮即暴露数月潜伏 Bug 验证测试工作流价值 |
+| ERR-016 | 带空格编号绕过唯一性校验 | 同一数据读写两端必须同一规范化（Trim）口径；不变量守护放在规范化后的值域 |
+| ERR-017 | 单元格错位写入（AntdUI 行事件 1 基 INDEX，两轮实证） | 第三方索引基准必须对照实验实证；行/列基准可能不一致；一个索引错位会级联放大成多个看似无关的症状 |
+| ERR-018 | 编号查重真实表头静默失效 | 业务规则关联外部标识符（列名）禁止硬编码——候选列表 + 规范化匹配；「拦截」必须配「告知」 |
+| ERR-019 | 新建配方文件流转语义偏差（返工） | 涉及文件生命周期的需求，动手前必须先与用户对齐「文件流转语义」（候选矩阵确认） |
+| ERR-020 | 测试桩通道与生产代码脱节 | 生产代码换实现路径时全局搜索测试桩同步迁移；「测试全绿才交付」是硬门槛 |
+| ERR-021 | HslCommunication V12 API 变化 | 引入/升级第三方库大版本前，先以包内 XML 文档核对 API 签名与命名空间 |
+| ERR-022 | InovanceTcpNet 地址格式假设错误（无限重连） | 协议地址格式必须离线实证（`TranslateToModbusAddress`）；「连接成功」≠「通讯正常」 |
+| ERR-023 | 后台事件现取 SynchronizationContext + 退出死锁 | 上下文必须 UI 线程构造时捕获存字段，严禁后台事件里现取（Post 静默丢失）；UI 线程 Wait 异步用 `Task.Run` 包裹 |
+| ERR-024 | Anchor=Right 在容器未定型时冻结负距离（按钮推出窗外） | Anchor=Right/Bottom 必须在加入容器且尺寸定型后设置（或 Resize 重算）；「UIA 可见+点击有效+屏幕看不见」先查 bounds |
+| ERR-025 | 共享协议 BuildResponse 缺 `\n\n` 结束标记 | 混合协议「分隔符约定」必须构建/解析两端同步实现并以往返测试锁死 |
+| ERR-026 | 桥接 exe 相对路径回溯级数错误（4 级应 3 级） | 相对路径回溯级数以 `AppContext.BaseDirectory` 实际值逐级推导；DI 路径参数只有运行时才暴露——报错必须打印完整解析路径 |
+| ERR-027 | 桥接进程加密狗授权失败后被复用 | 子进程「一次性初始化」失败是永久性的——收到业务失败响应也必须换新进程重试；排障看子进程底层日志 |
+| ERR-028 | 流程成功但输出图间歇为空（无新帧误报） | 「成功但无结果」≠「失败」——低速图像源无新帧是常态按跳过处理；间歇性问题先看子进程诊断日志 |
+| ERR-029 | 图像页 INPC 绑定静默失效（黑屏） | WinForms 绑定失效无报错，逐层实证不猜测；显示类需求可用 UI 定时器轮询兜底（对线程/编组/绑定免疫） |
 
 ---
 
@@ -322,4 +104,5 @@
 
 - 普适性设计模式/架构教训 → 写入 `systemPatterns.md`（如 Service 带路径重载切换、并发保存串行化）
 - 环境与工具链约束 → 写入 `techContext.md`（如 PowerShell 语法限制、构建排错流程）
+- 🟢 已解决条目完整过程 → 归档 `archive/history-YYYY-MM.md`（防膨胀，§3.3）
 - 本文件仅追加新错误条目并维护生命周期状态，避免教训在多处重复维护

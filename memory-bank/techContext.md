@@ -70,7 +70,7 @@ dotnet build tools/VmVisionBridge/VmVisionBridge.csproj   # 视觉桥接进程�
 > 环境类坑的完整条目见 [errorlog.md](errorlog.md)（ERR-006/008/009/011），此处仅留操作要点：
 
 - 终端实际为 **PowerShell**：命令用单命令或 `;` 分隔（禁 `&&`，详 ERR-008）；建目录用 `New-Item -ItemType Directory -Force`（详 ERR-011）
-- `dotnet build` 输出为 GBK 乱码（凭“0 个警告 0 个错误”/“已成功生成”辨识，详 ERR-009）；终端输出捕获不稳时用 `| Out-File -Encoding utf8 <文件>` 落盘再 read_file
+- `dotnet build` 输出为 GBK 乱码（凭"0 个警告 0 个错误"/“已成功生成”辨识，详 ERR-009）；终端输出捕获不稳时用 `| Out-File -Encoding utf8 <文件>` 落盘再 read_file
 - 启动 GUI：`Start-Process "完整路径.exe"`；构建前确认 exe 未运行（详 ERR-006）
 - 构建排错流程：先 `dotnet build` 拿真实错误 → 按 CS 错误码定位文件行号 → 修复后重跑构建验证
 
@@ -85,7 +85,7 @@ dotnet build tools/VmVisionBridge/VmVisionBridge.csproj   # 视觉桥接进程�
    dotnet test --logger "trx"                 # 附带 trx 报告（TestResults/ 已入 .gitignore）
    dotnet test --filter "FullyQualifiedName~类名或用例名"   # 按名过滤
    ```
-3. **结果记录**：当场看控制台（失败: 0, 通过: N）→ trx 留档 → 摘要写入 activeContext「测试记录」表 → errorlog 记录返工级失败
+3. **结果记录**：当场看控制台（失败： 0, 通过： N）→ trx 留档 → 摘要写入 activeContext「测试记录」（仅保留最近 3 次，全表归档至 archive/history-YYYY-MM.md，详 `.clinerules/memory-bank.md` §3.3）→ errorlog 记录返工级失败
 4. **测试资产**：历史修复配套用例永不过期（如 ERR-014 空行往返、ERR-013 命令恢复），每次 dotnet test 自动回归全部历史修复
 5. **结构**：测试类按被测对象分文件（RelayCommandTests / DrawerItemViewModelTests / RecipeFileServiceRoundTripTests / RecipePageViewModelTests / VmBridgeProtocolTests），公共桩在 TestDoubles.cs；用例名中文自描述并关联 ERR 编号
 

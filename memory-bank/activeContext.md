@@ -1,222 +1,35 @@
 # 当前上下文 (Active Context)
 
+> 防膨胀说明：本文件执行 `.clinerules/memory-bank.md` §3.3 体积红线（≤150 行），仅描述「现在」；历史焦点/测试记录/历史变更/决策表已归档至 [archive/history-2026-09.md](archive/history-2026-09.md)，git 历史亦可回溯。
+
 ## 当前工作焦点
 
 **图像显示链路修复（v1.25e，ERR-029）✅ 已完成** —— 用户反馈「图像管理中还是黑的没有图片」并提供参考程序截图（OnWorkStatusEvent + vmRenderControl.ModuleSource + SyncRun）。落地：
-- **排查（多层实证）**：① 桥接 `Run()` → `SyncRun()`（对齐参考程序）——仍间歇无帧；② `KeepModuleLastResult(true)`——无效；③ 桥接新增 `--grab` 调试模式（连续 Run 落盘 PNG + 亮度采样）——实证图像内容正常且尺寸各异（986×645→2400×1441，多分支演示方案，部分运行无分支产图属 ERR-028 常态）；④ VM 临时诊断证实 INPC 在 UI 线程正常触发但三个绑定（CurrentImage/CurrentVerdict/StatisticsText）**静默失效**（无异常无日志），而「方案已加载」绑定正常
+- **排查（多层实证）**：① 桥接 `Run()` → `SyncRun()`（对齐参考程序）——仍间歇无帧；② `KeepModuleLastResult(true)`——无效；③ 桥接新增 `--grab` 调试模式（连续 Run 落盘 PNG + 亮度采样）——实证图像内容正常且尺寸各异（多分支演示方案，部分运行无分支产图属 ERR-028 常态）；④ VM 临时诊断证实 INPC 在 UI 线程正常触发但三个绑定（CurrentImage/CurrentVerdict/StatisticsText）**静默失效**（无异常无日志），而「方案已加载」绑定正常
 - **修复（View 轮询兜底）**：图像/结论/统计弃用 INPC 绑定，改 `ImagePage` 内 500ms `Windows.Forms.Timer` 直接同步（`SyncDisplayFromViewModel`，Tick 固定 UI 线程对绑定免疫）；图像所有权移交 View（VM 不再 Dispose 旧图，View 替换引用时释放）；保留 `AttachUiMarshaller`（Control.BeginInvoke）；标题/方案状态绑定正常保留
 - **附带**：发现本环境 dotnet 增量构建不可靠（报成功产物陈旧）——此后一律 clean 构建并验证产物符号；net48 无 `Math.Clamp`
 - **验证**：dotnet test **191/191 PASS** + clean 构建 0 警告 0 错误；真机实证——图像区显示灰度测试图、统计「总数：13 OK：13」、结论 OK、连续检测稳定
 - **下一步：真机联调**（不变）
 
-### 上一焦点（v1.25d 已完成的背景）
+### 上一焦点（v1.25d，2026-09-08）
 
-**连续检测无新帧跳过修复（v1.25d，ERR-028）✅ 已完成** —— 用户确认 sol 方案流程 1 存在输出图像后，连续检测仍约 1/3~1/2 运行报「流程无输出图」。落地：
-- **诊断（桥接 DiagLog 文件日志破案）**：失败运行的输出清单**就是 ImageData**（键注册正常）但值为空，`ErrorCode=0`（流程成功），500ms×5 重试仍空（排除时序）→ 方案内图像源帧率低于 1s 轮询频率，**无新帧的运行输出为空属方案常态**，上层误报为检测错误是语义错位
-- **修复（三层降级）**：桥接 `HandleRun` 无图且 `ErrorCode=0` → 成功无图响应；服务层 → `Image=null` 的 OK 结果（新语义：Image=null=无新帧）；`ImagePageViewModel` → 仅记 Info「检测轮询无新帧，跳过显示」，保留上张图不计数不报错；`TryGetOutputImage` 枚举 `GetAllOutputNameInfo()` 回退其余图像输出键
-- **诊断基础设施**：桥接新增 `DiagLog`（`log/VmBridge-diag.log`）——服务方式启动 stderr 无人重定向会静默丢失，关键排障信息必须落文件
-- **验证**：dotnet test **191/191 PASS**（新增无新帧跳过用例）；构建 0 警告 0 错误；真机实证连续检测 29 完成 + 18 无新帧静默跳过 + **0 失败**，桥接 diag 35 次「按无新帧跳过返回」
-- **下一步：真机联调**（不变）；若需提高出图节奏可调连续轮询间隔或核对方案图像源触发模式
+**连续检测无新帧跳过修复（ERR-028）✅** —— 方案图像源帧率低于 1s 轮询频率，无新帧的运行输出为空属常态，上层误报为检测错误。修复三层降级：桥接无图+成功 → 成功无图响应；服务层 → `Image=null` OK 结果（新语义）；VM → 仅记 Info 跳过显示 + 输出键枚举回退。桥接新增 DiagLog（`log/VmBridge-diag.log`）。dotnet test **191/191 PASS**；真机 29 完成 + 18 静默跳过 + 0 失败。详 [errorlog.md](errorlog.md) ERR-028 / [archive](archive/history-2026-09.md)。
 
-### 上一焦点（v1.25c 已完成的背景）
+### 上一焦点（v1.25c，2026-09-08）
 
-**桥接进程带病复用自愈修复（v1.25c，ERR-027）✅ 已完成** —— 用户反馈「vm方案加载失败」且加密狗确认无问题后仍复现。落地：
-- **根因（三层叠加）**：① VM SDK 授权登录（SM_Init/MV_LoginLicense）**每进程仅一次**，进程内失败永久带病；② 桥接进程 `HandleCommand` 捕获 VmException 回 ERR 帧后进程继续存活；③ 服务层 `LoadCore` 收到 ERR 业务失败响应不清理桥接进程 → 带病进程被无限复用（当日 08:44 首次失败的诱因为开机后驱动未就绪/授权瞬时被占，已不可考；主程序重试 15 次全失败而全新进程一次成功即为铁证）
-- **破案路径**：主程序日志只有 `e0000700` 回显；桥接进程 `log/SDK/PlatformSDK.log`（`Dongle check fail`，对比前日成功记录）与 `log/Server/Monitor.log`（`MV_LoginLicense ret[5] "There are no available local locks"`）才分清「狗真不在」vs「进程带病」；`--probe` 全新进程一次成功完成对照实验
-- **修复**：服务层 Load 失败响应即清理桥接进程（下次调用全新进程重试）；`VmBridgeProtocol` 新增 `IsDongleLicenseError`（0xE0000700/IMVS_EC_ENCRYPT/Dongle/本地锁）+ `DongleLicenseHint` 指引文案；共享源码 net48 兼容（`Contains(str,StringComparison)` 不存在，用 `IndexOf`）
-- **验证**：dotnet test **190/190 PASS**（新增 10 个加密狗识别用例）；构建 0 警告 0 错误；probe 回归通过；**真机端到端实证**——切图像页自动加载「视觉方案加载成功（VisionTesting.sol）」+ 连续检测出图（检测完成 OK 多次）
-- **遗留观察（非缺陷，方案配置项）**：连续检测约半数运行报「流程无输出图（GetOutputImageV2("ImageData") 为空）」——VisionTesting.sol 的图像输出配置不稳定（首帧前后或有条件分支无输出），需在 VisionMaster 客户端核对方案输出管理配置
-- **下一步：真机联调**（不变）；若「无输出图」需代码侧配合（如输出键回退枚举）再立项
+**桥接进程带病复用自愈修复（ERR-027）✅** —— VM SDK 授权登录每进程仅一次，桥接进程内失败永久带病；服务层 Load 失败响应即清理桥接进程（下次全新进程重试）；`IsDongleLicenseError` 识别 + `DongleLicenseHint` 指引。破案关键在子进程底层日志（SDK/授权层）。dotnet test **190/190 PASS**；真机端到端实证加载成功 + 连续检测出图。详 [errorlog.md](errorlog.md) ERR-027 / [archive](archive/history-2026-09.md)。
 
-### 上一焦点（v1.25b 已完成的背景）
-
-**桥接 exe 路径回溯级数修复（v1.25b，ERR-026）✅ 已完成** —— 用户反馈「视觉方案加载失败，桥接进程不存在」。落地：
-- **根因**：Program.cs 桥接 exe 相对路径从 `bin\Debug\net10.0-windows\` 回溯到仓库根只需要 **3 级 `..`**（net10.0-windows→Debug→bin→GitRepo），v1.24 引入时误写 4 级多退一级解析到 `D:\tools\...`（不存在）→ `File.Exists` 检查如实报「桥接进程不存在」（错误信息中打印的完整解析路径即为破案线索）
-- **修复**：回溯级数 4→3 并注释推导链；主程序与桥接项目构建各 0 警告 0 错误；桥接 `--probe` 模式端到端实证 `PROBE_OK procedures=流程1`（VisionTesting.sol 加载成功 + 流程名匹配）
-- **下一步：图像页人工验证**（切换图像页确认 VisionTesting.sol 自动加载 + 单次/连续检测出真实图）
-
-### 上一焦点（v1.25 已完成的背景）
-
-**VM 方案路径切换 VisionTesting.sol（v1.25）✅ 已完成** —— 用户需求：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」。落地：
-- **路径统一收敛到 Program.cs（DI 单点维护）**：`solutionPath` 改为 `D:\Printer\VisionTesting.sol`（文件已确认存在）；流程名「流程1」不变（VisionTesting.sol 的 VmServer.xml 与 Test.sol 容器一致，probe 实测见 v1.24）
-- **VM 层路径感知清除（顺带修正 v1.20 遗留隐患）**：`ImagePageViewModel` 删除硬编码 `@"D:\test\DetectionProcess.sol"`，改调无参 `LoadSolutionAsync()`——方案路径由服务层 DI 配置统一提供，ViewModel 不感知具体路径（接口签名升级 `LoadSolutionAsync(string? solutionPath = null)`，null = 用服务自身配置路径；Mock/桥接实现/测试桩三处同步）
-- **验证**：目标 .sol 存在（Test-Path True）；dotnet build **0 警告 0 错误**；dotnet test **180/180 PASS**
-- **下一步：图像页人工验证**（切换图像页确认 VisionTesting.sol 自动加载 + 单次/连续检测出真实图）
-
-### 上一焦点（v1.24 已完成的背景）
-
-**VM 方案加载换真实 .sol（v1.24）✅ 已完成** —— 用户需求：「vm方案加载换成实际的sol」——图像页从 Mock 模拟图切换为真实海康 VisionMaster 4.4.0 加载 `D:\OneDrive\桌面\Test.sol` 并运行检测。因 VM SDK 为 .NET Framework 程序集（GAC，net10.0 无法直引），采用**桥接进程方案**（用户确认方案 A）：
-- **新增 `tools/VmVisionBridge/`（net48 x64 桥接进程）**：承载 VmSolution SDK——服务模式监听命名管道 `UiTopMachine.VmBridge`，按二进制帧协议（命令1B+长度4B+payload）处理 Ping/Load/Run/Close/ListProcedures；检测运行 `VmSolution.Load(path,pwd,false)` → `Instance["流程1"] as VmProcedure` → `Run()` → `ModuResult.GetOutputImageV2("ImageData")` → `ImageBaseData.ToBitmap()` → PNG 回帧；`--probe "sol路径"` 探测模式枚举流程名
-- **新增 `Common/VmBridge/VmBridgeProtocol.cs`（共享源码）**：主程序与桥接项目 link 同一份文件编译，帧编解码 + 响应构建/解析（头部 key=value 行 + `\n\n` 分隔 + PNG 二进制，中文 Base64 编码），杜绝两侧漂移
-- **新增 `Services/VisionMasterBridgeInspectionService.cs`**：实现 `IImageInspectionService`——懒启动桥接进程 + `NamedPipeClientStream` 收发（带 20s 启动/120s 加载/30s 运行超时）；进程异常退出下次调用自动重启；全部失败走 `Result.Fail` 不抛 UI 异常；SDK 对象全封装在桥接进程内（符合"SDK 不外泄"规则）
-- **DI 切换**：Program.cs 注册 `VisionMasterBridgeInspectionService`（方案路径 `D:\OneDrive\桌面\Test.sol`、流程名 `流程1`——probe 实测枚举结果）；Mock `ImageInspectionService` 保留可随时切回
-- **端到端联调实证**：桥接进程 + 管道客户端全链路——Ping OK → Load Test.sol OK → List 返回「流程1」→ **Run 返回 986×645 PNG 结果图（isok=1）** → Close OK
-- **测试**：新增 `VmBridgeProtocolTests` 15 用例（帧编解码往返/响应构建解析往返含中文 Base64/PNG 边界/服务失败路径不启动真实进程）；测试暴露并修复协议真 Bug（BuildResponse 头部缺 `\n\n` 结束标记致 PNG 解析丢失）；dotnet test **180/180 PASS**、构建 **0 警告 0 错误**
-- **下一步：图像页人工验证**（切换图像页确认方案自动加载 + 单次/连续检测出真实图）；生产部署建议把 Test.sol 放固定目录并同步改 Program.cs 方案路径
-
-### 上一焦点（v1.23b 已完成的背景）
-- **新增 `Views/WindowButtonLayout.cs`**：布局常量（ButtonWidth=56/ButtonHeight=42/RightMargin=16/Spacing=8/TopBarHeight=76/TopMargin 垂直居中推导）+ 纯函数 `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)`（右对齐 + 从右向左依次排列）——纯函数无 UI 依赖，可直接单测
-- **MainForm 改造**：`CreateWindowButton` 尺寸改用 WindowButtonLayout 常量；**彻底禁用 Anchor**（ERR-024 教训：Anchor=Right 在顶栏 Dock 宽度未定型时冻结负右缘距离把按钮推出窗口外）；新增 `LayoutWindowButtons()` 由 `_topBar.Resize` 事件按当前宽度实时重算三按钮位置，初始手动调用一次
-- **测试守护**：新增 `WindowButtonLayoutTests` 10 用例（常量自洽性 1 + 任意宽度容器内右对齐 Theory 6 组含 ERR-024 元凶宽度 200/最大化宽度 1870/2K 屏 2560 + 从右向左排列间距一致 Theory 3 组）；dotnet test **165/165 PASS**、构建 **0 警告 0 错误**
-- **下一步：真机联调**（不变）；无边框窗口自绘按钮如有视觉细节问题随时反馈
-
-### 上一焦点（v1.23 已完成的背景）
-
-**右上角窗口控制按钮图标化（v1.23）✅ 已完成** —— 用户需求：「在窗口的右上角增加窗口缩小，全屏，以及退出图标」（此前按钮功能在但视觉不可见）。落地：
-- **图标化**：三按钮符号从 Marlett 10pt 改为 YaHei UI 13f Bold Unicode 几何符号——`—` 最小化 / `□` 最大化全屏（Maximized 时 `❐` 还原）/ `✕` 关闭退出（hover 红底白字）；尺寸 48×34
-- **根因修复（ERR-024）**：按钮 UIA 可见可点但屏幕上看不到——`Anchor=Top|Right` 在控件未加入容器时设置，冻结负右缘距离把按钮排到窗口外 1156px（x=3026）；去掉 Anchor 改 `_topBar.Resize → LayoutWindowButtons()` 重算位置（右缘 -144/-96/-48）
-- **验证**：UIA bounds 实证三按钮紧贴窗口右上角（1726/1774/1822，右缘 1870）；点击最小化按钮窗口真实最小化；dotnet test **155/155 PASS**、构建 **0 警告 0 错误**
-- **下一步：真机联调**（不变）；无边框窗口自绘按钮如有视觉细节问题随时反馈
-
-### 上一焦点（v1.22 已完成的背景）
-
-**品牌化改造：Logo/标题/程序图标（v1.22）✅ 已完成** —— 用户需求：① 顶栏公司名文本替换为 Resources/tittle.png（调整到合适大小）② 程序名称"进料抽屉监控系统"改为"上海寅铠" ③ Resources/Ic.ico 设为程序图标。落地：
-- **发现并处理**：`Ic.ico` 实为 PNG（文件头魔数证实），直接编译/加载都会失败 → 转换生成真 ICO `Resources/App.ico`（64×64，原 Ic.ico 保留）
-- **csproj**：`ApplicationIcon=Resources\App.ico`（exe 文件图标）；`Resources\tittle.png` CopyToOutputDirectory（运行时加载）；Description 同步"上海寅铠"
-- **MainForm**：窗体 `Text="上海寅铠"`；`Icon=Icon.ExtractAssociatedIcon(exe)`（零文件依赖）；顶栏 `_companyLabel` → `_companyLogo` PictureBox（tittle.png 等比 284×48 Zoom，加载失败静默留白）；移除 CompanyTitle 绑定
-- **MainViewModel**：删除已无引用的 `CompanyTitle` 属性
-- **验证**：dotnet test **155/155 PASS**、构建 **0 警告 0 错误**；重启截图实证（窗口标题/任务栏图标/顶栏 logo 全部生效；图像页方案自动加载正常）
-- **AssemblyName 未改**（exe 文件名仍 UiTopMachine.exe，避免破坏启动路径引用；如需改 exe 名告知即可）
-- **下一步：真机联调**（不变）
-
-### 上一焦点（v1.21 已完成的背景）
-- **面板定位（四类信息）**：① PLC 连接成功（绿）/连接失败含原因（红）② 心跳丢失/检测连续失败/物料读取失败（红）③ **视觉方案加载成功（绿）/失败含原因（红）**（新增）④ **程序运行时错误**——全局异常处理（ThreadException/UnhandledException）在弹窗同时发布面板 Error 条目（新增）；检测完成的 Info 与"连接中"过程信息仍只落文件防刷屏
-- **实现**：新增 `IPanelStatusPublisher.PublishPanelEntry(level, message)` 接口（MainViewModel 实现，内部 _uiContext.Post + InsertPanelEntry，任意线程可调）；ImagePageViewModel 注入发布者（方案加载成功/失败、连续检测失败发布）；Program.cs 提前解析 MainViewModel 并在全局异常处理器中发布
-- **测试**：StubPanelPublisher 桩；新增 3 用例（加载成功发布 Success/加载失败发布含原因 Error/连续检测失败发布含原因 Error）；dotnet test **155/155 PASS**、构建 **0 警告 0 错误**；重启程序连接正常
-- **下一步：真机联调**（Program.cs IP 改 192.168.1.88；真机若按参考程序 MX9002/AM 约定需同步调 series/地址基准）
-
-### 上一焦点（v1.20 已完成的背景）
-
-**仿参考程序编写图像页（v1.20）✅ 已完成** —— 仿 Form.txt 视觉流程：方案加载 → 加载成功回调 → 采集运行 → 结果图渲染 → 连续轮询 → 退出停止。落地：`IImageInspectionService`（IsSolutionLoaded/SolutionLoaded 事件/LoadSolutionAsync/RunInspectionAsync/Shutdown）+ Mock 实现（GDI+ 生成 640×480 模拟检测图、检测框+十字线+OK绿/NG红+随机缺陷圈、~20% NG、1s 间隔）——真机 VisionMaster SDK（本地 dll 依赖）就绪后仅替换实现；`ImagePageViewModel` 重写（自动加载/单次检测/连续启停/OK·NG 计数/CurrentImage 替换释放旧图，_uiContext 调度——ERR-023 修复后模式）；`ImagePage` 重写（方案状态+PictureBox 结果区+OK/NG 角标+统计+控制按钮；Load → InitializeAsync 自动加载；Disposed → Shutdown）；**AsyncRelayCommand 增补 ExecuteAsync**（可等待版，异常上抛不弹窗，供测试/编程调用）。测试：ImageInspectionServiceTests 5 + ImagePageViewModelTests 5（Immediate 上下文环境）；dotnet test **152/152 PASS**、构建 **0 警告 0 错误**；程序已重启。**下一步：人工切换图像页确认效果**（加载方案→单次/连续检测看模拟图）；真机 VisionMaster 接入时替换 IImageInspectionService 实现
-
-### 上一焦点（v1.19 已完成的背景）
-
-**抽屉配方分组数据层（v1.19）✅ 已完成** —— 用户需求：「对已有配方的抽屉进行分组，分组依据为配方类型；同组内编号按填入先后顺序；编号不重复；同抽屉多次写入只保留最后一次配方」。确认决策：**仅数据层**（不显示）、发送按钮暂不改（分组供后续按组下发 PLC）。落地：
-- **Models/RecipeGroupModel**：`RecipeName`（Trim 后配方值）+ `DrawerIndexes`（填入顺序，编号不重复）
-- **MainViewModel**：`_recipeSequences`（编号→次序，重写即刷新）+ `RecipeGroups` 派生属性——有配方（Trim 非空）抽屉 GroupBy 配方值；组内次序升序=填入顺序；组间组内最小次序=形成顺序；空白=无配方移出
-- **重复写入相同配方**：INPC 值未变不触发通知 → 新增 `RefreshRecipeSequence(编号)` 公共方法，FeedDrawersPage 输入框 **Leave 事件**调用（与参考 textBox_Leave→AddToList 对应，重复写入同配方也按最后一次计序）；配方值变化走 PropertyChanged 自动重算
-- **测试**：新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序/多组按形成顺序/改写配方旧组失去新组末尾/重写同配方 Leave 刷新排组尾/清空移出+重填视为新填入/空白不分组/Trim 同组）；dotnet test **142/142 PASS**、构建 **0 警告 0 错误**；启动冒烟正常
-- **下一步：真机联调**（不变）；分组数据待后续「按分组下发 PLC」需求启用
-
-### 上一焦点（v1.18 已完成的背景）
-- **启动默认灰**：抽屉配方本就无持久化（Mock 内存 + VM 内存，每次启动重建），v1.17 默认无料无配方 → 启动即全灰；本次加测试锁定（`初始抽屉_默认无料无配方_输入框只读`）
-- **编辑权限联动（仿参考 ReadOnly = !hasMaterial）**：`DrawerItemViewModel.IsInputReadOnly => !HasMaterial`（有料黄/绿可编辑、无料灰只读），HasMaterial setter 通知该属性；`FeedDrawersPage` 输入框加 `TextBox.ReadOnly` 单向绑定 → PLC 物料推送实时切换编辑权限
-- **测试**：新增 4 用例（有料可编辑/无料只读 Theory、HasMaterial 变化通知 IsInputReadOnly、启动默认灰+只读锁定）；dotnet test **134/134 PASS**、构建 **0 警告 0 错误**；运行截图+无障碍树实证（黄=可编辑、灰=只读）
-- **下一步：真机联调**（Program.cs IP 改 192.168.1.88；真机若按参考程序 MX9002/AM 约定需同步调 series/地址基准）
-
-### 上一焦点（v1.17 已完成的背景）
-- **MockDrawerService 构造**：`HasMaterial = false`（原 60% 随机有料）+ 配方空 → 18 托盘启动即灰色空闲态；PLC 连接后由物料轮询首读推送真实状态覆盖（PLC 为唯一真值源）
-- **顺手清理**：`StartMonitoring` 随机演示逻辑清空为空操作（v1.12 起已不被调用且与 PLC 真值冲突，避免误用复活）；删除 `_random/_timer/_recipeNames` 死代码；`DrawerChanged` 事件加 pragma 抑制 CS0067（保留接口实现）
-- **测试**：新增 MockDrawerServiceTests 2 用例（初始全无料无配方共 18 个 / StartMonitoring 空操作不推送）；dotnet test **130/130 PASS**、构建 **0 警告 0 错误**；重启程序截图验证托盘默认灰、状态行绿色已连接、模拟器真实有料位正常联动黄色
-- **下一步：真机联调**（Program.cs IP 改 192.168.1.88；真机若按参考程序 MX9002/AM 约定需同步调 series/地址基准）
-
-### 上一焦点（v1.16 已完成的背景）
-
-**UI 状态不更新修复（v1.16，ERR-023）✅ 已完成** —— 用户反馈「plc 还是显示未连接」，深挖发现两个线程调度 bug（程序实际已连接，日志正常但 UI 假死）：
-- **根因一（UI 永远未连接）**：PLC 状态/物料事件来自后台线程，事件处理现取 `SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext()`——后台线程 Current 为 null，新建上下文无消息泵，**Post 回调永不执行**（状态行/面板条目/抽屉物料推送全部静默丢失；日志同步写文件正常，形成"日志正常 UI 不动"假象）
-- **根因二（退出进程残留）**：`OnFormClosing` 在 UI 线程直接 `Wait` 异步停止任务 → 延续需回被阻塞的 UI 线程 → 死锁，窗体关了进程残留（无窗口僵尸进程仍持 TCP 连接）
-- **修复**：① MainViewModel **构造时捕获** UI 上下文存 `_uiContext` 字段，4 处后台事件处理改用；② OnFormClosing 改 `Task.Run(() => ShutdownAsync()).Wait(3s)`；③ 守护测试 `后台线程触发PLC事件_状态行仍更新`（new Thread 无上下文触发 + Current null 前置断言）
-- **验证**：dotnet test **128/128 PASS**；重启程序**截图实证**状态行绿色「PLC：已连接 127.0.0.1:502 站号1」、消息流恢复、抽屉物料联动正常（此前三者的 Post 全部丢失）
-- **下一步：真机联调**（Program.cs IP 改 192.168.1.88；真机若按参考程序 MX9002/AM 约定需同步调 series/地址基准）
-
-### 上一焦点（v1.15 已完成的背景）
-
-**仿参考程序重构 PLC 连接/心跳（v1.15）✅ 已完成** —— 用户需求：「仿照文件中plc连接，重连，开启心跳，心跳检测，取消心跳的方式，重构plc连接」（参考 D:\OneDrive\桌面\Form.txt 旧程序）。落地：
-- **心跳与物料合一（核心变化）**：删除独立写心跳（D100 递增）/读心跳（D101）与独立物料轮询三个循环 → **一个心跳循环**周期读 M1000×19：读成功即通讯正常（失败计数清零）+ 推送物料变化（首读即推送）；读失败计连续次数
-- **连续失败阈值重连（仿参考 _maxRetryCount）**：连续 `maxRetryCount=3` 次读失败 → 判"心跳丢失（心跳检测连续 3 次失败）"→ 断开 → 10 秒后重连；重连后心跳新循环，计数/基线天然重置（仿参考 ReconnectPLCAsync 状态重置）
-- **连接参数仿参考**：连接超时 10s / 收发 5s（原 3s/3s）；连接失败重试延时默认 10s（原 5s）
-- **保留已实证约定（不搬参考配置）**：地址 M1000×19 + H5U 系列 + 偏移默认（搬参考 MX9002+AM+AddressStartWithZero=false+CDAB 会使实际访问地址错位）；硬超时由 HSL ReceiveTimeOut 覆盖（参考的 WhenAny+ConnectClose 是同步阻塞 API 补丁，我们全异步不需要）
-- **测试重构**：删除写递增/读 D101 停滞/单向不判丢失 3 个旧机制用例；新增"连续失败达阈值判丢失重连"、"失败未达阈值恢复后不断连"2 用例；写断言改读断言；dotnet test **127/127 PASS**、构建 **0 警告 0 错误**
-- **运行验证**：重启后 25 秒+ 连接持续稳定（对比 v1.13 双向每 10 秒断连）、物料首读推送抽屉联动正常
-- **下一步：真机联调**（IP 改 192.168.1.88；若真机地址约定为参考程序 MX9002/AM 系，需同步调整 series 与 AddressStartWithZero）
-
-### 上一焦点（v1.14 已完成的背景）
-- **`PlcCommunicationService` 加 `monitorPlcAlive` 开关（默认 false = 单向心跳）**：只周期写 D100 递增（证明 PC 在线），不读 D101 不判丢失；`true` 恢复双向监测（读 D101 停滞判 HeartbeatLost），HeartbeatLost 通路保留
-- **Program.cs 显式 `monitorPlcAlive: false`**（真机联调 PLC 侧有心跳程序时改 true）
-- **测试**：停滞判丢失用例改为显式开启监测 + 新增单向用例（PLC 停滞不判丢失/不读 D101/连接保持）；主连接用例移除 D101 读取断言；dotnet test **129/129 PASS**、构建 **0 警告 0 错误**
-- **运行验证**：重启后连接保持 2 分钟+ 无任何心跳丢失/重连日志（对比 v1.13 每 10 秒一轮）；**物料轮询首读推送实证生效**——模拟器 M1000 区 12 个位为 true，对应抽屉"Idle → Warning（有料）"状态灯联动
-- **下一步：真机联调**（IP 改 192.168.1.88；PLC 侧如有心跳程序可开 monitorPlcAlive:true 恢复双向；Hsl 授权观察）
-
-### 上一焦点（v1.13 已完成的背景）
-- **面板顶部常驻状态行**：LogPanelControl 自绘（颜色圆点 + 粗体文字）——已连接=绿「已连接 {Target}」/连接中=橙/心跳丢失与未连接=红；下方消息流保持 v1.11 语义
-- **实现链**：`IPlcCommunicationService` 加 `Target` 描述（IP:端口 站号，Program.cs 显式传）→ MainViewModel 加 `PlcStatusText`/`PlcStatusLevel`（事件内 SynchronizationContext.Post 刷新）→ MainForm 订阅 PropertyChanged 转发 → `LogPanelControl.UpdatePlcStatus`（UI 线程直接 Invalidate）
-- **运行实测**（截图验证）：状态行正确渲染红色「PLC：未连接」（本地模拟器不动 D101，10 秒周期在已连接/未连接间切换为预期行为）；真机上将是稳定绿色
-- **测试**：新增状态行流转用例（未连接→连接中→已连接含 Target→心跳丢失→未连接，级别断言）；dotnet test **128/128 PASS**、构建 **0 警告 0 错误**
-- **下一步：真机联调**（Program.cs IP 改回 192.168.1.88；PLC 侧 D101 周期变化约定；Hsl 授权观察）
-
-### 上一焦点（v1.12b 已完成的背景）
-
-**PLC 地址格式修复 + 连接实证 ✅（ERR-022）** —— 检查运行程序连接状态发现失败循环，根因与修复：
-- **根因（三层地址假设全错）**：① InovanceTcpNet 要求汇川软元件格式（位 "M1000"/字 "D100"），纯数字解析失败——v1.10 心跳地址 "100"/"101" 从未真正可用；② 默认构造（AM 系列）不支持 D 字地址，必须显式 `InovanceSeries.H5U`；③ v1.12 的 ResolveBitAddress 剥 M 前缀方向相反
-- **修复**：删 ResolveBitAddress 地址原样透传；心跳默认地址 "D100"/"D101"；transport 显式 `InovanceSeries.H5U`；**离线实证工具 `TranslateToModbusAddress` 固化为 HslModbusAddressTests 6 守护用例**
-- **全链路实证（本机模拟器 127.0.0.1:502）**：连接 ✓、写 D101=567 回读 567 ✓、读 M1000×19 返回 19 位 ✓；修复后程序日志不再有地址解析失败
-- **实测确认的行为**：双向心跳第二向——D101 需 **PLC 侧程序周期改变**才证明存活，被动模拟器不动 D101 → 5 周期后按设计判 HeartbeatLost 断开重连（真机联调需 PLC 程序员配合 D101 周期变化约定；若暂不需要 PLC 侧存活监测可调整）
-- dotnet test **127/127 PASS**（121 + 地址守护 6）、构建 **0 警告 0 错误**
-- **下一步：真机联调**（IP 改回 192.168.1.88——当前 Program.cs 为本地调试的 127.0.0.1；与 PLC 程序员核对 D100 写心跳/D101 读心跳/M1000~M1018 物料约定；Hsl 授权风险观察）
-
-### 上一焦点（v1.12 已完成的背景）
-
-**PLC 连续读取 M1000 物料数组驱动 18 抽屉（v1.12）✅ 已完成** —— 用户需求：「增加plc读取方法，从起始地址为M1000连续读取一个19位长度bool类型的数组，从数组元素位置1开始，每个位置分别与抽屉编号相对应，数组数值代表着抽屉是否有料，true为有料，false为无料状态，读取方式为连续一直读取」。落地：
-- **传输层**：`IPlcTransport`/`HslModbusTransport` 加 `ReadBoolsAsync(address, length)` 批量位读（HSL `ReadBoolAsync(string, ushort)` 批量重载已核实存在，走线圈功能码）；~~M 地址映射~~（v1.12b 修正：地址原样透传，见 ERR-022）
-- **服务层**：`IPlcCommunicationService` 加 `DrawerMaterialsChanged` 事件（`Values[i]`=抽屉 i，**仅抽屉位有变化时触发，首读即推送**用 PLC 真值覆盖初始状态；下标 0 非抽屉位不参与变化判定）+ 构造参数 `materialAddress="M1000"`/`materialLength=19`/`materialPollPeriodMs=1000`；连接成功后与心跳并列自动启动轮询（SemaphoreSlim 串行化）；读失败 → 报"抽屉物料读取失败（M1000）"错误并断开重连（面板按 v1.11 语义出一条对接错误）
-- **顺带修复（v1.10 隐患）**：断开重连前 `StopCyclesAsync()` 显式取消并等待心跳/物料任务退出——原实现旧任务在重连后才失败会把 `_heartbeatFailed` 置位造成误断开
-- **UI**：MainViewModel 订阅物料事件 → Post 内 i=1..18 构造 `DrawerModel{Index=i,HasMaterial=Values[i]}` 复用 OnDrawerChanged（UpdateFromModel 只同步物料、配方保留用户输入）+ 统一 RefreshStatistics；**InitializeAsync 移除 `_drawerService.StartMonitoring()`**（Mock 随机翻转与 PLC 真值打架）
-- **测试**：FakePlcTransport 加 BitReads 记录/BitReadShouldFail/BitReadHandler 可编程桩；新增 4 个服务用例（自动连续读取地址长度断言/变化触发且下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 个 VM 用例（物料推送更新抽屉、配方保留、汇总正确）；dotnet test **121/121 PASS**、构建 **0 警告 0 错误**
-- **下一步：真机联调**（心跳寄存器 D100/D101 + 物料位区 M1000~M1018 约定核对；Hsl 授权风险观察）
-
-### 上一焦点（v1.11 已完成的背景）
-
-**Status 列表面板改为 PLC 专用（v1.11）✅ 已完成** —— 用户需求：「修改listbox 的作用，不再存入系统操作信息，只存入与plc对接时的错误显示，以及连接成功的提示信息」。落地：
-- **MainViewModel**：取消订阅 `LogService.LogEmitted`（`OnLogEmitted` 删除）——一般系统操作日志（初始化/抽屉/配方/打印）仅经 LogService 落文件，不再进入 `Logs` 集合；抽屉 `DrawerChanged` 订阅保留
-- **面板新数据源**：`OnPlcConnectionStateChanged` 直接驱动 `AddPlcPanelEntry`——Connected=成功绿条、HeartbeatLost/Disconnected=错误红条（最新置顶、上限 200 条，经 SynchronizationContext.Post 调度）；Connecting「连接中…」过程信息只写文件不进面板
-- **双通道留痕**：全部 PLC 状态仍经 `_logService` 写文件日志（logs/yyyyMMdd.log），面板只是过滤视图
-- **测试**：新增 `MainViewModelPlcPanelTests` 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext 替代 WinForms 消息泵）：一般日志不进面板/连接成功进面板且成功级/连接失败与心跳丢失进面板且错误级/连接中不进面板/混合日志面板仅存 PLC 且文件全留痕/Initialize 启动与 Shutdown 停止调用；dotnet test **116/116 PASS**、构建 **0 警告 0 错误**
-- **下一步：真机联调 PLC**（v1.10 遗留：心跳寄存器写 100/读 101 约定 + Hsl 授权风险观察）
-
-### 上一焦点（v1.10 已完成的背景）
-- **依赖**：HslCommunication 12.9.2；客户端类 **InovanceTcpNet**（汇川协议，继承 ModbusTcpNet，用户指定保留；命名空间 `HslCommunication.Profinet.Inovance`），构造参数可切标准 ModbusTcpNet；V12 默认长连接，`SetPersistentConnection` 已过时不再调用（ERR-021）
-- **Communications/Plc/**：`IPlcTransport` 抽象（Connect/ReadShort/WriteShort/Close）+ `HslModbusTransport` 实现（超时各 3s；OperateResult 在此层转换，SDK 对象不外泄）
-- **Services**：`IPlcCommunicationService` + `PlcCommunicationService` —— 后台自动连接循环（失败 5s 重试、断线自动重连、幂等启动）+ 双向心跳（写寄存器 100 递增写 / 读寄存器 101 监测变化，PLC 侧停滞 5 周期判 HeartbeatLost 触发重连；SemaphoreSlim 串行化 IO；CancellationTokenSource 而非 Timer）；支持手动 StartHeartbeatAsync/StopHeartbeatAsync（幂等）；ReadRegisterAsync/WriteRegisterAsync 基础读写
-- **接入**：Program.cs DI 单例注册；MainViewModel 订阅 ConnectionStateChanged 按级别写日志（Status 列表面板显示）；InitializeAsync 自动启动；MainForm.OnFormClosing → ShutdownAsync（3s 超时兜底）
-- **验证**：dotnet build **0 警告 0 错误**；dotnet test **110/110 PASS**（103 例无回归 + 新增 7 例，FakePlcTransport 测试桩）
-- **下一步：真机联调** —— 运行程序观察 Status 列表「PLC 已连接/心跳已启动」；PLC 侧需配置心跳寄存器（写 100/读 101 为默认约定，可在 Service 构造参数改）；若运行时触发 Hsl 未授权提示/异常，需处理授权码或降级包版本（ERR-021 同源风险）
-
-### 上一焦点（已完成的背景）
-
-**打印页自定义打印内容（v1.9）** —— 打印页新增「打印内容」输入框：① `PrintPageViewModel.CustomContent`（Trim 后非空 → 每张打印用户输入内容、批量时每张相同，流水号**不递增不持久化**；留空 → 走流水号自动递增原路径，两条路径互不干扰）；② `PrintPage` 视图加 TextBox（PlaceholderText 提示「留空则打印流水号」）+ `TextChanged` 绑定 VM；③ 顺带修复视图布局缺陷——三个说明标题（当前流水号/码型/打印张数）此前是局部变量、未参与 `CenterLayout` 布局叠在左上角，现提升为字段全部归位（每行标题位于控件上方）；④ 打印通道 v1.8b 已切 Spooler RAW 为主（TCP 备用）；⑤ 测试桩通道同步迁移（ERR-020：记录/失败注入从 `PrintByIpAsync` 迁至 `PrintBySpoolerAsync`）+ 新增 3 个自定义内容用例。dotnet test **103/103** 全绿、构建 0 警告 0 错误。**下一步：重启程序人工验证打印页输入框与打印行为。**
+> 更早焦点（v1.25b 及之前 v0.x~v1.25 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
 ## 测试记录
 
-| 日期 | 任务 | 测试内容 | 结果 |
-|------|------|---------|------|
-| 2026-09-03 | 搭建单元测试基础设施（v1.5） | 首批 55 用例（RelayCommand/AsyncRelayCommand、三态判定、xlsx 往返 ERR-014 回归、删除行列/列校验/编号唯一/ERR-013 回归）；暴露并修复 ERR-015 | ✅ 55/55 PASS（trx 留档） |
-| 2026-09-03 | 配方页修改功能测试与修复（v1.5b） | 新增 4 个空格规范化用例（编号 Trim 提交/带空格重复拒绝/保存校验/普通列 Trim）；暴露并修复 ERR-016 | ✅ 59/59 PASS（trx 留档） |
-| 2026-09-03 | 单元格错位写入修复（v1.5c） | 新增 4 个位置正确性用例（乱序编辑逐格断言/首行可改/TableVersion 重建/保存重载原位）；运行时实证并修复 ERR-017 | ✅ 63/63 PASS（trx 留档） |
-| 2026-09-03 | 单元格错位二次修复（v1.5d） | 新增 2 个边界用例（编号列重输自身原值不误报/末行可编辑）；二轮实证确证 1 基真根因并三处换算修复 ERR-017 复现 | ✅ 65/65 PASS（trx 留档） |
-| 2026-09-03 | 编号查重生效 + 失败弹窗（v1.6） | 新增 6 用例（「编号」表头重复拒绝+弹窗/唯一不弹窗/新增行自动编号/手改重复拒绝/保存兜底+弹窗/候选兼容）；候选表头识别 + MessageRequested 弹窗修复 ERR-018 | ✅ 71/71 PASS（trx 留档） |
-| 2026-09-03 | 新建空白配方改造（v1.7） | 新增 4 用例（表头一致+数据全空+指定行数/空白行占位保存重载不消失/空表头回退默认/VM 端到端表头沿用+10空行+保存往返）；CreateBlankAsync 接口变更同步 5 处调用 | ✅ 74/74 PASS（trx 留档） |
-| 2026-09-03 | 备份轮转+行序整理+补空白行（v1.7b） | 改写 CreateBlank 7 个 Service 用例（备份轮转/数据完整/不覆盖/无原文件/取消不变）+ VM 3 个（确认轮转/取消不变/保存往返）+ 行序整理/补行 4 个；DeletionConfirmRequested→ConfirmationRequested 迁移 | ✅ 79/79 PASS（trx 留档） |
-| 2026-09-03 | ZPL 打印机集成（v1.8） | 新增 ZplPrinterServiceTests 21 用例（ZPL 5 码型断言含 Code128 笔误修正/流水号校验 Theory/持久化往返补零/VM 5 用例打印桩模拟单张多张中途失败非法拒绝）；流水号补零位数保留修复 | ✅ 100/100 PASS（trx 留档） |
-| 2026-09-03 | 打印页自定义内容（v1.9） | 新增 3 用例（自定义内容每张打印流水号不变/纯空白回退流水号/自定义内容优先非法流水号不拦截）；修复 ERR-020（测试桩记录/失败注入随生产代码迁移至 Spooler 通道）+ 修 1 个历史 xUnit2013 警告 | ✅ 103/103 PASS |
-| 2026-09-04 | PLC 连接+双向心跳（v1.10） | 新增 PlcCommunicationServiceTests 7 用例（FakePlcTransport 桩：自动连接+心跳递增/PLC 停滞触发 HeartbeatLost+重连/手动停止心跳连接保持+手动重启/StopAsync 断连冻结/StartAsync 幂等/未连接启心跳拒绝/未连接读写拒绝）；顺手修 1 个既有 xUnit2013 警告（ERR-021 记录 Hsl V12 API 变化） | ✅ 110/110 PASS |
-| 2026-09-04 | Status 面板改 PLC 专用（v1.11） | 新增 MainViewModelPlcPanelTests 6 用例（StubDrawerService/StubPlcCommunicationService 桩 + ImmediateSynchronizationContext：一般日志不进面板/连接成功进面板成功级/失败与心跳丢失进面板错误级/连接中不进面板/混合日志面板仅 PLC 文件全留痕/Initialize 启动 Shutdown 停止） | ✅ 116/116 PASS |
-| 2026-09-04 | PLC 连续读取 M1000 物料数组（v1.12） | 新增 4 服务用例（FakePlcTransport 位读桩：自动连续读取 M1000×19 断言/变化触发事件下标对应+无变化不重发/下标 0 变化不触发/读失败断开重连）+ 1 VM 用例（物料推送更新抽屉 HasMaterial、配方保留、三态汇总正确） | ✅ 121/121 PASS |
-| 2026-09-04 | PLC 地址格式修复（v1.12b，ERR-022） | 新增 HslModbusAddressTests 6 守护用例（离线实证 TranslateToModbusAddress：H5U 翻译 M1000→1000/D100→100/D101→101 各功能码/纯数字失败/默认系列 D 失败必须显式 H5U）；本机模拟器全链路实证（D100/D101 写读、M1000×19）；更新服务测试地址常量为 D100/D101 | ✅ 127/127 PASS |
-| 2026-09-04 | 面板常驻 PLC 状态行（v1.13） | 新增 1 用例（状态行流转：未连接→连接中→已连接含 Target→心跳丢失→未连接 + 级别断言）；运行截图验证状态行渲染 | ✅ 128/128 PASS |
-| 2026-09-04 | 取消双向心跳（v1.14） | 停滞判丢失用例改显式 monitorPlcAlive:true + 新增单向用例（PLC 停滞不判丢失/不读 D101/连接保持）；主连接用例移除 D101 断言；运行验证连接保持 2 分钟+ 无重连、物料首读推送抽屉联动 | ✅ 129/129 PASS |
-| 2026-09-04 | 仿参考程序重构心跳（v1.15） | 删除写递增/读 D101 停滞/单向不判丢失 3 旧用例；新增"连续失败达阈值判丢失重连"+"失败未达阈值恢复后不断连"2 用例；写断言改读断言；运行验证连接稳定 25 秒+ 零错误、物料联动正常 | ✅ 127/127 PASS |
-| 2026-09-04 | UI 状态不更新修复（v1.16，ERR-023） | 新增守护用例"后台线程触发PLC事件_状态行仍更新"（new Thread 无上下文触发 + Current null 前置断言）；运行截图实证状态行绿色已连接、消息流恢复、抽屉联动 | ✅ 128/128 PASS |
-| 2026-09-04 | 托盘默认无料无配方（v1.17） | 新增 MockDrawerServiceTests 2 用例（初始 18 托盘全无料无配方含编号 1~18 / StartMonitoring 空操作不推送）；运行截图验证托盘默认灰、PLC 真实有料位正常联动黄色 | ✅ 130/130 PASS |
-| 2026-09-04 | 输入框编辑权限联动（v1.18） | 新增 4 用例（有料可编辑/无料只读 Theory、HasMaterial 变化通知 IsInputReadOnly、启动默认灰+只读锁定）；运行截图+无障碍树实证黄=可编辑灰=只读 | ✅ 134/134 PASS |
-| 2026-09-04 | 抽屉配方分组数据层（v1.19） | 新增 RecipeGroupingTests 8 用例（组内填入顺序非编号排序/多组按形成顺序/改写配方旧组失去新组末尾/重写同配方 Leave 刷新排组尾/清空移出+重填视为新填入/空白不分组/Trim 同组/编号不重复）；启动冒烟正常 | ✅ 142/142 PASS |
-| 2026-09-04 | 图像页编写（v1.20） | 新增 ImageInspectionServiceTests 5 用例（未加载拒绝/加载成功幂等+事件/空路径失败/检测返回结果图与序号/Shutdown 拒绝）+ ImagePageViewModelTests 5 用例（自动加载翻转状态/单次检测计数/连续启停产生结果/未加载命令不可用/Shutdown 取消循环） | ✅ 152/152 PASS |
-| 2026-09-04 | 品牌 Logo/标题/图标（v1.22） | 无新增逻辑用例（纯视觉改造）；转换真 ICO 实证（Icon 加载校验 64×64）；运行截图实证窗口标题"上海寅铠"、顶栏 tittle.png logo、标题栏图标 | ✅ 155/155 PASS |
-| 2026-09-07 | 窗口按钮布局抽取+测试守护（v1.23b） | 新增 WindowButtonLayoutTests 10 用例（常量自洽 1/任意宽度容器内右对齐 Theory 6 含 ERR-024 元凶宽度 200 与最大化 1870/从右向左排列间距一致 Theory 3）；布局逻辑抽取为纯函数静态类，MainForm 改 Resize 重算禁用 Anchor | ✅ 165/165 PASS |
-| 2026-09-07 | VM 方案加载换真实 .sol（v1.24） | 新增 VmBridgeProtocolTests 15 用例（帧编解码往返 4/响应构建解析往返含中文 Base64 与 PNG 边界 5/服务失败路径与构造校验 6，不启动真实桥接进程）；测试暴露并修复 BuildResponse 头部缺 `\n\n` 结束标记致 PNG 解析丢失的真 Bug；另端到端管道联调实证（Ping/Load Test.sol/List「流程1」/Run 返回 986×645 PNG isok=1/Close 全链路） | ✅ 180/180 PASS |
-| 2026-09-07 | VM 方案路径切换 VisionTesting.sol（v1.25） | 无新增逻辑用例（纯路径配置切换 + 接口默认参数）；接口签名升级 `LoadSolutionAsync(string?)` 后全量回归（Mock/桥接/测试桩三处同步编译通过）；目标 .sol 存在性实证（Test-Path True）；构建 0 警告 0 错误 | ✅ 180/180 PASS |
-| 2026-09-08 | 桥接带病复用自愈修复（v1.25c，ERR-027） | 新增 10 用例（加密狗授权类错误识别 Theory 4 含真实报错文本/普通错误与空文本 Theory 4/null/指引文案关键内容）；测试驱动修复共享源码 net48 兼容（`Contains(str,StringComparison)`→`IndexOf`）；probe 回归 + 真机端到端实证（加载成功+连续检测出图） | ✅ 190/190 PASS |
-| 2026-09-08 | 连续检测无新帧跳过（v1.25d，ERR-028） | 新增 1 用例（无图成功结果→不计数/结论不变/不报错/仅 Info 日志）；桥接 DiagLog 诊断基础设施；真机实证 29 完成+18 静默跳过+0 失败 | ✅ 191/191 PASS |
-| 2026-09-08 | 图像显示链路修复（v1.25e，ERR-029） | 无新增逻辑用例（View 轮询纯 UI 行为）；真机实证图像显示+统计/结论刷新；桥接 SyncRun 对齐参考程序；`--grab` 调试模式落盘 PNG 实证图像内容正常 | ✅ 191/191 PASS |
+> 全部历史测试记录表见 [archive/history-2026-09.md](archive/history-2026-09.md) 第二节；最近 3 次如下。
+
+| 日期 | 任务 | 结果 |
+|------|------|------|
+| 2026-09-08 | 图像显示链路修复（v1.25e，ERR-029；View 轮询纯 UI 行为，`--grab` 落盘实证） | ✅ 191/191 PASS |
+| 2026-09-08 | 连续检测无新帧跳过（v1.25d，ERR-028；+1 用例；真机 29 完成+18 跳过+0 失败） | ✅ 191/191 PASS |
+| 2026-09-08 | 桥接带病复用自愈（v1.25c，ERR-027；+10 加密狗识别用例；probe 回归） | ✅ 190/190 PASS |
 
 ## 当前处理中的错误
 
@@ -227,300 +40,28 @@
 | ERR-008 | Cline 终端 `&&` 分隔符不可用（实为 PowerShell） | 🟡 规避中 |
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
-| ERR-026 | 桥接 exe 相对路径回溯级数错误（4 级应为 3 级） | 🟢 已解决 |
-| ERR-027 | 桥接进程加密狗授权失败后被复用（SDK 授权每进程仅一次，带病无法自愈） | 🟢 已解决 |
-| ERR-028 | 流程成功但输出图间歇为空（无新帧误报为检测错误） | 🟢 已解决 |
-| ERR-029 | 图像页 INPC 绑定静默失效（黑屏无图——改 View 轮询定时器） | 🟢 已解决 |
 
-> 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
-
-## 最近变更（2026-09-08）
-
-1.25e ✅ **图像显示链路修复（ERR-029）**（用户反馈：「图像管理中还是黑的没有图片」+ 参考程序截图）：
-    - **排查**：SyncRun 对齐参考程序 → KeepModuleLastResult 无效 → `--grab` 落盘实证图像正常（多分支方案尺寸各异）→ 临时诊断证实 INPC 在 UI 线程触发但绑定静默失效
-    - **修复**：结果图/结论/统计改 View 端 500ms 定时器轮询同步；图像所有权移交 View；桥接 Run→SyncRun；net48 兼容修复（Math.Clamp）
-    - **验证**：**191/191 PASS**；真机实证图像显示、统计/结论/方案状态全刷新
-    - errorlog 归档 ERR-029 + 防回归清单 #23/#24（绑定失效轮询兜底/增量构建不可靠须 clean 验证）
-
-1.25d ✅ **连续检测无新帧跳过修复（ERR-028）**（用户确认方案存在输出图像后仍间歇报「流程无输出图」）：
-    - **诊断**：桥接 DiagLog 实证失败运行输出键存在但值为空、ErrorCode=0、重试无效 → 图像源帧率低于轮询频率，无新帧属常态
-    - **修复**：桥接无图+成功 → 成功无图响应；服务层 Image=null OK 结果；VM 层静默跳过（保留上张图/不计数/Info 日志）+ 输出键枚举回退
-    - **验证**：**191/191 PASS**；真机 29 完成 + 18 跳过 + **0 失败**
-    - errorlog 归档 ERR-028 + 防回归清单 #21/#22（子进程诊断落文件/成功但无结果≠失败）
-
-1.25c ✅ **桥接进程带病复用自愈修复（ERR-027）**（用户反馈：「vm方案加载失败」，加密狗确认无问题）：
-    - **根因**：VM SDK 授权登录每进程仅一次，桥接进程内失败永久带病；服务层 Load 失败响应不清理进程 → 带病进程被无限复用（全新进程 probe 一次成功为对照铁证）
-    - **修复**：服务层 Load 失败即清理桥接进程；`IsDongleLicenseError` 识别 + `DongleLicenseHint` 指引文案（VmBridgeProtocol 共享源码，net48 兼容用 IndexOf）
-    - **验证**：**190/190 PASS**（新增 10 用例）、0 警告 0 错误；probe 回归通过；真机实证加载成功 + 连续检测出图
-    - errorlog 归档 ERR-027 + 防回归清单 #20（子进程一次性初始化失败须换新进程重试）
-    - **遗留观察**：连续检测约半数报「流程无输出图」——VisionTesting.sol 输出配置问题，待 VM 客户端侧核对
-
-## 最近变更（2026-09-07）
-
-1.25b ✅ **桥接 exe 路径回溯级数修复（ERR-026）**（用户反馈：「视觉方案加载失败，桥接进程不存在」）：
-    - **根因**：`AppContext.BaseDirectory` = `bin\Debug\net10.0-windows\`，回溯仓库根 3 级足够，v1.24 误写 4 级 → 解析到 `D:\tools\`（仓库外）
-    - **修复**：Program.cs 回溯级数 4→3 + 推导链注释；构建 0/0；桥接 `--probe` 端到端实证 `PROBE_OK procedures=流程1`（VisionTesting.sol）
-    - errorlog 归档 ERR-026 + 防回归清单 #19（相对路径回溯级数逐级推导）
-
-1.25 ✅ **VM 方案路径切换 VisionTesting.sol**（用户需求：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」）：
-    - **Program.cs**：`solutionPath` → `D:\Printer\VisionTesting.sol`（DI 单点维护，文件存在性已实证）；流程名「流程1」不变
-    - **接口链同步**：`IImageInspectionService.LoadSolutionAsync(string? solutionPath = null)`——null=用服务配置路径；`VisionMasterBridgeInspectionService`（空/ null 回退 `_solutionPath`）、Mock `ImageInspectionService`（null=模拟加载成功）、测试桩同步
-    - **ImagePageViewModel**：删除 VM 层硬编码 `D:\test\DetectionProcess.sol`，改调无参 `LoadSolutionAsync()`（路径归 Service/DI，VM 不感知）
-    - **验证**：构建 0 警告 0 错误；**180/180 PASS**
-
-1.24 ✅ **VM 方案加载换真实 .sol（VisionMaster 桥接进程）**（用户需求：「vm方案加载换成实际的sol」）：
-    - **新增 `tools/VmVisionBridge/`**（net48 x64 桥接进程，承载 VmSolution SDK）：命名管道服务（Ping/Load/Run/Close/ListProcedures 二进制帧协议）+ `--probe` 流程名探测模式；GAC 引用 VM.Core + VM.PlatformSDKCS
-    - **新增 `Common/VmBridge/VmBridgeProtocol.cs`**：主程序与桥接共享同一份协议源码（link 编译），帧编解码 + 响应构建/解析（中文 Base64 + PNG 二进制）
-    - **新增 `Services/VisionMasterBridgeInspectionService.cs`**：IImageInspectionService 真实实现——懒启动桥接进程、管道收发带超时、进程崩溃自动重启、Result.Fail 全捕获；SDK 对象零外泄
-    - **DI 切换**：Program.cs 注册真实服务（Test.sol + 流程名「流程1」probe 实测）；csproj 排除 tools 目录（防 glob 误收，同 tests 教训）；slnx 挂载桥接项目
-    - **端到端联调实证**：Ping OK → Load Test.sol OK → List「流程1」→ Run 返回 986×645 PNG（isok=1）→ Close OK
-    - **测试**：新增 VmBridgeProtocolTests 15 用例；暴露修复 BuildResponse 头部缺 `\n\n` 结束标记真 Bug；**180/180 PASS、0 警告 0 错误**
-
-1.23b ✅ **窗口按钮布局抽取 + 测试守护**（v1.23 收尾强化：布局常量与位置计算抽取为纯函数 + 单元测试锁死不变量）：
-    - **新增 `Views/WindowButtonLayout.cs`**：布局常量（56×42/右边距 16/间距 8/顶栏高 76）+ `GetCloseLocation/GetMaximizeLocation/GetMinimizeLocation(containerWidth)` 纯函数（右对齐、从右向左、垂直居中）
-    - **MainForm**：按钮尺寸改用常量；彻底禁用 Anchor（ERR-024 教训）；`_topBar.Resize → LayoutWindowButtons()` 实时重算 + 初始调用一次
-    - **测试**：新增 WindowButtonLayoutTests 10 用例（Theory 覆盖 ERR-024 元凶宽度 200/最大化 1870/2K 屏 2560 等边界）；**165/165 PASS、0 警告 0 错误**
-
-### 历史变更（2026-09-04）
-
-1.23 ✅ **右上角窗口控制按钮图标化**（用户需求：右上角增加 窗口缩小/全屏/退出 图标；此前按钮 Marlett 符号渲染淡且 Anchor bug 错位不可见）：
-    - **图标化**：符号改 YaHei UI 13f Bold Unicode 几何符号（— 最小化 / □ 最大化 ❐ 还原 / ✕ 关闭），48×34，hover 高亮、关闭 hover 红底白字
-    - **ERR-024 根因修复**：去掉未定型时的 Anchor=Right；`_topBar.Resize → LayoutWindowButtons()` 重算按钮位置
-    - **验证**：UIA bounds 实证按钮贴窗口右上角；点击最小化真实生效；**155/155 PASS、0 警告 0 错误**
-
-1.22 ✅ **品牌化：Logo/标题/程序图标**（用户需求：顶栏公司名换 tittle.png、程序名改"上海寅铠"、Ic.ico 设为程序图标）：
-    - **发现**：Ic.ico 实为 PNG（文件头魔数证实）→ 转换生成真 ICO `Resources/App.ico`（64×64，原 Ic.ico 保留）
-    - **csproj**：ApplicationIcon=Resources\App.ico；tittle.png CopyToOutputDirectory；Description 改"上海寅铠"
-    - **MainForm**：Text="上海寅铠"；Icon=ExtractAssociatedIcon(exe)；顶栏 companyLabel→companyLogo PictureBox（284×48 Zoom，加载失败静默留白）；MainViewModel 删 CompanyTitle
-    - **验证**：155/155 PASS；截图实证 logo/标题/图标全部生效
-
-1.20 ✅ **仿参考程序编写图像页**（用户需求：仿照 Form.txt 编写图像页面）：
-    - **服务抽象 + Mock**：IImageInspectionService/ImageInspectionService（方案加载/检测运行/GDI+ 模拟图）；ImageInspectionResult 模型
-    - **ImagePageViewModel 重写**：加载方案/单次检测/连续检测（启停+1s 周期）/OK·NG 计数/结果图管理（替换释放旧图）；_uiContext 调度
-    - **ImagePage 重写**：方案状态+加载按钮 / PictureBox 结果区+结论角标 / 单次·连续·停止按钮+统计；Load 自动加载、Disposed 停机
-    - **AsyncRelayCommand 增补 ExecuteAsync**（可等待、异常上抛）
-    - **测试**：新增 10 用例；**152/152 PASS、0 警告 0 错误**
-
-1.19 ✅ **抽屉配方分组数据层**（用户需求：按配方类型分组/组内按填入顺序/编号不重复/同抽屉多次写入保留最后一次；确认仅数据层、发送按钮暂不改）：
-    - **Models/RecipeGroupModel**：RecipeName + DrawerIndexes（填入顺序）
-    - **MainViewModel**：`_recipeSequences` 次序字典 + `RecipeGroups` 派生属性 + `RefreshRecipeSequence`（Leave 刷新，重复写入同配方也计最后一次）+ 抽屉 Recipe PropertyChanged 自动重算
-    - **测试**：新增 8 用例；**142/142 PASS、0 警告 0 错误**；启动冒烟正常
-
-1.18 ✅ **抽屉输入框编辑权限联动 + 启动默认灰锁定**（用户需求：启动默认灰不保留上次结果；黄色无配方可编辑/灰色只读）：
-    - **DrawerItemViewModel**：`IsInputReadOnly => !HasMaterial`（仿参考 `ReadOnly = !currentValue[i]`），HasMaterial setter 通知；**FeedDrawersPage** 输入框加 ReadOnly 单向绑定（PLC 物料推送实时切换）
-    - **启动默认灰**：配方本就无持久化（内存），v1.17 默认无料 → 启动全灰；测试锁定
-    - **测试**：新增 4 用例；**134/134 PASS、0 警告 0 错误**；截图+无障碍树实证
-
-1.17 ✅ **托盘默认状态改为无料无配方**（用户需求：「将托盘的默认状态设置成无料无配方」）：
-    - **MockDrawerService**：构造 HasMaterial 全 false（原 60% 随机）→ 18 托盘启动即灰色空闲；PLC 首读推送真实状态覆盖
-    - **清理**：StartMonitoring 随机演示逻辑清空为空操作（避免与 PLC 真值冲突的演示代码误用复活）；删 _random/_timer/_recipeNames 死代码；DrawerChanged 加 pragma 抑制 CS0067
-    - **测试**：新增 2 用例；**130/130 PASS、0 警告 0 错误**；运行截图验证（托盘默认灰、模拟器真实有料位联动黄）
-
-1.16 ✅ **修复 UI 状态不更新 + 退出进程残留（ERR-023）**（用户反馈「plc 还是显示未连接」，实际已连接）：
-    - **根因**：① 后台事件现取 `SynchronizationContext.Current ?? new` —— 后台线程无消息泵，Post 回调永不执行（状态行/面板/抽屉推送全丢）；② OnFormClosing UI 线程 Wait 异步任务死锁 → 进程残留
-    - **修复**：MainViewModel 构造捕获 `_uiContext` 存字段（4 处 Post 改用）；OnFormClosing 改 `Task.Run(...).Wait(3s)`；新增后台线程触发守护用例
-    - **验证**：**128/128 PASS**；截图实证状态行绿色「已连接 127.0.0.1:502 站号1」、消息流与抽屉联动恢复
-
-1.15 ✅ **仿参考程序重构 PLC 连接/心跳**（用户需求：仿照 D:\OneDrive\桌面\Form.txt 旧程序的 连接/重连/开启心跳/心跳检测/取消心跳 方式）：
-    - **心跳与物料合一**：三个循环（写心跳/读心跳/物料轮询）合并为一个心跳循环——周期读 M1000×19，读成功即通讯正常（计数清零）+ 推送物料变化；连续 3 次读失败（maxRetryCount 可配）判"心跳检测连续 3 次失败"→ 断开 → 10 秒重连；重连后计数/基线天然重置
-    - **参数仿参考**：连接超时 10s/收发 5s、重连等待 10s；移除 D100/D101/monitorPlcAlive
-    - **保留差异**：地址 M1000×19+H5U+默认偏移（不搬 MX9002+AM+1 基+CDAB，避免地址错位）；全异步无需参考的 WhenAny 硬超时补丁
-    - **测试重构**：**127/127 PASS、0 警告 0 错误**；运行验证连接稳定零错误、物料联动正常
-
-1.14 ✅ **取消双向心跳（单向可配）**（用户需求：「取消双向连接」；背景：本地模拟器不动 D101 致读监测反复判丢失断连）：
-    - **PlcCommunicationService** 加 `monitorPlcAlive` 开关（默认 false）：单向心跳只写 D100 递增；true 恢复读 D101 停滞监测（HeartbeatLost 通路保留）；Program.cs 显式 false
-    - **运行验证**：连接保持 2 分钟+ 零重连（对比 v1.13 每 10 秒一轮）；物料首读推送抽屉状态灯联动实证（模拟器 M1000 区 12 位 true → 对应抽屉有料）
-    - **测试**：调整 + 新增用例；**129/129 PASS、0 警告 0 错误**
-
-1.13 ✅ **Status 面板常驻展示 PLC 连接状态**（用户需求：「在listbox 展示plc的连接状态」）：
-    - **LogPanelControl**：顶部自绘状态行（圆点+粗体，绿=已连接/橙=连接中/红=心跳丢失与未连接）+ `UpdatePlcStatus`；消息流下移不变
-    - **链路**：Service 加 `Target`（Program.cs 传 "127.0.0.1:502 站号1"）→ MainViewModel `PlcStatusText`/`PlcStatusLevel`（Post 刷新）→ MainForm PropertyChanged 转发 → 控件 Invalidate
-    - **测试**：新增状态流转 1 用例；**128/128 PASS、0 警告 0 错误**；运行截图验证渲染正常
-
-1.12b ✅ **PLC 地址格式修复 + 连接实证（ERR-022）**（用户要求检查运行程序连接状态 → 发现连接失败循环）：
-    - **修复**：删 ResolveBitAddress（地址原样透传）；心跳默认地址 "D100"/"D101"；transport 显式 `InovanceSeries.H5U`（默认 AM 系列不支持 D 字地址）
-    - **实证**：TranslateToModbusAddress 离线固化为 6 个守护用例；本机模拟器全链路（写 D101 回读、读 M1000×19）通过；修复后程序日志地址解析错误消失
-    - **确认行为**：被动模拟器不动 D101 → 5 周期判 HeartbeatLost 重连（设计行为；真机需 PLC 侧周期变化 D101）
-    - **测试**：**127/127 PASS、构建 0 警告 0 错误**
-
-1.12 ✅ **PLC 连续读取 M1000 物料数组驱动 18 抽屉**（用户需求：M1000 起 19 个 bool、下标 1~18 对应抽屉、true=有料、连续一直读取）：
-    - **传输层**：IPlcTransport/HslModbusTransport 加 `ReadBoolsAsync`（HSL `ReadBoolAsync(address, length)` 批量线圈读）；`ResolveBitAddress` 剥离 "M" 前缀按线圈地址读取
-    - **服务层**：DrawerMaterialsChanged 事件（仅抽屉位变化触发、首读即推送）+ 物料轮询循环（连接成功自动启动、SemaphoreSlim 串行化、周期 1s 可配）；读失败断开重连；**顺带修复断开重连旧任务未取消的误断开隐患（StopCyclesAsync）**
-    - **UI**：MainViewModel 订阅物料事件批量更新 18 抽屉（配方保留用户输入）；**InitializeAsync 移除 Mock StartMonitoring（PLC 为物料唯一真值源）**
-    - **测试**：新增 5 用例；**121/121 PASS、构建 0 警告 0 错误**
-
-1.11 ✅ **Status 列表面板改为 PLC 专用**（用户需求：「修改listbox 的作用，不再存入系统操作信息，只存入与plc对接时的错误显示，以及连接成功的提示信息」）：
-    - **MainViewModel**：取消订阅 `LogService.LogEmitted`（删除 `OnLogEmitted`）——一般操作日志仅落文件；`DrawerChanged` 订阅保留
-    - **面板数据源**：`OnPlcConnectionStateChanged` → `AddPlcPanelEntry` 直接插入 `Logs`（Connected=Success 绿 / HeartbeatLost、Disconnected=Error 红；Connecting 只写文件；Post 调度 UI 线程、最新置顶、上限 200）
-    - **测试**：新增 6 用例（StubDrawerService/StubPlcCommunicationService/ImmediateSynchronizationContext 三个测试桩）；**116/116 PASS、0 警告 0 错误**
-
-1.10 ✅ **PLC Modbus TCP 连接 + 双向心跳**（用户需求：「创建plc连接，plc ip为192.168.1.88，端口502，站号1，实现心跳启动，心跳监听，关闭心跳」；确认决策：HslCommunication + InovanceTcpNet、双向心跳、后台自动连接、状态入 Status 列表）：
-    - **依赖**：csproj 加 HslCommunication 12.9.2；InovanceTcpNet（Profinet.Inovance 命名空间）为默认客户端，构造参数可切 ModbusTcpNet（ERR-021：V12 默认长连接，SetPersistentConnection 过时不调）
-    - **Communications/Plc/**：`IPlcTransport`（Connect/ReadShort/WriteShort/Close）+ `HslModbusTransport`（3s 超时、OperateResult→异常转换、SDK 不外泄）
-    - **Services/Interfaces/IPlcCommunicationService.cs**：PlcConnectionState 枚举 + PlcConnectionEventArgs + 接口（StartAsync/StopAsync/StartHeartbeatAsync/StopHeartbeatAsync/ReadRegisterAsync/WriteRegisterAsync）
-    - **Services/PlcCommunicationService.cs**：自动连接循环（失败 5s 重试、断线重连、幂等）+ 双向心跳循环（写 100 递增 / 读 101 监测，停滞 5 周期 → HeartbeatLost → 重连；SemaphoreSlim 串行化；CancellationTokenSource 防 Timer 歧义坑）；Result<T> 统一返回
-    - **接线**：Program.cs DI 单例注册（IPlcTransport + IPlcCommunicationService）；MainViewModel 订阅状态事件按 Connected=Success/Connecting=Info/HeartbeatLost=Error/Disconnected=Warn 写日志；InitializeAsync 自动启动；新增 ShutdownAsync；MainForm.OnFormClosing 调用（3s 超时兜底）
-    - **测试**：新增 7 用例（FakePlcTransport 桩模拟 PLC 回写/停滞）；顺手修既有 xUnit2013 警告 1 处；**110/110 PASS、构建 0 警告 0 错误**
-
-## 历史变更（2026-09-03）
-
-1.9 ✅ **打印页自定义打印内容 + 布局修正**（用户需求：「修改打印页面，增加输入框，打印内容用户输入的内容」）：
-    - **VM**：`CustomContent` 属性 + `PrintAsync` 内容来源分支——Trim 后非空走自定义（每张相同、流水号不动），留空走流水号原路径（递增+持久化）；自定义路径跳过流水号校验；失败文案按路径区分
-    - **View**：新增「打印内容（留空则打印流水号）」输入行（TextBox + PlaceholderText）；修复三个说明标题局部变量未参与布局叠在左上角的缺陷（提升为字段 + CenterLayout 统一排布，每行标题位于控件上方）
-    - **测试**：新增 3 用例（自定义内容每张打印流水号不变/纯空白回退流水号递增/自定义优先时非法流水号不拦截不弹窗）；ERR-020 修复（桩的 SentZpl 记录/失败注入迁至 `PrintBySpoolerAsync` 对齐生产通道）+ 修 1 个历史 xUnit2013 警告；**103/103 PASS、0 警告**
-    - 另：v1.8b 打印通道已从 TCP 直连切换为 **Spooler RAW 为主**（用户需求，Program.cs 注释同步；实测打印成功流水号递增正常）
-
-## 历史变更（2026-09-02）
-
-1.4c ✅ **修复新增行刷新后消失（空行蒸发）**（用户反馈：「新增行不能添加数据，在刷新之后不显示」）：
-    - **根因（ERR-014）**：用户配方表无「配方编号」列 → 新增行为全空行；ClosedXML 对空字符串单元格不落盘（整行在 xlsx XML 层面不存在）+ `LoadCoreAsync` 用 `RowsUsed().Skip(1)` 枚举（空行被跳过）→「新增空行→自动保存成功→刷新」后行凭空消失（日志铁证：14:44~14:51 四次「已新增第 19 行」→ 刷新均回到 18 行）
-    - **修复一（写端）**：`RecipeFileService.SaveCoreAsync` 逐行检测整行全空时向首列写入单个空格 `" "` 占位，保证空行在文件中真实存在
-    - **修复二（读端）**：`LoadCoreAsync` 弃用 `RowsUsed()` 枚举，改 `ws.LastRowUsed().RowNumber()` 定末行 + for 循环逐行装载（空行/中间空行全保留），空格占位经 `Trim` 还原为空
-    - **附带修复**：中间行被清空后刷新不再消失；`ws.LastRowUsed()` 空引用防护（CS8602）；VM `AddRow` 无编号列时记 Info 日志提示
-    - **验证**：构建 0 警告 0 错误；临时控制台往返验证 8 PASS / 0 FAIL（空行保留/中间空行位置不变/有数据行完整/真实 Recipe.xlsx 可加载）
-1.4b ✅ **修复新增行按钮永久禁用**（用户反馈：「新增行按钮依旧是灰色不可点击状态」）：
-    - **根因（ERR-013）**：`AddRowCommand.CanExecute = !IsLoading && RecipeTable.Columns.Count > 0`，初始空表绑定为禁用；但数据加载后 **`AddRowCommand.RaiseCanExecuteChanged()` 从未被任何 setter 触发**，按钮永远停留在禁用态——属性 setter 逐个手动列举刷新命令的维护方式天然易漏
-    - **修复**：VM 提取 `RefreshAllCommandStates()` 统一刷新全部 8 个命令；`RecipeTable`/`IsLoading`/`IsSaving` 三个 setter 全部接入，属性变化即全量刷新，杜绝遗漏
-    - 构建 0 警告 0 错误，运行验证按钮恢复可用（PID 24312）
-1.4a ✅ **按钮样式优化 + 连续删除焦点钳制**（用户反馈：「按钮状态为灰色」）：
-    - **诊断结论**：日志证实删除功能实际正常（已成功删除 3 列并自动保存）；「灰色」痛点 = ① 新增行/列用 `TTypeMini.Default` 灰白样式被误认为禁用 ② 删除一次后焦点重置，按钮回到禁用态，连续删除需重新点选
-    - **修复一（语义色）**：新增行/新增列按钮改 `TTypeMini.Success` 绿色（正向操作），与删除的 Error 红色形成语义对比，消除「灰色=禁用」误解
-    - **修复二（焦点钳制）**：`BindTable` 重建表格时焦点索引不再重置为 -1，改 `Math.Min(旧焦点, 行/列数-1)` 钳制——删除后焦点自动落在相邻行/列，**连续删除无需重新点选**；初始 -1 保持 -1；恢复 `SelectedIndex` 行选中高亮
-    - 构建 0 警告 0 错误，运行验证通过（PID 16500）
-1.4 ✅ **删除行/列 + 确认弹框**（用户需求：新增删除行/删除列功能，删除时弹框确认）：
-    - **新增 `Common/ConfirmRequestEventArgs.cs`**：VM↔View 确认请求事件参数（纯数据载体：Title/Message 由 VM 设置，Confirmed 由 View 回填）
-    - **新增 `Views/Dialogs/ConfirmDialog.cs`**：确认弹框（纯 View）——⚠ 警示图标 + 提示文字 + AntdUI 确定（**Error 红色危险语义**）/取消按钮，模态居中，回车=确定/Esc=取消
-    - **`RecipePageViewModel` 新增**：`DeletionConfirmRequested` 事件 + `DeleteRowCommand`/`DeleteColumnCommand`（RelayCommand，CanExecute 校验索引有效性 → 无选中行/列时按钮自动禁用）；`DeleteRow/DeleteColumn` 业务链——索引校验→组装确认文案（删除行带配方编号）→ 触发确认请求 → 用户取消静默放弃 → 确认后移除行/列 + TableVersion++ 重建表格 + 自动保存
-    - **`RecipePage` 改造**：工具栏 6→8 按钮（删除行/列用 `TTypeMini.Error` 红色）；反射实证 AntdUI 2.4.7 `CellClick`（`TableClickEventArgs.RowIndex/ColumnIndex`，鼠标单击）与 `CellFocused`（键盘焦点导航）**双事件订阅**维护 `_focusedRowIndex/_focusedColumnIndex`，经 CommandManagerHelper **动态参数提供器**实时取参（详 ERR-004 模式）；BindTable 重建表格时重置焦点索引（删除后按钮回到禁用态）；点击表头/空白（索引<0）视为取消选中
-    - **⚠️ 实测修正**：初版仅订阅 `CellFocused`，用户反馈单击后按钮未启用 → 反射确认 `CellFocused` 鼠标单击不触发，改 `CellClick + CellFocused` 双订阅后修复
-    - 删除行确认文案示例：「确定删除第 3 行（配方编号：R003）吗？删除后该行所有数据不可恢复。」
-    - 构建 0 警告 0 错误，运行验证通过（PID 21960）
-1.3 ✅ **新增列弹框交互 + 列名空校验**（用户需求：新增列按钮弹出输入弹框，列名为空则新增失败）：
-    - **新增 `Views/Dialogs/InputDialog.cs`**：通用输入弹框（纯 View）——说明 Label + TextBox 输入框 + AntdUI 确定（Primary）/取消按钮，FixedDialog 模态居中，回车=确定/Esc=取消，仅收集输入零业务逻辑
-    - **新增 `Common/InputRequestEventArgs.cs`**：VM↔View 输入请求事件参数（纯数据载体：Title/Prompt 由 VM 设置，Confirmed/InputText 由 View 回填）
-    - **改造 `RecipePageViewModel.AddColumn()`**：不再自动生成"新列N"，改为触发 `ColumnNamingRequested` 事件向 View 请求列名（VM 不接触 UI 控件）；校验链——用户取消→静默放弃；**列名空/纯空白→新增列失败（记 Error 日志）**；列名重复→拒绝（DataTable 不允许重复列名）；通过→追加列 + TableVersion++ + 自动保存
-    - **`RecipePage` 订阅事件**：`ShowInputDialog(request)` 弹模态框，`ShowDialog(FindForm())` 结果回填 Confirmed/InputText（纯 UI 转发）
-    - 构建通过（0 错误）；编译期曾因程序运行锁定 exe（MSB3027）失败，taskkill 后重试成功
-1.2 ✅ **构建失败修复（CS0535 接口实现缺失）**（用户需求：检查项目生成失败原因并修复）：
-    - **错误现象**：`dotnet build` 报 3 个 CS0535——`RecipeFileService` 未实现 `IRecipeFileService.LoadAsync(string)` / `SaveAsync(DataTable, string)` / `CreateBlankAsync(string, string)`
-    - **根因**：接口已升级为多配方管理（带路径重载 + CreateBlankAsync 带配方名/编号参数），但实现类仍是旧版（只有无参 LoadAsync、单参 SaveAsync、接口上不存在的 CreateBlankFileAsync）；ViewModel 也还在调用已被删除的 `CreateBlankFileAsync()`
-    - **修复 RecipeFileService**（重写）：提取私有核心 `LoadCoreAsync(path)` / `SaveCoreAsync(table, path)` 消除重复；带路径重载成功后自动切换 `FilePath` 数据源；`CreateBlankAsync(recipeName, recipeId)` 实现——文件名 = `SanitizeFileName(配方名)_yyyyMMdd_HHmmss.xlsx`（非法字符替换下划线 + 同秒递增序号防覆盖），写入默认表头 + 首行配方编号
-    - **修复 RecipePageViewModel**：`CreateBlankRecipeAsync()` 改调接口方法 `CreateBlankAsync(recipeName, recipeId)`，配方名/编号由 `GenerateUniqueRecipeId()` 生成（R001 起递增）
-    - 修复后构建通过（0 警告 0 错误）→ `bin\Debug\net10.0-windows\UiTopMachine.dll`
-1.0 ✅ **配方页编辑功能全套**（用户需求：单元格修改/编号唯一/增行列/新建空白配方）：
-   - **单元格修改**：`RecipePage` 开启 `EditMode = TEditMode.DoubleClick` + `EditLostFocus = true`；`CellEndEdit` 事件转发 `VM.TryCommitCellEdit(rowIndex, colIndex, newValue)`——写回 DataTable + 自动后台保存；返回 false 时 AntdUI 自动还原显示
-   - **编号唯一不可重复**：VM 常量 `RecipeIdColumn = "配方编号"`；三处校验——单元格编辑时 `IsDuplicateRecipeId`（排除自身行，重复拒绝并还原）、保存/自动保存前 `ValidateRecipeIdUnique`（重复拒绝落盘）、新增行 `GenerateUniqueRecipeId`（R001 起跳过已占用号）；空编号不参与校验；无"配方编号"列时校验自动跳过
-   - **新增行/列**：`AddRowCommand`（编号自动生成）/`AddColumnCommand`（"新列N"自增防重名）；VM `TableVersion` 自增通知 View 重建表格（AntdUI Table 绑定后新增行不会自动出现）
-   - **新建空白配方**：Service `CreateBlankFileAsync()` 替代原 `CreateBlankAsync()`——文件名 = 原名 + `_yyyyMMdd_HHmmss`（同秒重复创建递增 `_2`、`_3` 序号），保存在当前配方目录（D:\Printer\Data），**原配方文件保留不删除**，创建后 `FilePath`（改为 private set）切换数据源；UI 用 `TTypeMini.Warn` 橙色按钮醒目提示
-   - **并发保存修复**：验证时发现自动保存（单元格编辑/增删行列触发）与手动保存并发写文件锁冲突（IOException: being used by another process）→ VM 加 `SemaphoreSlim _saveLock`，`SaveCoreAsync` 串行化写盘
-   - **View 工具栏**：FlowLayoutPanel 6 按钮（刷新/保存/新增行/新增列/新建配方/打开文件夹），`CommandManagerHelper.Bind` 绑定命令
-   - **运行时验证 16/16 PASS**（临时控制台项目，已清理）：时间戳文件名/原文件保留/数据源切换/同秒防覆盖/重复编号拒绝/原值还原/唯一编号通过/非编号列修改/新增行自动编号/新增列/保存落盘/重载一致
-   - 构建 0 警告 0 错误
-0.9 ✅ **配方页 AntdUI Table 化**（用户需求：清空配方页 + 加入 Excel 表格 + AntdUI Table 展示）：
-   - **重写 `ViewModels/RecipePageViewModel`**：移除抽屉下发业务（Drawers/SelectedDrawer/SendSingleCommand 全部删除），新增 RecipeTable（DataTable）+ LoadCommand（AsyncRelayCommand + IsLoading 防重复）+ InitializeAsync（页面 Load 触发）
-   - **重写 `Views/Pages/RecipePage`**：头部（标题/数据源路径说明/刷新按钮 AntdUI.Button）+ AntdUI.Table（Dock.Fill，Bordered）
-   - **AntdUI 2.4.7 Table API 实证**（反射 + 编译验证）：`Binding<T>(AntList<T>)` / `Binding<T>(BindingList<T>)` 二选一；动态列场景用 `AntList<AntItem[]>`，每行为 `AntItem(key, value)` 数组，key 匹配 `Column(key, title)` 的 key；DataTable 绑定不可用（类型不匹配）
-   - `BindTable(DataTable)`：UI 数据适配方法——依 DataTable 列重建 AntdUI.Column，逐行转 AntItem[] 后 Binding（属于 View 层 UI 转发，业务仍在 VM）
-   - 构建通过（0 警告 0 错误）
-0.8 ✅ **配方页 Excel 表格化**（已被 0.9 覆盖，IRecipeFileService/RecipeFileService 保留复用）：
-   - **NuGet 新增 ClosedXML 0.105.1**（免费 MIT，无需安装 Office，读写 xlsx）
-   - **新增 `Services/Interfaces/IRecipeFileService.cs` + `Services/RecipeFileService.cs`**：Service 层封装 Excel 读写（Load/Save/CreateBlank/OpenFolder），所有 IO 用 Task.Run 异步，Result<T> 统一返回，SDK 对象不外泄
-   - **重写 `ViewModels/RecipePageViewModel`**：DataTable 数据源（直接绑定 DataGridView 双向回写）、SaveCommand/AddRow/AddColumn/DeleteRow/DeleteColumn/CreateBlank/OpenFolder/Reload 七命令，CurrentCell 动态参数驱动删除命令 CanExecute
-   - **重写 `Views/Pages/RecipePage`**：AntdUI 工具栏（8 按钮 FlowLayoutPanel）+ DataGridView（浅色表头/斑马纹/单元格选择模式）；删除行列经 **ProxyCommand + 动态参数提供器**实时取当前单元格 (row,col)
-   - **CommandManagerHelper 三次演进**：绑定元组升级为 `(Control, Func<object?> 参数提供器)`，点击/刷新时实时取参（固定参数与动态参数统一）
-   - 数据源确认存在：`D:\Printer\Data\Recipe.xlsx`（Test-Path = True）
-   - 构建 0 警告 0 错误，运行验证通过（PID 5680）
-
-0. ✅ **抽屉单元格布局重构**（用户截图反馈：圆圈被裁剪/编号不可见/输入框缺失）：
-   - **指示灯控件完全自适应**：直径 = min(宽×85%, 编号区以下高×92%)，**移除最小直径钳制**（原 64px 下限导致小单元格时圆圈溢出被裁剪）；控件过小（<8px）时跳过绘制防畸形
-   - **单元格改双行 TLP**：指示灯行（100% 填充）+ 输入框行（**固定 46px**），输入框 Anchor=None 居中、宽度随单元格伸缩（48~220px），任意窗口尺寸下输入框永远完整可见
-   - **输入框 Text 默认空**：移除 PlaceholderText，初始 Size(120,30)
-   - **Mock 服务初始配方改为空**（原随机配方名）：启动时 18 抽屉全部空闲态，配方完全由用户输入驱动
-0.5 ✅ **指示灯样式二次调整**（用户反馈）：
-   - **空闲色恢复 LightGray**（蔚蓝改回浅灰，描边灰 `RGB(200,203,207)`）
-   - **编号位于圆圈左上角"一点点"**：先绘圆（顶部预留 26% 高度），编号左对齐圆左缘（内缩 4%）、底部轻微压住圆顶（重叠 8% 字高）
-   - **编号字号放大**：随圆直径缩放（直径×30%），钳制 14~34px 加粗
-   - 构建 0 警告 0 错误，运行验证通过（PID 928）
-1. ✅ **底部 Tab 页面导航**：
-   - 新增 `Models/PageType.cs`（页面类型枚举：Print/Image/FeedDrawers/Recipe）
-   - 新增 `Views/Controls/TabItemControl.cs`（自绘 Tab：文本 + 选中下划线 + 高亮样式）
-   - 新增 `ViewModels/NavigationViewModel.cs`（CurrentPage 状态 + NavigateCommand，CanExecute 校验参数为 PageType）
-   - `MainForm` 重构为**导航壳**：顶栏 + 底部 Tab 导航 + 中央 `_pageHost` 页面容器（懒创建 + 可见性切换）+ 右侧全局 Status 日志
-2. ✅ **页面拆分**（原 MainForm 布局迁移）：
-   - `Views/Pages/FeedDrawersPage.cs`：18 抽屉网格页（从 MainForm 原样迁移，逻辑不变）
-   - `Views/Pages/PrintPage.cs`：打印管理占位页（打印按钮模拟 + 计数）
-   - `Views/Pages/ImagePage.cs`：图像管理占位页（采集按钮模拟 + 计数）
-   - `Views/Pages/RecipePage.cs`：配方管理页（左侧抽屉 ListBox + 右侧配方编辑 + **单抽屉下发**按钮）
-3. ✅ **配方单抽屉下发**（顺带完成待办）：
-   - 新增 `ViewModels/RecipePageViewModel.cs`：共享 MainViewModel 抽屉集合（同一批 VM 实例），SelectedDrawer + SendSingleCommand（AsyncRelayCommand + IsBusy 防重复）
-   - Program.cs 中 MainViewModel 注册为**单例**（保证跨页面共享抽屉数据源）
-4. ✅ **页面 ViewModel**：
-   - `PrintPageViewModel` / `ImagePageViewModel`：占位页 VM（Title/Description/IsBusy/计数 + 异步命令）
-5. ✅ **CommandManagerHelper 增强**：
-   - 新增 `Bind(control, command, parameter)` 重载（参数化命令绑定，导航 Tab 点击传 PageType）
-   - **关键修复**：绑定元组 `(Control, Parameter)` 存储参数，刷新时用**原参数**调 CanExecute（否则 NavigateCommand 被 CanExecute(null) 误判禁用全部 Tab）
-6. ✅ **消除 nullable 警告**：RecipePage 的 `BindingSource(data, string.Empty)` 替代 null；BindRecipeBox 空选中项时不绑定数据源（禁用输入框）
-7. ✅ 构建通过（**0 警告 0 错误**），程序启动运行正常（PID 18676）
+> 其余历史错误（ERR-001~029 中已解决的 26 条）均已 🟢 解决并压缩为摘要，详见 errorlog.md；完整过程见 [archive](archive/history-2026-09.md) 第七节。
 
 ## 下一步
 
-1. 打印/图像页接入真实服务（IPrintService / VisionCameraService，放 Services/）
-2. ~~用真实 PLC 通信实现替换 `MockDrawerService`（实现 `IDrawerService` 即可，建议 HslCommunication/S7NetPlus 放入 `Communications/`）~~ 大部分落地：**v1.10~v1.12 已建 PLC 通讯并接入抽屉物料**（自动连接+双向心跳 + 连续读取 M1000×19 驱动 18 抽屉有料状态，PLC 为物料唯一真值源）；剩余 = 配方下发等写方向的真实 PLC 版（当前 SendRecipeAsync 仍为 Mock 实现）
-3. 配方管理页增强：抽屉列表显示配方名/状态列、批量下发
-4. ~~补充单元测试（tests/ 目录）~~ ✅ 已完成（2026-09-03，55 用例全绿；此后每次任务修改功能必须配套测试，详 techContext.md 测试工作流）
-5. ~~创建解决方案文件 .sln~~ ✅ 已完成（2026-09-03，UiTopMachine.slnx）
-
-## 用户已确认的需求决策
-
-| 决策点 | 结论 |
-|--------|------|
-| .NET 版本 | **.NET 10**（SDK 10.0.400）✅ 已落地 |
-| 界面风格 | **浅色现代扁平风** ✅ 已落地 |
-| 抽屉三态 | 有料+有配方=绿；无料+无配方=**LightGray**；其余=黄 ✅ 已落地（空闲色经两轮反馈最终定为浅灰） |
-| 配方输入框 | 每个抽屉下方独立输入框，Text 默认空，双向绑定即时联动状态灯 ✅ 已落地 |
-| 抽屉编号 | 位于圆圈左上角一点点（轻压圆边），大字号加粗 ✅ 已落地 |
-| 退出按钮 | 右上角，红色危险语义 ✅ 已落地 |
-| Tab 导航 | 底部四 Tab（打印/图像/进料抽屉/配方）✅ 已落地 |
-| 配方数据源 | Excel 文件 D:\Printer\Data\Recipe.xlsx（ClosedXML 读写，可编辑/增删行列/新建空白/打开文件夹）✅ 已落地 |
-| 工具栏按钮语义色 | 绿=新增（Success）/红=删除（Error）/橙=新建配方（Warn）/蓝=刷新保存（Primary），避免灰白样式被误读为禁用 ✅ 已落地 |
-| PLC 连接参数 | **192.168.1.88:502 站号 1**（用户输入 1192.168.1.88 经确认实为 192.168.1.88）✅ 已落地（v1.10） |
-| PLC 通讯库 | **HslCommunication，客户端类保留 InovanceTcpNet**（可构造参数切 ModbusTcpNet）✅ 已落地（v1.10） |
-| PLC 心跳机制 | **双向心跳**：PC 周期写递增值（写寄存器 100）+ 监听 PLC 侧读寄存器（101）变化，停滞 5 周期判丢失自动重连 ✅ 已落地（v1.10） |
-| PLC 连接/状态 UI | **后台自动连接**（不加页面/输入框），连接状态消息经 ILogService 显示在主窗体右侧 Status 列表面板 ✅ 已落地（v1.10） |
-| Status 列表面板语义 | **只存 PLC 对接信息**（连接成功提示 + 对接错误），不再存一般系统操作日志（v1.11，操作日志仅落文件）✅ 已落地 |
+1. **真机联调**（PLC 真机 192.168.1.88 + VisionMaster 真机出图联调；本地模拟器链路已全部验证）
+2. 打印/图像页接入真实服务剩余项（IPrintService 已完成；图像 VisionMaster 桥接已完成——剩余为现场参数调优）
+3. ~~用真实 PLC 通信实现替换 `MockDrawerService`~~ 大部分已落地（v1.10~v1.12 PLC 通讯+物料接入）；剩余 = 配方下发等写方向的真实 PLC 版
+4. 配方管理页增强：抽屉列表显示配方名/状态列、批量下发
 
 ## 重要模式与偏好
 
 - 语言：中文（代码注释、日志、UI 文案）
 - 严格 MVVM：View 零业务逻辑，硬件交互全在 Service，统一 `Result<T>` 返回
 - 异步规范：所有 IO 用 async/await，命令带 IsBusy 防重复
-- UI 线程调度：`SynchronizationContext.Post`（VM 事件来自后台线程）
-- **导航模式**：VM 持有 CurrentPage 状态，View 订阅 PropertyChanged 切换可见性；Tab 点击经参数化命令绑定回传 PageType
+- UI 线程调度：`SynchronizationContext.Post`（构造时捕获 `_uiContext`，ERR-023 模式）
+- 导航模式：VM 持有 CurrentPage 状态，View 订阅 PropertyChanged 切换可见性；Tab 点击经参数化命令回传 PageType
+- **防膨胀工作流（v2.2 新增）**：写入新焦点 = 归档旧焦点（archive/history-YYYY-MM.md）；核心文件遵守 §3.3 体积红线，P4 交付前核对
 
-## 经验与项目洞察
+## 经验索引
 
-### 错误类教训（已归档 → errorlog.md）
-
-错误详情、生命周期状态与防回归清单统一见 [errorlog.md](errorlog.md)，此处仅留索引：
-ERR-001 透明背景 · ERR-002 Timer 歧义 · ERR-003 CS0067 · ERR-004 参数化命令误禁用 · ERR-005 接口升级不同步 · ERR-006 MSB3027 锁 exe · ERR-007 xlsx 并发锁 · ERR-008 PowerShell `&&` · ERR-009 GBK 乱码 · ERR-010 AntdUI 绑定 · ERR-011 mkdir 多参数 · ERR-012 CellFocused 单击不触发 · ERR-013 命令刷新漏刷 · ERR-014 ClosedXML 空行蒸发 · ERR-015 表头重命名 DuplicateNameException（单元测试暴露） · ERR-016 带空格编号绕过唯一性校验（读写端 Trim 口径不一致） · ERR-017 单元格错位写入（AntdUI 行事件索引为含表头 1 基 INDEX，两轮实证修正） · ERR-018 编号查重真实表头失效（硬编码「配方编号」vs 用户「编号」+ 失败无弹窗） · ERR-019 新建配方文件流转语义偏差（另存副本 vs 备份轮转，返工） · ERR-020 测试桩通道与生产代码脱节（VM 打印测试静默失效） · ERR-021 HslCommunication V12 API 变化（SetPersistentConnection 过时 + InovanceTcpNet 命名空间迁移）
-
-### API 知识与技巧（保留本体）
-
-- WinForms 无 WPF CommandManager，自建 `CommandManagerHelper` 维护命令↔控件绑定
-- 自绘控件需标注 `[DesignerSerializationVisibility(Hidden)]` 避免设计器序列化警告
-- ListBox 绑定 `ObservableCollection<T>` 用 BindingSource 包装，DisplayMember 显示 Index；选中项变化时 TextBox 重绑前必须 `DataBindings.Clear()` 防串数据
-- **DataTable 直接绑定 DataGridView**：单元格编辑自动回写（无需手写 INPC）；整表替换时先 EndEdit + DataSource=null 再赋新表，DataBindingComplete 事件里做样式定制
-- ClosedXML 写 xlsx：`ws.Columns().AdjustToContents()` 自适应列宽；表头样式用 `XLColor.FromHtml`；目录不存在时 `Directory.CreateDirectory` 兜底
-- **AntdUI 2.4.7 Table**：动态列用 `AntList<AntItem[]>`，行 = `AntItem(key, value)[]`，key 匹配 `Column(key, title).key`（详 ERR-010）；单元格编辑 `EditMode = TEditMode.DoubleClick` + `EditLostFocus = true`，`CellEndEdit` 委托 `bool Handler(object, TableEndEditEventArgs)` 返回 false 自动还原显示（适合校验拒绝场景）；AntItem 是 class（key/value 属性）
-- **反射检查第三方 API 套路**：临时控制台项目 LoadFrom DLL 反射导出类型与方法签名（需 UseWindowsForms=true 解析 WinForms 依赖），或直接引用包写编译用例实证，用完即删
-- ⚠️ **ClosedXML 空行语义（ERR-014）**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端空行占位 + 读端自己维护行号循环」，不要依赖 RowsUsed 枚举
-- **VM↔View 输入请求模式（1.3 落地）**：VM 触发事件（携带 Title/Prompt）→ View 弹模态 InputDialog → 结果回填事件参数（Confirmed/InputText）→ VM 按结果继续业务；VM 全程不接触 UI 控件，适合弹框收集输入类交互
-- **VM↔View 确认请求模式（1.4 落地）**：同输入请求模式，ConfirmRequestEventArgs（Title/Message/Confirmed）→ View 弹 ConfirmDialog；适合删除等危险操作二次确认
-- ⚠️ **AntdUI 2.4.7 Table 焦点/点击 API（反射实证）**：`CellFocused` 事件鼠标单击**不触发**（偏向键盘焦点导航），跟踪鼠标选中必须订阅 `CellClick`（`TableClickEventArgs` 含 `RowIndex/ColumnIndex/Button/Clicks`，继承 MouseEventArgs）；两者签名一致可共用处理逻辑双订阅；`FocusedCell` 是嵌套类型 `Table+CELL`（外部不可直接用）；`SelectedIndex`/`SelectedIndexs` 为行选中（int/int[]），删除单格所在列需用 ColumnIndex
-- ⚠️ **AntdUI 2.4.7 Table 索引基准（第二轮运行时实证，ERR-017）**：`CellEndEdit`/`CellClick`/`CellFocused` 三事件的 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头，首条数据行=1；点击表头时行索引为 0 或 -1），**ColumnIndex 为 0 基**；`SelectedIndex` 亦为 1 基 INDEX。传给 0 基数据源（DataTable）前行索引必须减 1，恢复高亮反向 +1；删除行/列与编辑共用此换算规则
-
-### 模式沉淀（详见 systemPatterns.md）
-
-- **新建文件防覆盖命名**：`原名_yyyyMMdd_HHmmss.xlsx` + 同秒递增序号（`_2`、`_3`）+ `File.Exists` 循环检测
-- **Service 带路径重载切换数据源模式**：`LoadAsync(path)/SaveAsync(table, path)` 成功后内部更新 `FilePath`（private set），ViewModel 无需感知路径切换细节，无参重载始终作用于"当前工作文件"
-- **并发保存串行化**：`SemaphoreSlim(1,1)` 统一入口串行化写盘（详 ERR-007）
+- **错误类教训**：全部归档 → [errorlog.md](errorlog.md)（防回归清单编码前必查）
+- **模式沉淀**：[systemPatterns.md](systemPatterns.md)「设计模式」「已知陷阱与规避模式」
+- **API 技巧**：主体已沉淀 systemPatterns / techContext；补充细节见 [archive](archive/history-2026-09.md) 第四节
+- **用户已确认的需求决策**：见 [archive](archive/history-2026-09.md) 第三节决策表
