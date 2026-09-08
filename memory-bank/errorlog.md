@@ -268,6 +268,17 @@
 - **状态**：🟢 已解决
 
 
+### ERR-029：图像页 INPC 绑定静默失效（属性更新但界面黑屏——改 View 轮询定时器）
+- **错误现象**：桥接取图链路正常（`--grab` 离线实证 PNG 非空非黑），日志「检测完成 OK」持续输出，但图像区持续黑屏、结论角标与统计文本从不显示；`方案已加载` 标签（同为 INPC 绑定）却正常刷新
+- **发生上下文**：2026-09-08 ERR-028 修复后用户反馈「图像管理中还是黑的没有图片」并提供参考程序截图（`OnWorkStatusEvent` + `vmRenderControl1.ModuleSource` + `SyncRun()`）
+- **排查过程（多层递进）**：① 反射 GAC VM SDK 发现 `SyncRun()`，替换异步触发的 `Run()`——仍间歇无图（排除同步语义因素）；② `KeepModuleLastResult(true)`——无效；③ 桥接加 `--grab` 调试模式：连续 8 次 Run 落盘 PNG，实证图像内容正常且**尺寸各异**（986×645→532×337→1202×676→2400×1441，多分支演示方案，部分运行无分支产图属常态）；④ VM 加临时代码证实 `AttachUiMarshaller` 已注入、`DispatchUi` 回调执行、`CurrentImage/StatisticsText` 的 **INPC 在 UI 线程（thread=2）正常触发**——但绑定控件纹丝不动
+- **根本原因**：WinForms DataBinding 在本环境下对部分绑定**静默失效**（INPC 触发而控件不刷新，无异常无日志）——与 AntdUI/自绘控件混合的复杂窗体环境相关；`方案已加载` 等个别绑定正常，`CurrentImage/CurrentVerdict/StatisticsText` 三个失效，规律无法归纳
+- **解决方式**：放弃这三个属性的 INPC 绑定，**View 端 500ms `Windows.Forms.Timer` 轮询同步**（`SyncDisplayFromViewModel`：结果图引用变化才替换+释放上一张、结论文本与着色、统计文本、方案状态着色与按钮态）——定时器 Tick 固定 UI 线程，对线程/编组/绑定全部免疫；图像所有权移交 View（VM `CurrentImage` 不再 Dispose 旧图，View 替换引用时释放）；保留 `AttachUiMarshaller`（Control.BeginInvoke）供 VM 状态调度；另桥接 `Run()` → `SyncRun()`（与参考程序一致）
+- **附带发现**：本环境 `dotnet build` **增量构建不可靠**（编译陈旧源码、报成功但产物未更新）——验证产物必须 clean 构建 + 检查产物内新符号（PowerShell 读字节搜字符串；方法名为 ASCII 元数据、字符串字面量为 UTF-16）；`Math.Clamp` 在 net48 不存在（用 Min/Max）
+- **验证结果**：🟢 已解决——dotnet test **191/191 PASS**、clean 构建 0 警告 0 错误；真机实证图像区显示灰度测试图、统计「总数：13 OK：13」、结论 OK、连续检测稳定运行
+- **教训**：⚠️ WinForms 绑定失效无任何报错，排障必须逐层实证（INPC 触发了吗？在哪个线程？绑定收到了吗？）而非反复猜测；**显示类需求可用 UI 定时器轮询兜底**——简单、可靠、对线程模型免疫；「参考程序怎么写就怎么对齐」（SyncRun/事件驱动）往往比自创路径更快
+- **状态**：🟢 已解决
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -304,6 +315,8 @@
 20. **子进程一次性初始化** → SDK 授权/全局初始化每进程仅一次，进程内失败无法自愈；调用方收到子进程**业务失败响应**（ERR 帧）也必须清理并重启子进程再重试，不能只依赖「进程退出才重启」；排障直接看子进程底层日志（SDK/授权层），主程序日志只有回显（ERR-027）；共享源码需 net48 兼容——`string.Contains(str, StringComparison)` 重载不存在，用 `IndexOf`
 21. **子进程诊断日志必须落文件** → 桥接进程由服务以 `CreateNoWindow` 启动，stderr/Console 输出无人重定向会静默丢失；关键排障信息（输出清单/错误码/回退路径）写 `log/VmBridge-diag.log`（ERR-028 破案关键）
 22. **「成功但无结果」≠「失败」** → 低速图像源下无新帧的运行（ErrorCode=0 但输出图值为空）属常态，按跳过处理（保留上张图/不计数/仅 Info 日志），报错误会刷屏且语义错位（ERR-028）
+23. **WinForms 绑定静默失效无报错** → 属性更新但界面不动时逐层实证（INPC 触发？哪线程？绑定收到？）；显示类需求用 View 端 `Windows.Forms.Timer` 轮询兜底（Tick 固定 UI 线程，对线程/编组/绑定免疫）；图像所有权移交 View（VM 不 Dispose，View 替换引用时释放）（ERR-029）
+24. **本环境 dotnet 增量构建不可靠** → 报成功但产物可能是陈旧源码；验证产物必须 `dotnet clean` 后重建，并用 PowerShell 读产物字节搜新符号确认（方法名 ASCII / 字符串字面量 UTF-16）；net48 无 `Math.Clamp`（ERR-029）
 
 ## 沉淀出口
 

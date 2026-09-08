@@ -27,6 +27,12 @@ namespace UiTopMachine.ViewModels
         /// <summary>构造时捕获的 UI 线程同步上下文（后台检测事件经它调度 UI 更新，ERR-023）</summary>
         private readonly SynchronizationContext _uiContext;
 
+        /// <summary>
+        /// UI 线程编组器（ERR-028：由 View 在 UI 线程注入 Control.BeginInvoke——
+        /// 构造期捕获的 SynchronizationContext 在部分进程环境下 Post 后仍脱离 UI 线程，绑定静默失效）
+        /// </summary>
+        private Action<Action>? _uiMarshaller;
+
         // ══════════════ 状态字段 ══════════════
         private bool _isBusy;
         private bool _isContinuousRunning;
@@ -76,18 +82,11 @@ namespace UiTopMachine.ViewModels
             }
         }
 
-        /// <summary>当前结果图（新图替换时释放旧图，防内存膨胀）</summary>
+        /// <summary>当前结果图（ERR-028：所有权移交 View——View 轮询替换引用时负责释放旧图，VM 不再 Dispose）</summary>
         public Image? CurrentImage
         {
             get => _currentImage;
-            private set
-            {
-                var old = _currentImage;
-                if (SetProperty(ref _currentImage, value) && old is not null && !ReferenceEquals(old, value))
-                {
-                    old.Dispose();
-                }
-            }
+            private set => SetProperty(ref _currentImage, value);
         }
 
         /// <summary>当前检测结论文本（OK/NG，随结果图着色由 View 处理）</summary>
@@ -149,12 +148,36 @@ namespace UiTopMachine.ViewModels
 
             // 方案加载成功事件（后台线程）→ 刷新状态
             _inspectionService.SolutionLoaded += (_, _) =>
-                _uiContext.Post(_ =>
+                DispatchUi(() =>
                 {
                     OnPropertyChanged(nameof(IsSolutionLoaded));
                     OnPropertyChanged(nameof(SolutionStatusText));
                     RefreshAllCommandStates();
-                }, null);
+                });
+        }
+
+        /// <summary>
+        /// 注入 UI 线程编组器（由 ImagePage 在 UI 线程调用：a => BeginInvoke(a)，ERR-028）
+        /// </summary>
+        public void AttachUiMarshaller(Action<Action> marshal)
+        {
+            _uiMarshaller = marshal ?? throw new ArgumentNullException(nameof(marshal));
+        }
+
+        /// <summary>
+        /// 调度到 UI 线程执行（优先 Control.BeginInvoke 编组器，回退构造期上下文）
+        /// </summary>
+        private void DispatchUi(Action action)
+        {
+            var marshal = _uiMarshaller;
+            if (marshal != null)
+            {
+                marshal(action);
+            }
+            else
+            {
+                _uiContext.Post(_ => action(), null);
+            }
         }
 
         /// <summary>
@@ -260,7 +283,7 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 连续检测循环（后台线程）：周期运行检测，结果经 _uiContext 调度 UI 更新；
+        /// 连续检测循环（后台线程）：周期运行检测，结果经 DispatchUi 调度 UI 更新；
         /// 单轮运行失败 → 面板报错误（检测完成的信息只落文件，防刷屏）
         /// </summary>
         private async Task ContinuousLoopAsync(CancellationToken token)
@@ -269,7 +292,7 @@ namespace UiTopMachine.ViewModels
             {
                 var result = await _inspectionService.RunInspectionAsync();
 
-                _uiContext.Post(_ =>
+                DispatchUi(() =>
                 {
                     if (result.Success && result.Data is not null)
                     {
@@ -281,7 +304,7 @@ namespace UiTopMachine.ViewModels
                         _logService.Error(message);
                         _panelPublisher.PublishPanelEntry(LogLevel.Error, message);
                     }
-                }, null);
+                });
 
                 try
                 {

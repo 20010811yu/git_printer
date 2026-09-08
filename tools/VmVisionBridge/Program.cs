@@ -83,6 +83,12 @@ namespace VmVisionBridge
                     return RunProbe(args[1]);
                 }
 
+                // 调试模式：--grab "sol路径" [次数] —— 加载后连续运行，PNG 落盘检查像素内容
+                if (args.Length >= 2 && args[0] == "--grab")
+                {
+                    return RunGrab(args[1], args.Length >= 3 ? int.Parse(args[2]) : 5);
+                }
+
                 return RunServer();
             }
             catch (Exception ex)
@@ -121,6 +127,77 @@ namespace VmVisionBridge
         }
 
         // ══════════════ 服务模式 ══════════════
+
+        /// <summary>
+        /// 调试模式：加载方案后连续运行 N 次，把取到的图存 PNG（含全黑检测），用于离线排查出图链路
+        /// </summary>
+        private static int RunGrab(string solutionPath, int count)
+        {
+            if (!File.Exists(solutionPath))
+            {
+                Console.WriteLine("GRAB_FAIL 方案文件不存在：" + solutionPath);
+                return 2;
+            }
+
+            VmSolution.Load(solutionPath, string.Empty, false);
+            _solutionLoaded = true;
+            var procedure = VmSolution.Instance["流程1"] as VmProcedure;
+            if (procedure == null)
+            {
+                Console.WriteLine("GRAB_FAIL 流程1 不存在");
+                return 2;
+            }
+
+            var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "grab");
+            Directory.CreateDirectory(dir);
+
+            for (int i = 1; i <= count; i++)
+            {
+                var sw = Stopwatch.StartNew();
+                procedure.SyncRun();
+                sw.Stop();
+
+                var image = TryGetOutputImage(procedure, "ImageData");
+                if (image == null)
+                {
+                    Console.WriteLine($"GRAB[{i}] 无输出图 ErrorCode={procedure.ModuResult.ErrorCode} {sw.ElapsedMilliseconds}ms");
+                    continue;
+                }
+
+                using var bitmap = image.ToBitmap();
+                var path = Path.Combine(dir, $"grab_{i}.png");
+                bitmap.Save(path, ImageFormat.Png);
+
+                // 采样像素：全黑判定（中心 3×3 区域平均亮度）
+                double lum = SampleLuminance(bitmap);
+                Console.WriteLine($"GRAB[{i}] {bitmap.Width}x{bitmap.Height} 亮度均值={lum:F1} {sw.ElapsedMilliseconds}ms → {path}");
+            }
+
+            ShutdownSolution();
+            return 0;
+        }
+
+        /// <summary>采样位图中心区域平均亮度（0~255；≈0 即全黑图）</summary>
+        private static double SampleLuminance(Bitmap bitmap)
+        {
+            using var bmp = new Bitmap(bitmap);
+            int cx = bitmap.Width / 2, cy = bitmap.Height / 2;
+            double sum = 0;
+            int n = 0;
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    int x = Math.Min(Math.Max(cx + dx, 0), bitmap.Width - 1);
+                    int y = Math.Min(Math.Max(cy + dy, 0), bitmap.Height - 1);
+                    var p = bmp.GetPixel(x, y);
+                    sum += (p.R + p.G + p.B) / 3.0;
+                    n++;
+                }
+            }
+
+            return n > 0 ? sum / n : 0;
+        }
 
         /// <summary>
         /// 服务模式：循环接受管道连接，逐命令处理直到 Close
@@ -245,6 +322,29 @@ namespace VmVisionBridge
                 _solutionLoaded = true;
                 sw.Stop();
                 Console.WriteLine($"[VmBridge] 加载成功，耗时 {sw.ElapsedMilliseconds} ms");
+
+                // 无新帧时保留模块上次结果（ERR-028：图像源帧率低于轮询频率时输出图会被清空）；
+                // 对流程内全部模块启用，输出图稳定可取
+                try
+                {
+                    foreach (var module in VmSolution.Instance.Modules)
+                    {
+                        if (module is VmProcedure proc)
+                        {
+                            proc.KeepModuleLastResult(true);
+                            foreach (var mod in proc.Modules)
+                            {
+                                mod.KeepModuleLastResult(true);
+                            }
+                        }
+                    }
+
+                    Console.WriteLine("[VmBridge] KeepModuleLastResult 已启用");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("[VmBridge] KeepModuleLastResult 设置失败：" + ex.Message);
+                }
                 return VmBridgeProtocol.BuildResponse(true, null, null, false, 0, 0, 0, null);
             }
         }
@@ -267,7 +367,7 @@ namespace VmVisionBridge
                 }
 
                 var sw = Stopwatch.StartNew();
-                procedure.Run(); // 同步执行（采集 + 流程）
+                procedure.SyncRun(); // 同步执行：阻塞至流程完成（ERR-028 根因——Run() 为异步触发立即返回，结果未出即取图为空；与参考程序 SyncRun 一致）
                 sw.Stop();
 
                 // 取流程输出图：优先官方约定输出键 "ImageData"，为空时枚举其余图像输出键回退；
