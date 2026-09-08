@@ -17,7 +17,8 @@ namespace UiTopMachine.Services
     /// VmVisionBridge 子进程（net48，承载 VmSolution SDK），经命名管道按 VmBridgeProtocol 收发：
     /// 懒启动桥接进程 → Load 方案 → Run 检测（PNG 结果图）→ Close 释放。
     /// SDK 原始对象全部封装在桥接进程内，本服务只见状态与 PNG 字节（符合"SDK 不外泄"规则）。
-    /// 桥接进程异常退出 → 下次调用自动重启并重试；全部失败走 Result.Fail 不抛 UI 异常。
+    /// 桥接进程异常退出或 Load 失败（含加密狗授权失败，ERR-027）→ 清理桥接进程，下次调用自动以全新进程重试；
+    /// 全部失败走 Result.Fail 不抛 UI 异常。
     /// </summary>
     public class VisionMasterBridgeInspectionService : IImageInspectionService
     {
@@ -144,7 +145,11 @@ namespace UiTopMachine.Services
                         VmBridgeProtocol.EncodeRequestText(path), LoadTimeoutMs);
                     if (!response.Ok)
                     {
-                        return Result<bool>.Fail(response.Error ?? "方案加载失败（桥接无响应）");
+                        // Load 业务失败（含加密狗授权失败 ERR-027）：SDK 授权初始化每进程仅一次，
+                        // 失败进程内重试无法自愈 → 立即清理桥接进程，下次调用以全新进程重试
+                        CleanupBridgeNoLock(sendClose: false);
+                        _logService.Warn("视觉方案加载失败，桥接进程已重启以便重试");
+                        return Result<bool>.Fail(DescribeLoadError(response.Error));
                     }
 
                     _solutionLoaded = true;
@@ -218,6 +223,18 @@ namespace UiTopMachine.Services
         }
 
         // ══════════════ 桥接进程/管道管理（内部 _lock 已持有） ══════════════
+
+        /// <summary>
+        /// Load 失败文案：加密狗授权类错误附加用户指引，其余原样透传
+        /// </summary>
+        private static string DescribeLoadError(string? error)
+        {
+            var message = string.IsNullOrWhiteSpace(error) ? "方案加载失败（桥接无响应）" : error;
+            return VmBridgeProtocol.IsDongleLicenseError(message)
+                ? $"{message}——{VmBridgeProtocol.DongleLicenseHint}"
+                : message;
+        }
+
 
         /// <summary>
         /// 确保桥接进程与管道就绪（懒启动；进程死了自动重启）

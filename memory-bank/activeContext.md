@@ -2,6 +2,16 @@
 
 ## 当前工作焦点
 
+**桥接进程带病复用自愈修复（v1.25c，ERR-027）✅ 已完成** —— 用户反馈「vm方案加载失败」且加密狗确认无问题后仍复现。落地：
+- **根因（三层叠加）**：① VM SDK 授权登录（SM_Init/MV_LoginLicense）**每进程仅一次**，进程内失败永久带病；② 桥接进程 `HandleCommand` 捕获 VmException 回 ERR 帧后进程继续存活；③ 服务层 `LoadCore` 收到 ERR 业务失败响应不清理桥接进程 → 带病进程被无限复用（当日 08:44 首次失败的诱因为开机后驱动未就绪/授权瞬时被占，已不可考；主程序重试 15 次全失败而全新进程一次成功即为铁证）
+- **破案路径**：主程序日志只有 `e0000700` 回显；桥接进程 `log/SDK/PlatformSDK.log`（`Dongle check fail`，对比前日成功记录）与 `log/Server/Monitor.log`（`MV_LoginLicense ret[5] "There are no available local locks"`）才分清「狗真不在」vs「进程带病」；`--probe` 全新进程一次成功完成对照实验
+- **修复**：服务层 Load 失败响应即清理桥接进程（下次调用全新进程重试）；`VmBridgeProtocol` 新增 `IsDongleLicenseError`（0xE0000700/IMVS_EC_ENCRYPT/Dongle/本地锁）+ `DongleLicenseHint` 指引文案；共享源码 net48 兼容（`Contains(str,StringComparison)` 不存在，用 `IndexOf`）
+- **验证**：dotnet test **190/190 PASS**（新增 10 个加密狗识别用例）；构建 0 警告 0 错误；probe 回归通过；**真机端到端实证**——切图像页自动加载「视觉方案加载成功（VisionTesting.sol）」+ 连续检测出图（检测完成 OK 多次）
+- **遗留观察（非缺陷，方案配置项）**：连续检测约半数运行报「流程无输出图（GetOutputImageV2("ImageData") 为空）」——VisionTesting.sol 的图像输出配置不稳定（首帧前后或有条件分支无输出），需在 VisionMaster 客户端核对方案输出管理配置
+- **下一步：真机联调**（不变）；若「无输出图」需代码侧配合（如输出键回退枚举）再立项
+
+### 上一焦点（v1.25b 已完成的背景）
+
 **桥接 exe 路径回溯级数修复（v1.25b，ERR-026）✅ 已完成** —— 用户反馈「视觉方案加载失败，桥接进程不存在」。落地：
 - **根因**：Program.cs 桥接 exe 相对路径从 `bin\Debug\net10.0-windows\` 回溯到仓库根只需要 **3 级 `..`**（net10.0-windows→Debug→bin→GitRepo），v1.24 引入时误写 4 级多退一级解析到 `D:\tools\...`（不存在）→ `File.Exists` 检查如实报「桥接进程不存在」（错误信息中打印的完整解析路径即为破案线索）
 - **修复**：回溯级数 4→3 并注释推导链；主程序与桥接项目构建各 0 警告 0 错误；桥接 `--probe` 模式端到端实证 `PROBE_OK procedures=流程1`（VisionTesting.sol 加载成功 + 流程名匹配）
@@ -186,6 +196,7 @@
 | 2026-09-07 | 窗口按钮布局抽取+测试守护（v1.23b） | 新增 WindowButtonLayoutTests 10 用例（常量自洽 1/任意宽度容器内右对齐 Theory 6 含 ERR-024 元凶宽度 200 与最大化 1870/从右向左排列间距一致 Theory 3）；布局逻辑抽取为纯函数静态类，MainForm 改 Resize 重算禁用 Anchor | ✅ 165/165 PASS |
 | 2026-09-07 | VM 方案加载换真实 .sol（v1.24） | 新增 VmBridgeProtocolTests 15 用例（帧编解码往返 4/响应构建解析往返含中文 Base64 与 PNG 边界 5/服务失败路径与构造校验 6，不启动真实桥接进程）；测试暴露并修复 BuildResponse 头部缺 `\n\n` 结束标记致 PNG 解析丢失的真 Bug；另端到端管道联调实证（Ping/Load Test.sol/List「流程1」/Run 返回 986×645 PNG isok=1/Close 全链路） | ✅ 180/180 PASS |
 | 2026-09-07 | VM 方案路径切换 VisionTesting.sol（v1.25） | 无新增逻辑用例（纯路径配置切换 + 接口默认参数）；接口签名升级 `LoadSolutionAsync(string?)` 后全量回归（Mock/桥接/测试桩三处同步编译通过）；目标 .sol 存在性实证（Test-Path True）；构建 0 警告 0 错误 | ✅ 180/180 PASS |
+| 2026-09-08 | 桥接带病复用自愈修复（v1.25c，ERR-027） | 新增 10 用例（加密狗授权类错误识别 Theory 4 含真实报错文本/普通错误与空文本 Theory 4/null/指引文案关键内容）；测试驱动修复共享源码 net48 兼容（`Contains(str,StringComparison)`→`IndexOf`）；probe 回归 + 真机端到端实证（加载成功+连续检测出图） | ✅ 190/190 PASS |
 
 ## 当前处理中的错误
 
@@ -197,8 +208,18 @@
 | ERR-009 | dotnet build 输出 GBK 乱码（仅显示问题） | 🟡 规避中 |
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 | ERR-026 | 桥接 exe 相对路径回溯级数错误（4 级应为 3 级） | 🟢 已解决 |
+| ERR-027 | 桥接进程加密狗授权失败后被复用（SDK 授权每进程仅一次，带病无法自愈） | 🟢 已解决 |
 
 > 其余历史错误（ERR-001~007、ERR-010~019，含 ERR-017 两轮修复）均已 🟢 解决，详见 errorlog.md
+
+## 最近变更（2026-09-08）
+
+1.25c ✅ **桥接进程带病复用自愈修复（ERR-027）**（用户反馈：「vm方案加载失败」，加密狗确认无问题）：
+    - **根因**：VM SDK 授权登录每进程仅一次，桥接进程内失败永久带病；服务层 Load 失败响应不清理进程 → 带病进程被无限复用（全新进程 probe 一次成功为对照铁证）
+    - **修复**：服务层 Load 失败即清理桥接进程；`IsDongleLicenseError` 识别 + `DongleLicenseHint` 指引文案（VmBridgeProtocol 共享源码，net48 兼容用 IndexOf）
+    - **验证**：**190/190 PASS**（新增 10 用例）、0 警告 0 错误；probe 回归通过；真机实证加载成功 + 连续检测出图
+    - errorlog 归档 ERR-027 + 防回归清单 #20（子进程一次性初始化失败须换新进程重试）
+    - **遗留观察**：连续检测约半数报「流程无输出图」——VisionTesting.sol 输出配置问题，待 VM 客户端侧核对
 
 ## 最近变更（2026-09-07）
 

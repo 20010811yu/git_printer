@@ -126,6 +126,42 @@ namespace UiTopMachine.Tests
             Assert.Equal(png, response.PngBytes);
         }
 
+        // ══════════════ 加密狗授权错误识别（ERR-027） ══════════════
+
+        [Theory]
+        [InlineData("VmException 0xE0000700: IMVS_EC_ENCRYPT_DONGLE_OUTDATE:Dongle not detected!")]
+        [InlineData("VmException 0xE0000700: 授权登录失败")]
+        [InlineData("MV_LoginLicense fail, msg[There are no available local locks.] ret[Dongle not detected]")]
+        [InlineData("dongle not detected")]
+        public void 加密狗错误识别_授权类错误文本_识别为真(string error)
+        {
+            Assert.True(VmBridgeProtocol.IsDongleLicenseError(error));
+        }
+
+        [Theory]
+        [InlineData("方案文件不存在：D:\\x.sol")]
+        [InlineData("方案内不存在流程「流程1」；可用流程：流程2")]
+        [InlineData("流程无输出图（GetOutputImageV2 为空）")]
+        [InlineData("")]
+        public void 加密狗错误识别_普通错误与空文本_识别为假(string error)
+        {
+            Assert.False(VmBridgeProtocol.IsDongleLicenseError(error));
+        }
+
+        [Fact]
+        public void 加密狗错误识别_null_识别为假()
+        {
+            Assert.False(VmBridgeProtocol.IsDongleLicenseError(null));
+        }
+
+        [Fact]
+        public void 加密狗指引文案_非空且含关键指引()
+        {
+            Assert.False(string.IsNullOrWhiteSpace(VmBridgeProtocol.DongleLicenseHint));
+            Assert.Contains("加密狗", VmBridgeProtocol.DongleLicenseHint);
+            Assert.Contains("VisionMaster", VmBridgeProtocol.DongleLicenseHint);
+        }
+
         // ══════════════ 服务失败路径（不启动真实桥接进程） ══════════════
 
         [Fact]

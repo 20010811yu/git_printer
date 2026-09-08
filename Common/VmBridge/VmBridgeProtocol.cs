@@ -93,6 +93,31 @@ namespace UiTopMachine.Common.VmBridge
             return Encoding.UTF8.GetBytes(text ?? string.Empty);
         }
 
+        // ══════════════ 加密狗授权错误识别（ERR-027） ══════════════
+
+        /// <summary>
+        /// 加密狗授权类错误的用户指引文案（SDK 授权初始化每进程仅一次，失败进程已由服务层自动重启）
+        /// </summary>
+        public const string DongleLicenseHint =
+            "请确认加密狗已插入、驱动服务正常，且 VisionMaster 客户端未占用授权；桥接进程已自动重启，可直接重试加载";
+
+        /// <summary>
+        /// 判断桥接错误是否为加密狗授权类错误（典型：VmException 0xE0000700
+        /// IMVS_EC_ENCRYPT_DONGLE_OUTDATE:Dongle not detected!）
+        /// </summary>
+        public static bool IsDongleLicenseError(string? error)
+        {
+            if (string.IsNullOrEmpty(error))
+            {
+                return false;
+            }
+
+            return error.IndexOf("0xE0000700", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   error.IndexOf("IMVS_EC_ENCRYPT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   error.IndexOf("Dongle", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   error.IndexOf("本地锁", StringComparison.Ordinal) >= 0;
+        }
+
         // ══════════════ 响应 构建与解析 ══════════════
 
         /// <summary>

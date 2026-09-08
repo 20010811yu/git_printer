@@ -245,6 +245,18 @@
 - **教训**：⚠️ **相对路径回溯级数必须以 AppContext.BaseDirectory 的实际值逐级推导**（`bin\Debug\<TFM>\` 是 3 级不是 4 级），不要凭感觉多写一个 `..`；此类错误构建/测试全绿（DI 参数为纯字符串），只有运行时才会暴露——错误信息中打印完整解析路径是必备的排障手段；下次可加「启动时路径存在性自检日志」提前暴露
 - **状态**：🟢 已解决
 
+### ERR-027：桥接进程加密狗授权失败后被复用（SDK 授权初始化每进程仅一次，失败永久带病无法自愈）
+- **错误现象**：图像页加载方案报「视觉方案加载失败：VmException 0xE0000700: IMVS_EC_ENCRYPT_DONGLE_OUTDATE:Dongle not detected!」且重试永远失败；但加密狗实际正常（VM 客户端可识别、全新桥接进程 `--probe` 一次成功）
+- **发生上下文**：2026-09-08 早 v1.25b 交付后用户反馈；当日上午机器重启后首次加载失败（诱因：开机后加密狗驱动未就绪或加载瞬间授权被占用，已不可考）
+- **发生时间**：2026-09-08 08:44
+- **根本原因**：三层叠加——① VM SDK 的授权登录（SM_Init/MV_LoginLicense）**每个进程只执行一次**，进程内失败后后续 `VmSolution.Load` 全部复现同一错误，无法自愈；② 桥接进程 `HandleCommand` 捕获 VmException 后以 ERR 响应回帧、**进程继续存活**；③ 服务层 `LoadCore` 收到 ERR 业务失败响应时**不清理桥接进程**（仅管道/进程异常才清理）→ 带病进程被无限复用，主程序重试 15 次全失败，而全新进程一次成功
+- **破案线索**：桥接进程 `log/SDK/PlatformSDK.log` 的 `SDK: Dongle check fail. DongleStatus=[e0000700]`（对比 9-7 16:58 成功记录 `dongle state[0]`）与 `log/Server/Monitor.log` 的 `MV_LoginLicense ret[5] "There are no available local locks"`——**主程序日志只有上层错误，SDK 底层日志才分清「狗真不在」vs「进程带病」**
+- **解决方式**：服务层 `LoadCore` 收到 Load 失败响应即 `CleanupBridgeNoLock` 清理桥接进程（下次调用自动以全新进程重试）；`VmBridgeProtocol` 新增 `IsDongleLicenseError`（识别 0xE0000700/IMVS_EC_ENCRYPT/Dongle/本地锁）+ `DongleLicenseHint` 用户指引文案（加密狗插入/驱动正常/VM 客户端不占用授权）
+- **解决时间**：2026-09-08 09:05
+- **验证结果**：🟢 已解决——dotnet test **190/190 PASS**（新增 10 个加密狗识别用例）、构建 0 警告 0 错误（共享源码需 net48 兼容：`string.Contains(str, StringComparison)` 重载不存在，须用 `IndexOf`）；probe 回归 `PROBE_OK procedures=流程1`；真机端到端实证——切图像页自动加载「视觉方案加载成功（VisionTesting.sol）」+ 连续检测出图
+- **教训**：⚠️ **子进程内「一次性初始化」失败是永久性的，调用方收到业务失败响应也必须当进程已污染处理**——不能只依赖「进程退出才重启」；排除此类问题必须看子进程自己的底层日志（SDK/授权层），主程序日志只有回显错误；加密狗类环境故障（驱动未就绪/授权被占）重启后高发，服务层必须自带「失败换新进程」的自愈路径
+- **状态**：🟢 已解决
+
 ### ERR-012：AntdUI CellFocused 鼠标单击不触发（删除按钮未启用）
 - **错误现象**：用户单击 AntdUI Table 单元格后，「删除行/删除列」按钮保持禁用不变红
 - **发生上下文**：配方页 v1.4 删除功能，初版仅订阅 `CellFocused` 事件跟踪焦点索引
@@ -278,6 +290,7 @@
 17. **跨运行时 SDK（.NET Framework）** → net10.0 禁止直引 GAC 的 Framework 程序集；用桥接进程（net48 独立项目承载 SDK + 命名管道 + **双侧共享同一份协议源码**）隔离；协议「分隔符约定」构建/解析两端同步实现并以往返测试锁死（ERR-025）；主 csproj 必须 `Compile Remove="tools\**"` 防 glob 误收（同 tests 教训）
 18. **PowerShell 5.1 临时脚本** → 无 BOM UTF-8 按 ANSI 解析，中文字面量变乱码；传中文用环境变量 + Base64 / `GetFolderPath` / `[char]` 拼接，或干脆避免脚本内非 ASCII 字面量（v1.24 实测）
 19. **相对路径回溯级数** → 以 `AppContext.BaseDirectory` 实际值逐级推导（`bin\Debug\<TFM>\` → 仓库根 = 3 级 `..`），禁止凭感觉多写；DI 传入的文件路径参数构建/测试不校验，运行时才暴露——服务报错必须打印完整解析路径（ERR-026）
+20. **子进程一次性初始化** → SDK 授权/全局初始化每进程仅一次，进程内失败无法自愈；调用方收到子进程**业务失败响应**（ERR 帧）也必须清理并重启子进程再重试，不能只依赖「进程退出才重启」；排障直接看子进程底层日志（SDK/授权层），主程序日志只有回显（ERR-027）；共享源码需 net48 兼容——`string.Contains(str, StringComparison)` 重载不存在，用 `IndexOf`
 
 ## 沉淀出口
 

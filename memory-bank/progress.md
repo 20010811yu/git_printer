@@ -2,7 +2,16 @@
 
 ## ✅ 已完成功能
 
-### VM 方案路径切换 VisionTesting.sol（2026-09-07）⭐ 最新
+### 桥接进程带病复用自愈修复（2026-09-08）⭐ 最新
+
+- [x] **问题（v1.25c/ERR-027）**：用户反馈「vm方案加载失败」——加密狗确认正常但加载永远报 `VmException 0xE0000700: IMVS_EC_ENCRYPT_DONGLE_OUTDATE:Dongle not detected!`
+- [x] **根因**：VM SDK 授权登录每进程仅一次，桥接进程内失败永久带病；桥接捕获异常回 ERR 帧后进程存活；服务层 Load 失败响应不清理进程 → 带病进程被无限复用（主程序重试 15 次全失败，全新进程 probe 一次成功）
+- [x] **修复**：服务层 `LoadCore` 收到失败响应即清理桥接进程（下次调用全新进程重试）+ `VmBridgeProtocol.IsDongleLicenseError` 识别与 `DongleLicenseHint` 用户指引
+- [x] **测试**：新增 10 个加密狗识别用例（授权类错误 Theory 4/普通错误与空文本 Theory 4/null/指引文案关键内容）；暴露并修复共享源码 net48 兼容问题（`Contains(str,StringComparison)` → `IndexOf`）
+- [x] 验证：dotnet test **190/190 PASS** + 构建 0 警告 0 错误；probe 回归 `PROBE_OK procedures=流程1`；真机端到端实证方案加载成功 + 连续检测出图
+- [x] Memory Bank 同步更新（activeContext/progress/errorlog）
+
+### VM 方案路径切换 VisionTesting.sol（2026-09-07）
 
 - [x] **需求（v1.25）**：「将项目中vm方案替换成路径为D:\Printer\VisionTesting.sol方案」——图像页 VisionMaster 检测方案从 Test.sol 切换为生产路径 `D:\Printer\VisionTesting.sol`
 - [x] **路径收敛 DI 单点维护**：Program.cs `solutionPath` → `D:\Printer\VisionTesting.sol`（文件存在性已实证 Test-Path True）；流程名「流程1」不变（VisionTesting.sol 的 VmServer.xml 与 Test.sol 容器一致，probe 实测见 v1.24）
@@ -315,7 +324,7 @@
 **构建通过（0 警告 0 错误）**：`dotnet build` 后执行 `bin\Debug\net10.0-windows\UiTopMachine.exe`。
 底部 Tab 可在打印/图像/进料抽屉/配方四页面间切换；进料抽屉页 18 抽屉三态实时变化（Mock），配方输入联动状态灯；
 **图像页已接真实 VisionMaster 检测**（v1.24 桥接进程 + v1.25 方案路径 `D:\Printer\VisionTesting.sol` 收敛于 Program.cs DI 单点维护，流程名「流程1」）；
-单元测试 **180 用例全绿**（dotnet test）。
+单元测试 **190 用例全绿**（dotnet test）。
 配方管理页为 AntdUI Table（双击编辑 + 编号唯一校验 + 增删行列 + 新建空白配方带时间戳不删原文件 + 打开文件夹）；
 **新增列为弹框交互**（InputDialog 收集列名 + 空列名校验失败，v1.3）；
 **删除行/列带确认弹框**（ConfirmDialog 二次确认 + 单元格单击选中驱动按钮可用态，v1.4）；
@@ -327,7 +336,7 @@
 **ZPL 打印已启用**（打印页真实可用：**Spooler RAW 为主通道**（TCP 直连备用）+ 流水号自动递增持久化 + 5 码型批量打印 + **自定义打印内容**（非空每张打印输入内容、留空走流水号），v1.8/v1.9）；
 **PLC 已接入**（启动后台自动连接 **InovanceTcpNet 192.168.1.88:502 站号1** + 双向心跳自动启停：写寄存器 100 递增 / 读寄存器 101 监测，停滞自动重连；**连续读取 M1000 起 19 个 bool 驱动 18 抽屉有料状态**（下标 i=抽屉 i，变化即推送，配方保留用户输入），v1.10~v1.12；**Status 列表面板只显示 PLC 对接信息**——连接成功提示与对接错误，一般系统操作日志只落文件不进面板（v1.11）；**待真机联调**）；
 配方服务已升级多配方接口（带路径加载/保存重载 + `CreateBlankAsync(headers, blankRowCount)`）；全局 Status 日志跨页面共享。
-单元测试 **180 用例全绿**（dotnet test，含 VM 桥接协议、HSL 地址格式守护与窗口按钮布局守护用例）。
+单元测试 **190 用例全绿**（dotnet test，含 VM 桥接协议（含加密狗授权错误识别守护）、HSL 地址格式守护与窗口按钮布局守护用例）。
 
 ## ⚠️ 已知问题
 
