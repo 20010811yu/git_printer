@@ -149,30 +149,75 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
-        public async Task 检测结果无新帧_跳过显示不计数不报错()
+        public async Task 检测结果无新帧_跳过显示不更新结论不报错()
         {
             var vm = new ImagePageViewModel(_log, new NoFrameInspectionService(), _panel);
 
             await vm.CaptureOnceCommand.ExecuteAsync(null);
 
-            Assert.Equal(0, vm.OkCount + vm.NgCount); // 无新帧不计数
             Assert.Equal("—", vm.CurrentVerdict); // 结论不变
+            Assert.Null(vm.CurrentImage); // 无新帧不出图
             Assert.DoesNotContain(_panel.Entries, e => e.Level == LogLevel.Error); // 不报错
             Assert.Contains(_log.Entries, e => e.Message.Contains("无新帧")); // 仅记 Info 日志
         }
 
-        [Fact]
-        public async Task 单次检测_更新结果图与计数_互不干扰()
+        /// <summary>测试桩：恒定产出结果图的检测服务（可配置 OK/NG 与延时）</summary>
+        private class StaticInspectionService : IImageInspectionService
         {
-            var vm = CreateViewModel();
-            await vm.InitializeAsync();
+            private readonly TaskDelayMs _delay;
+
+            public StaticInspectionService(TaskDelayMs delay = TaskDelayMs.Mock)
+            {
+                _delay = delay;
+            }
+
+            public bool IsSolutionLoaded { get; set; } = true;
+
+            public string ProcedureName => "流程1";
+
+#pragma warning disable CS0067 // 测试桩无需真正触发事件
+            public event EventHandler? SolutionLoaded;
+#pragma warning restore CS0067
+
+            public Task<Result<bool>> LoadSolutionAsync(string? solutionPath = null) =>
+                Task.FromResult(Result<bool>.OK(true));
+
+            public async Task<Result<ImageInspectionResult>> RunInspectionAsync()
+            {
+                if (_delay == TaskDelayMs.Mock)
+                {
+                    await Task.Delay(300); // 同 Mock 节奏
+                }
+
+                return Result<ImageInspectionResult>.OK(new ImageInspectionResult
+                {
+                    Image = new System.Drawing.Bitmap(8, 8),
+                    IsOk = true,
+                    Sequence = 1
+                });
+            }
+
+            public void Shutdown()
+            {
+            }
+
+            /// <summary>延时档位枚举（避免魔法数字）</summary>
+            public enum TaskDelayMs
+            {
+                None = 0,
+                Mock = 300
+            }
+        }
+
+        [Fact]
+        public async Task 单次检测_更新结果图与结论()
+        {
+            var vm = new ImagePageViewModel(_log, new StaticInspectionService(StaticInspectionService.TaskDelayMs.None), _panel);
 
             await vm.CaptureOnceCommand.ExecuteAsync(null);
-            await vm.CaptureOnceCommand.ExecuteAsync(null);
 
-            Assert.Equal(2, vm.OkCount + vm.NgCount);
             Assert.NotNull(vm.CurrentImage);
-            Assert.Contains(vm.CurrentVerdict, new[] { "OK", "NG" });
+            Assert.Equal("OK", vm.CurrentVerdict);
         }
 
         [Fact]
@@ -186,24 +231,23 @@ namespace UiTopMachine.Tests
 
             // 等待产生至少一次检测结果（Mock 检测间隔 300ms）
             var deadline = DateTime.UtcNow.AddSeconds(5);
-            while (vm.OkCount + vm.NgCount == 0 && DateTime.UtcNow < deadline)
+            while (vm.CurrentImage is null && DateTime.UtcNow < deadline)
             {
                 await Task.Delay(50);
             }
 
             await vm.StopContinuousCommand.ExecuteAsync(null);
             Assert.False(vm.IsContinuousRunning);
-            Assert.True(vm.OkCount + vm.NgCount >= 1);
+            Assert.NotNull(vm.CurrentImage);
         }
 
         [Fact]
         public async Task 未加载方案_单次与连续检测命令不可用()
         {
-            var vm = CreateViewModel();
+            var vm = new ImagePageViewModel(_log, new FailingInspectionService(), _panel);
 
             Assert.False(vm.CaptureOnceCommand.CanExecute(null));
             Assert.False(vm.StartContinuousCommand.CanExecute(null));
-            Assert.True(vm.LoadSolutionCommand.CanExecute(null));
 
             await Task.CompletedTask;
         }
@@ -211,16 +255,26 @@ namespace UiTopMachine.Tests
         [Fact]
         public async Task 页面停机_Shutdown取消连续检测()
         {
-            var vm = CreateViewModel();
-            await vm.InitializeAsync();
+            var vm = new ImagePageViewModel(_log, new StaticInspectionService(), _panel);
+
             await vm.StartContinuousCommand.ExecuteAsync(null);
+
+            // 等待产生首次结果（证明循环在跑）
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (vm.CurrentImage is null && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(20);
+            }
 
             vm.Shutdown();
 
-            // 后台循环被取消（不再产生新结果）
-            var countBefore = vm.OkCount + vm.NgCount;
-            await Task.Delay(400);
-            Assert.True(vm.OkCount + vm.NgCount <= countBefore + 1);
+            // 等在途结果落地（桩延时 300ms 内），再静置超过一个轮询周期：
+            // 取消生效的判据 = 结果图引用不再变化（桩每次 Run 都产出新 Bitmap）
+            await Task.Delay(500);
+            var imageAtRest = vm.CurrentImage;
+            await Task.Delay(1300);
+
+            Assert.Same(imageAtRest, vm.CurrentImage);
         }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using UiTopMachine.Communications.Plc;
@@ -24,6 +25,32 @@ namespace UiTopMachine
         {
             // WinForms 高 DPI 与视觉样式初始化（.NET 6+ 官方推荐方式）
             ApplicationConfiguration.Initialize();
+
+            // VMControls 渲染控件依赖兜底解析（v1.26）：控件自身随程序分发，
+            // 但其引用的 VM.PlatformSDKCS 等程序集仅存在于 GAC，而 .NET 10 不读 GAC——
+            // 首次实例化 VmRenderControl 时经此 resolver 从 GAC 物理路径补加载（冒烟实证必要）
+            AppDomain.CurrentDomain.AssemblyResolve += (_, args) =>
+            {
+                try
+                {
+                    var name = new AssemblyName(args.Name).Name;
+                    var gacDir = Path.Combine(@"C:\Windows\Microsoft.Net\assembly\GAC_MSIL", name ?? string.Empty);
+                    if (name != null && Directory.Exists(gacDir))
+                    {
+                        var dll = Directory.GetFiles(gacDir, name + ".dll", SearchOption.AllDirectories);
+                        if (dll.Length > 0)
+                        {
+                            return Assembly.LoadFrom(dll[0]);
+                        }
+                    }
+                }
+                catch
+                {
+                    // 解析失败按正常流程抛 FileNotFoundException
+                }
+
+                return null;
+            };
 
             // 全局异常模式必须最先设置——在创建任何控件/同步上下文之前，
             // 否则报"线程上已创建控件，异常模式不能再更改"导致启动即崩（v1.21 教训）

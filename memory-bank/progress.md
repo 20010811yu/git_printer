@@ -6,6 +6,7 @@
 
 | 日期 | 版本 | 功能 | 关联 | 测试 |
 |------|------|------|------|------|
+| 2026-09-08 | v1.26 | 图像页重构：删加载按钮+启动自动加载+删统计+VmRenderControl 混合显示（平移/缩放内置） | ERR-030 | 191/191 |
 | 2026-09-08 | v1.25e | 图像显示链路修复（View 500ms 轮询兜底 INPC 静默失效） | ERR-029 | 191/191 |
 | 2026-09-08 | v1.25d | 连续检测无新帧跳过（成功无图≠失败三层降级 + DiagLog） | ERR-028 | 191/191 |
 | 2026-09-08 | v1.25c | 桥接进程带病复用自愈（Load 失败即换新进程 + 加密狗识别） | ERR-027 | 190/190 |
@@ -58,7 +59,7 @@
 
 **构建通过（0 警告 0 错误）**：`dotnet build` 后执行 `bin\Debug\net10.0-windows\UiTopMachine.exe`。
 - 底部 Tab 四页面切换；进料抽屉页 18 抽屉三态（PLC 物料真值驱动）；配方输入联动状态灯
-- **图像页已接真实 VisionMaster**（桥接进程 + `D:\Printer\VisionTesting.sol`，流程名「流程1」，DI 单点维护；显示链路 View 轮询兜底稳定出图）
+- **图像页已接真实 VisionMaster**（桥接进程 + `D:\Printer\VisionTesting.sol`，流程名「流程1」，DI 单点维护；v1.26：无「加载方案」按钮——**启动自动加载**；显示层 = VmRenderControl 混合架构（ImageSource 喂图，拖拽平移/滚轮缩放内置）；统计显示已按需求移除）
 - 配方管理页：AntdUI Table（双击编辑 + 编号唯一校验 + 增删行列 + 备份轮转新建 + 行序整理 + 补空白行）
 - 打印页：Spooler RAW 主通道（TCP 备用）+ 流水号持久化 + 5 码型 + 自定义内容
 - PLC：自动连接 InovanceTcpNet 192.168.1.88:502 站号1 + 心跳与物料合一轮询（待真机联调）
@@ -71,6 +72,7 @@
 - [ERR-008](errorlog.md)：Cline 终端为 PowerShell，`&&` 分隔符不可用（用 `;` 或单命令执行）
 - [ERR-009](errorlog.md)：构建输出 GBK 乱码（仅显示问题，凭"已成功生成/0 错误"辨识）
 - [ERR-011](errorlog.md)：PowerShell `mkdir` 多参数不可用（用 `New-Item -ItemType Directory`）
+- [ERR-030](errorlog.md)：net10.0 直引 VM 引擎原生崩溃（混合架构规避：引擎留桥接 + 控件进主程序 + GAC resolver）
 
 ## 📈 项目决策演进
 

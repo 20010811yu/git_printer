@@ -50,7 +50,7 @@ dotnet build tools/VmVisionBridge/VmVisionBridge.csproj   # 视觉桥接进程�
 6. **AntdUI Table 事件语义**：`CellFocused` 鼠标单击不触发（键盘焦点用），跟踪鼠标选中必须订阅 `CellClick`（详 ERR-012）；第三方事件勿望文生义，先反射实证。**索引基准（二轮运行时实证，ERR-017）**：`CellEndEdit`/`CellClick`/`CellFocused` 的 **RowIndex 均为含表头的 1 基内部 INDEX**（内部 rows[0]=表头，首条数据行=1），**ColumnIndex 为 0 基**；`SelectedIndex` 亦为 1 基——传 0 基数据源（DataTable）前行必须减 1，恢复高亮反向 +1；编辑与删除链路共用此换算
 7. **ClosedXML 空行语义**：`RowsUsed()` 只返回有内容的行（空行被跳过）；空字符串单元格不落盘。Excel 往返必须「写端整行全空时首列空格占位 + 读端 `LastRowUsed().RowNumber()` 行号循环逐行装载」，不要依赖 RowsUsed 枚举（详 ERR-014）
 8. **HslCommunication 大版本 API**：引入/升级前以包内 XML 文档核对签名与命名空间（`.nuget/packages/hslcommunication/<ver>/lib/*/HslCommunication.xml`）；过时 API 查注释中的替代方案（详 ERR-021）。**协议地址格式必须离线实证**：`TranslateToModbusAddress(address, functionCode)` 一行验证（InovanceTcpNet 需软元件格式 + 显式系列，详 ERR-022）
-9. **VisionMaster SDK（v1.24）**：.NET Framework 程序集装 GAC，net10.0 禁止直引——必须经 tools/VmVisionBridge 桥接进程（详 systemPatterns「VisionMaster 桥接进程模式」）；SDK 关键 API（Load/Instance[名]/Run/GetOutputImageV2/ToBitmap/VmException）已反射实证沉淀于 systemPatterns；主 csproj 必须排除 `tools\**`（防 glob 误收 net48 源码，同 tests 教训）
+9. **VisionMaster SDK（v1.24，v1.26 扩充）**：.NET Framework 程序集装 GAC——**引擎**（VM.Core/VM.PlatformSDKCS）net10.0 直引在 VmSolution.Load 原生崩溃（ERR-030），必须经 tools/VmVisionBridge 桥接进程；**控件**（VMControls）纯托管可直引（`ImageSource` 接受自实现 IImageData：Width/Height/Buffer/PixelFormat 四属性即可）；控件运行时缺 GAC 依赖报 FileNotFoundException，由 Program.cs `AppDomain.AssemblyResolve` 扫 GAC 物理目录补加载；主 csproj 必须排除 `tools\**`（防 glob 误收 net48 源码，同 tests 教训）
 10. **PowerShell 5.1 编码坑（v1.24 实测）**：无 BOM UTF-8 脚本按 ANSI 解析，中文字面量变乱码——临时测试脚本传中文用环境变量 + Base64 / `GetFolderPath` / `[char]` 拼接，避免脚本内非 ASCII 字面量
 
 ## 依赖清单
@@ -62,7 +62,8 @@ dotnet build tools/VmVisionBridge/VmVisionBridge.csproj   # 视觉桥接进程�
 | ClosedXML | 0.105.1 | ✅ 已安装（配方 xlsx 读写，MIT 免费） |
 | HslCommunication | 12.9.2 | ✅ 已安装（v1.10：PLC Modbus TCP，客户端类 InovanceTcpNet 192.168.1.88:502 站号1、构造参数可切 ModbusTcpNet；**V12 默认长连接，SetPersistentConnection 过时不调**；InovanceTcpNet 位于 `HslCommunication.Profinet.Inovance`，ERR-021；⚠️ 新版本有商业授权检查，真机运行若触发授权提示需处理） |
 | Microsoft.NETFramework.ReferenceAssemblies | 1.0.3 | ✅ 已安装（tools/VmVisionBridge net48 构建兜底，PrivateAssets） |
-| VisionMaster 4.4.0 SDK（VM.Core/VM.PlatformSDKCS） | 4.4.0 | ✅ GAC 程序集（HintPath 指 GAC 物理路径，Private=false），仅桥接项目引用；Test.sol 实测加载/运行/取图全链路通过（v1.24） |
+| VisionMaster 4.4.0 SDK（VM.Core/VM.PlatformSDKCS） | 4.4.0 | ✅ GAC 程序集（HintPath 指 GAC 物理路径，Private=false），仅桥接项目引用；Test.sol 实测全链路通过（v1.24）；⚠️ net10.0 直引引擎原生崩溃（ERR-030） |
+| VMControls 渲染控件（Winform.Release/RenderInterface） | 4.4.0 | ✅ myLibs 直引（Private=true 随程序分发，v1.26）；纯托管 net10.0 可加载——图像页 VmRenderControl 显示；GAC 静态依赖经 Program.cs AssemblyResolve 补加载（ERR-030） |
 | xUnit | 2.9.3（Test.Sdk 17.14.1 / runner 3.1.4 / coverlet 6.0.4） | ✅ 已接入（tests/UiTopMachine.Tests） |
 
 ## 工具使用模式（Cline 环境经验）

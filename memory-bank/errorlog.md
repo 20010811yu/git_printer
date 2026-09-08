@@ -38,6 +38,14 @@
 
 ---
 
+### ERR-030：net10.0 直引 VM SDK 引擎进程内崩溃（VmSolution.Load 无声退出）
+- **错误现象**：主程序直引 GAC 的 VM.Core/VM.PlatformSDKCS 后，`VmRenderControl` 实例化正常，但 `VmSolution.Load` 阶段进程**无声退出**（无异常、无输出、无 EventLog），PowerShell `$LASTEXITCODE` 亦不更新
+- **发生上下文**：v1.26 用户要求「VMRenderControl 显示方案图」——`ModuleSource = VmProcedure` 要求引擎在本进程
+- **根本原因**：VM 引擎内部模块为 C++/CLI 与 net48 混合程序集链，.NET 10 运行时无法完成其依赖解析与加载——**崩溃发生在原生层，托管异常机制完全捕获不到**
+- **解决方式**：🟡 规避中——**混合架构**：引擎不动（检测仍走桥接进程回传 PNG），仅引入 `VmRenderControl`（VMControls，纯托管，net10.0 可加载）做显示层；Bitmap → 自实现 `IImageData`（`VmBitmapImageData`）→ `ImageSource` 渲染，平移/缩放为控件内置。**但**：控件静态依赖 VM.PlatformSDKCS（GAC），需 Program.cs 挂 `AssemblyResolve` 从 GAC 物理路径补加载
+- **验证结果**：独立冒烟程序实证：ImageSource 全链路渲染 3s 无崩溃；主程序集成后 191/191 测试全绿
+- **教训**：① 跨运行时 SDK 的「控件」与「引擎」要分开评估——纯托管控件可跨运行时复用，引擎不行；② 原生层崩溃无任何托管痕迹，冒烟验证必须用独立进程跑完整链路（本例无声退出直接证明不可行）；③ `AssemblyResolve` 兜底 GAC 解析是 net10.0 复用 GAC 程序集的通用手法
+
 ### 🟢 已解决条目摘要（26 条，完整过程见归档第七节）
 
 | 编号 | 标题 | 一句话教训 |
@@ -98,7 +106,8 @@
 21. **子进程诊断日志必须落文件** → 桥接进程由服务以 `CreateNoWindow` 启动，stderr/Console 输出无人重定向会静默丢失；关键排障信息（输出清单/错误码/回退路径）写 `log/VmBridge-diag.log`（ERR-028 破案关键）
 22. **「成功但无结果」≠「失败」** → 低速图像源下无新帧的运行（ErrorCode=0 但输出图值为空）属常态，按跳过处理（保留上张图/不计数/仅 Info 日志），报错误会刷屏且语义错位（ERR-028）
 23. **WinForms 绑定静默失效无报错** → 属性更新但界面不动时逐层实证（INPC 触发？哪线程？绑定收到？）；显示类需求用 View 端 `Windows.Forms.Timer` 轮询兜底（Tick 固定 UI 线程，对线程/编组/绑定免疫）；图像所有权移交 View（VM 不 Dispose，View 替换引用时释放）（ERR-029）
-24. **本环境 dotnet 增量构建不可靠** → 报成功但产物可能是陈旧源码；验证产物必须 `dotnet clean` 后重建，并用 PowerShell 读产物字节搜新符号确认（方法名 ASCII / 字符串字面量 UTF-16）；net48 无 `Math.Clamp`（ERR-029）
+24. **本环境 dotnet 增量构建不可靠** → 报成功但产物可能是陈旧源码；验证产物必须 `dotnet clean` 后重建，并用 PowerShell 读产物字节搜新符号确认（方法名 ASCII / 字符串字面量 UTF-16）；net48 无 `Math.Clamp`（ERR-029）。**`dotnet clean` 也可能失效（报"均是最新的"不清理）——最可靠是直接删除 bin/obj 目录再构建**；符号检查用 **ASCII/UTF-8** 读字节（类型/方法名在 #UTF-8 堆），**UTF-16 只对字符串字面量（#US 堆）有效**（ERR-030 复现实证）
+25. **跨运行时 SDK 控件与引擎必须分开评估** → 纯托管控件（如 VMControls）可被 net10.0 加载复用，引擎（C++/CLI 混合程序集链）不行——直调引擎在原生层无声崩溃，托管侧无异常可捕；混合架构 = 引擎留桥接进程 + 控件进主程序显示；控件自身的 GAC 静态依赖（VM.PlatformSDKCS）经 `AppDomain.AssemblyResolve` 从 GAC 物理路径补加载（ERR-030）
 
 ## 沉淀出口
 

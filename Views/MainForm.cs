@@ -70,7 +70,14 @@ namespace UiTopMachine.Views
 
             InitializeUi();
             BindViewModel();
-            Load += async (_, _) => await _mainViewModel.InitializeAsync();
+
+            // 程序启动初始化：PLC 服务启动 + 视觉方案自动加载（v1.26：图像页「加载方案」按钮已移除，
+            // 方案改由启动即加载；图像页内 InitializeAsync 仍保留，服务幂等不重复加载）
+            Load += async (_, _) =>
+            {
+                await _mainViewModel.InitializeAsync();
+                await _imageViewModel.InitializeAsync();
+            };
         }
 
         /// <summary>

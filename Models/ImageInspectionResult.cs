@@ -7,8 +7,11 @@ namespace UiTopMachine.Models
     /// </summary>
     public class ImageInspectionResult
     {
-        /// <summary>检测结果图像（由检测服务生成，UI 层负责显示；生命周期归 VM 管理）</summary>
-        public Image Image { get; set; } = new Bitmap(1, 1);
+        /// <summary>
+        /// 检测结果图像（由检测服务生成，UI 层负责显示；生命周期归 VM/View 管理）。
+        /// null = 本运行无新帧（低速图像源常态，按跳过处理，ERR-028）
+        /// </summary>
+        public Image? Image { get; set; }
 
         /// <summary>检测结论：true=OK / false=NG</summary>
         public bool IsOk { get; set; }

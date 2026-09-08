@@ -11,8 +11,9 @@ namespace UiTopMachine.ViewModels
 {
     /// <summary>
     /// 图像管理页视图模型（仿参考程序视觉流程）：
-    /// 方案加载（自动+手动）→ 加载成功事件置就绪 → 单次检测 / 连续检测（周期轮询）→
-    /// 结果图与 OK/NG 计数展示。视觉服务经 IImageInspectionService 抽象（Mock 实现，真机换 VisionMaster 实现）
+    /// 方案启动自动加载（MainForm.Load 触发，页面内调用幂等）→ 加载成功事件置就绪 →
+    /// 单次检测 / 连续检测（周期轮询）→ 结果图与 OK/NG 结论展示（计数显示已按需求移除）。
+    /// 视觉服务经 IImageInspectionService 抽象（桥接进程实现，Mock 保留可切回）
     /// </summary>
     public class ImagePageViewModel : ObservableObject
     {
@@ -36,8 +37,6 @@ namespace UiTopMachine.ViewModels
         // ══════════════ 状态字段 ══════════════
         private bool _isBusy;
         private bool _isContinuousRunning;
-        private int _okCount;
-        private int _ngCount;
         private Image? _currentImage;
         private string _currentVerdict = "—";
         private CancellationTokenSource? _continuousCts;
@@ -96,27 +95,7 @@ namespace UiTopMachine.ViewModels
             private set => SetProperty(ref _currentVerdict, value);
         }
 
-        /// <summary>OK 数</summary>
-        public int OkCount
-        {
-            get => _okCount;
-            private set => SetProperty(ref _okCount, value);
-        }
-
-        /// <summary>NG 数</summary>
-        public int NgCount
-        {
-            get => _ngCount;
-            private set => SetProperty(ref _ngCount, value);
-        }
-
-        /// <summary>统计展示文本</summary>
-        public string StatisticsText => $"总数：{OkCount + NgCount}    OK：{OkCount}    NG：{NgCount}";
-
         // ══════════════ 命令 ══════════════
-
-        /// <summary>加载检测方案（对应参考 Form1_Shown 自动加载，也可手动触发）</summary>
-        public AsyncRelayCommand LoadSolutionCommand { get; }
 
         /// <summary>单次检测命令（对应参考 SyncRun）</summary>
         public AsyncRelayCommand CaptureOnceCommand { get; }
@@ -141,7 +120,6 @@ namespace UiTopMachine.ViewModels
             // 捕获 UI 线程同步上下文（构造发生在 UI 线程），后台检测结果经它调度 UI 更新（ERR-023）
             _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
 
-            LoadSolutionCommand = new AsyncRelayCommand(_ => LoadSolutionAsync(), _ => !IsSolutionLoaded);
             CaptureOnceCommand = new AsyncRelayCommand(_ => CaptureOnceAsync(), _ => !IsBusy && IsSolutionLoaded && !IsContinuousRunning);
             StartContinuousCommand = new AsyncRelayCommand(_ => StartContinuousAsync(), _ => IsSolutionLoaded && !IsContinuousRunning);
             StopContinuousCommand = new AsyncRelayCommand(_ => StopContinuousAsync(), _ => IsContinuousRunning);
@@ -334,9 +312,9 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 应用检测结果（必须 UI 线程调用）：更新结果图、结论、OK/NG 计数；
+        /// 应用检测结果（必须 UI 线程调用）：更新结果图与结论角标（OK/NG 计数已按需求移除）；
         /// Image 为 null 表示本运行无新帧（图像源帧率低于轮询频率，ERR-028）——
-        /// 保留上一张结果图与计数，仅记 Info 日志
+        /// 保留上一张结果图，仅记 Info 日志
         /// </summary>
         private void ApplyInspectionResult(ImageInspectionResult data)
         {
@@ -348,16 +326,6 @@ namespace UiTopMachine.ViewModels
 
             CurrentImage = data.Image;
             CurrentVerdict = data.IsOk ? "OK" : "NG";
-            if (data.IsOk)
-            {
-                OkCount++;
-            }
-            else
-            {
-                NgCount++;
-            }
-
-            OnPropertyChanged(nameof(StatisticsText));
             _logService.Info($"检测完成（第 {data.Sequence} 次）：{(data.IsOk ? "OK" : "NG")}，耗时 {data.Elapsed.TotalMilliseconds:F0} ms");
         }
 
@@ -374,7 +342,6 @@ namespace UiTopMachine.ViewModels
         /// </summary>
         private void RefreshAllCommandStates()
         {
-            LoadSolutionCommand.RaiseCanExecuteChanged();
             CaptureOnceCommand.RaiseCanExecuteChanged();
             StartContinuousCommand.RaiseCanExecuteChanged();
             StopContinuousCommand.RaiseCanExecuteChanged();

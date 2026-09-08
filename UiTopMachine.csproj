@@ -21,6 +21,23 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
   </ItemGroup>
 
+  <!--
+    VMControls 渲染控件（海康 VisionMaster 配套，纯托管 net Framework 程序集）：
+    图像页 VmRenderControl 显示结果图（内置鼠标拖拽平移 + 滚轮缩放）。
+    引擎 SDK（VM.Core/VM.PlatformSDKCS）不在主进程加载（net10.0 直引引擎已实证原生崩溃），
+    检测仍走桥接进程；此引用仅为编译期类型（IImageData/控件），运行时依赖经 AssemblyResolve 兜底（Program.cs）
+  -->
+  <ItemGroup>
+    <Reference Include="VMControls.RenderInterface">
+      <HintPath>D:\visionmaster\VisionMaster4.4.0\Applications\myLibs\VMControls.RenderInterface.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="VMControls.Winform.Release">
+      <HintPath>D:\visionmaster\VisionMaster4.4.0\Applications\myLibs\VMControls.Winform.Release.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
   <!-- 顶栏公司 Logo 图片：随程序分发，运行时从 Resources 目录加载 -->
   <ItemGroup>
     <None Update="Resources\tittle.png">

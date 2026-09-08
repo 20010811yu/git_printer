@@ -105,6 +105,7 @@ d:\GitRepo\
 - **VisionMaster SDK 关键 API（4.4.0 反射实证）** ✅：`VmSolution.Load(path, password, isSilentExecute)`（静态）→ `VmSolution.Instance[流程名] as VmProcedure`（VmModuleSet 索引器）→ `procedure.Run()` → `procedure.ModuResult.GetOutputImageV2("ImageData")` 返回 `ImageBaseData` → `.ToBitmap()`；异常 `VmException.errorCode/errorMessage`；流程名枚举 `VmSolution.Instance.Modules` 过滤 `VmProcedure`；方案未加载时先 `VmSolution.Load`（幂等需自行维护 _solutionLoaded 标志）
 - **配套测试模式** ✅：每次功能修改同步写/更新测试，用例名关联 ERR 编号（如 `ERR014_保存含末尾空行的表_重载后行数不变`），dotnet test 即自动回归全部历史修复
 - **Status 面板 PLC 专用过滤模式** ✅（v1.11）：面板 `Logs` 集合与文件日志双通道解耦——`ILogService.LogEmitted` 不再订阅（一般操作日志只落文件），面板仅由 `PlcConnectionStateChanged` 事件驱动（成功/错误直插，过程信息不入），VM 后台事件经 `SynchronizationContext.Post` 调度；测试用 `ImmediateSynchronizationContext`（Post 同步执行）替代 WinForms 消息泵断言面板内容
+- **VM 混合渲染架构（引擎/控件分离）** ✅（v1.26，ERR-030）：net10.0 直引 VM 引擎原生崩溃但 VMControls 控件纯托管可加载——检测引擎留桥接进程（PNG 回传不变），显示层 `VmRenderControl` 进主程序：自实现 `IImageData`（`Views/Controls/VmBitmapImageData.cs`，Bitmap→RGB24 缓冲）喂 `ImageSource` 渲染，**拖拽平移/滚轮缩放为控件内置**；控件静态依赖 VM.PlatformSDKCS（GAC）由 Program.cs `AppDomain.AssemblyResolve` 从 GAC 物理路径补加载；冒烟验证（tools/VmDirectSmoke）先于集成——「控件能实例化」≠「引擎能加载」，两者必须分开评估
 
 ## 核心业务规则：抽屉三态判定
 
@@ -171,6 +172,7 @@ MainViewModel.InitializeAsync ▶ PlcCommunicationService.StartAsync ▶ 自动�
 
 | 陷阱 | 规避模式 | 详见 |
 |------|---------|------|
+| net10.0 直引 VM 引擎原生层无声崩溃（控件可加载但 VmSolution.Load 崩） | 引擎/控件分开评估：引擎留桥接进程，纯托管控件进主程序；控件 GAC 静态依赖经 AssemblyResolve 兜底；冒烟用独立进程跑完整链路 | ERR-030 |
 | 自绘控件 `BackColor = Color.Transparent` 抛异常 | 用具体色 + GDI+ `FromArgb` 半透明画刷 | ERR-001 |
 | `Timer` 歧义 CS0104 | 后台定时器完全限定 `System.Threading.Timer` | ERR-002 |
 | 参数化命令被 `CanExecute(null)` 误判禁用 | 绑定存原参数/参数提供器，刷新带参调 CanExecute | ERR-004 |

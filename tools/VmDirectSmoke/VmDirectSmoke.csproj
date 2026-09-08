@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    冒烟验证（用后即弃）：.NET 10 直引 VM SDK（GAC）+ VMControls 渲染控件可行性验证
+    验证点：① 程序集解析（AssemblyResolve 兜底）② VmRenderControl 实例化 ③ VmSolution.Load + SyncRun ④ ModuleSource 绑定
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <!-- VMControls 渲染控件直引（纯托管，net10.0 可加载；不引 VM SDK 引擎） -->
+  <ItemGroup>
+    <Reference Include="VMControls.RenderInterface">
+      <HintPath>D:\visionmaster\VisionMaster4.4.0\Applications\myLibs\VMControls.RenderInterface.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="VMControls.Winform.Release">
+      <HintPath>D:\visionmaster\VisionMaster4.4.0\Applications\myLibs\VMControls.Winform.Release.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
