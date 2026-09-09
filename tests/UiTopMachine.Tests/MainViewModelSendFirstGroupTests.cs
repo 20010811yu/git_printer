@@ -12,11 +12,11 @@ using Xunit;
 namespace UiTopMachine.Tests
 {
     /// <summary>
-    /// 发送命令（发送第一组配方）测试（v1.31f，标准 ModbusTcpNet）：
+    /// 发送命令（发送第一组配方）测试（v1.31h，标准 ModbusTcpNet）：
     /// 点击发送 → 取配方分组第 1 组，一次批量写入编号数组（ModbusTcpNet.Write("4000", array)），
-    /// PLC 侧 D4000 起为 DINT（32 位），编号按 2 字对齐——落低字、高字补 0（如 [1,3] → 1,0,3,0），
-    /// 不含配方值；全部成功后清空对应抽屉配方输入框（状态灯按
-    /// 三态规则自动回落）、弹窗提醒发送成功并输出编号与配方日志；
+    /// PLC 侧 D4000 起为 16 位 INT 连续地址，元素按顺序落连续寄存器，不含配方值；
+    /// 同时按编号匹配配方表行，除编号外的列值依次写 3000 起连续寄存器（每参数一地址，非数字按 0）；
+    /// 全部成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落）、弹窗提醒发送成功并输出编号与配方日志；
     /// 写入失败则错误信息写入 Status 面板列表（listbox），输入框全部保留供重试；
     /// 无分组时不写 PLC 仅告警
     /// </summary>
@@ -81,11 +81,11 @@ namespace UiTopMachine.Tests
 
             await vm.SendCommand.ExecuteAsync(null);
 
-            // 一次批量写入：地址 "4000"（ModbusTcpNet 纯数字），编号按 2 字对齐（落低字、高字补 0），
-            // 数组 [1, 0, 3, 0] → PLC 侧 D4000=1、D4002=3（DINT 显示），不含配方值
+            // 一次批量写入：地址 "4000"（ModbusTcpNet 纯数字，16 位 INT 连续地址），
+            // 数组 [1, 3] 按顺序落 4000、4001，不含配方值
             var write = Assert.Single(plc.BatchWrites.Where(w => w.Address == "4000"));
             Assert.Equal("4000", write.Address);
-            Assert.Equal(new short[] { 1, 0, 3, 0 }, write.Values);
+            Assert.Equal(new short[] { 1, 3 }, write.Values);
 
             // 同时批量写入配方参数：编号 "A" 行除编号外的列值依次写 3000 起连续寄存器，
             // 非数字列（名称/备注）按 0 → [0, 10, 20, 0]
