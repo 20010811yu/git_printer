@@ -33,8 +33,9 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// 托盘编号写入的 PLC 起始地址（标准 ModbusTcpNet，纯数字地址，用户确认 4000）：
-        /// 发送时把第一组抽屉编号数组一次批量写入——Write("4000", array)，
-        /// 数组元素按顺序落在 4000 起的连续寄存器（首元素→4000、第二个→4001…）
+        /// PLC 侧 D4000 起为 DINT（32 位，占 2 个 16 位寄存器），每个编号占一个 DINT 槽——
+        /// 发送时把数组按 2 字对齐填充（编号落低字、高字补 0）后一次批量写入 Write("4000", array)，
+        /// 即编号 j 位于 4000+2j，PLC 侧 D(4000+2j) 显示该编号（不写配方值）
         /// </summary>
         private const string TrayNumberWriteAddress = "4000";
 
@@ -274,7 +275,8 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// 发送第一组配方（异步，不阻塞 UI）：
-        /// 取配方分组的第 1 组，向 PLC 一次批量写入编号数组（ModbusTcpNet.Write("4000", array)）——元素按顺序落在 4000 起连续寄存器，不写配方值；
+        /// 取配方分组的第 1 组，向 PLC 一次批量写入编号数组（ModbusTcpNet.Write("4000", array)）——
+        /// PLC 侧 DINT 32 位槽，编号落低字、高字补 0（2 字对齐），不写配方值；
         /// 全部写入成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落）、弹窗提醒发送成功，
         /// 并在日志/面板输出已发送编号与对应配方；
         /// 任一写入失败则不清空任何输入框（保留现场供重试），错误信息写入 Status 面板列表（listbox）
@@ -293,10 +295,16 @@ namespace UiTopMachine.ViewModels
 
                 var recipe = firstGroup.RecipeName;
                 var indexes = firstGroup.DrawerIndexes;
-                _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个，逐抽屉独立地址）…");
+                _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个）到 PLC 4000 区…");
 
-                // 一次批量写入编号数组：ModbusTcpNet.Write("4000", array)，元素按顺序落 4000 起连续寄存器
-                var values = indexes.Select(i => (short)i).ToArray();
+                // 一次批量写入：PLC 侧 D4000 起为 DINT（32 位），编号按 2 字对齐——落低字、高字补 0，
+                // 即编号 j 位于 4000+2j，PLC 侧 D(4000+2j) 显示该编号
+                var values = new short[indexes.Count * 2];
+                for (var i = 0; i < indexes.Count; i++)
+                {
+                    values[i * 2] = (short)indexes[i];
+                }
+
                 var result = await _plcService.WriteRegistersAsync(TrayNumberWriteAddress, values);
                 if (!result.Success)
                 {
