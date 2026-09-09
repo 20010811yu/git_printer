@@ -32,14 +32,11 @@ namespace UiTopMachine.ViewModels
         private LogEntryViewModel? _latestLog;
 
         /// <summary>
-        /// 托盘编号写入的 PLC 地址区（汇川软元件格式 D 区，用户确认）：
-        /// 由元素在数组中的顺序决定地址——第 j 个元素（0 基）写入 D(4000+j*2)，
-        /// 即首元素→D4000、第二个→D4002、第三个→D4004…依次往下，每个编号单独占一个地址
+        /// 托盘编号写入的 PLC 起始地址（标准 ModbusTcpNet，纯数字地址，用户确认 4000）：
+        /// 发送时把第一组抽屉编号数组一次批量写入——Write("4000", array)，
+        /// 数组元素按顺序落在 4000 起的连续寄存器（首元素→4000、第二个→4001…）
         /// </summary>
-        private const int TrayNumberBaseAddress = 4000;
-
-        /// <summary>数组元素地址步进（用户确认每元素占 2 个字地址，D4000/D4002/D4004 依次往下）</summary>
-        private const int TrayNumberAddressStride = 2;
+        private const string TrayNumberWriteAddress = "4000";
 
         /// <summary>
         /// 用户提醒事件（发送成功弹窗等，View 订阅后 MessageBox 展示，VM 不碰 UI 控件）
@@ -277,7 +274,7 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// 发送第一组配方（异步，不阻塞 UI）：
-        /// 取配方分组的第 1 组，向 PLC 逐元素写入编号——地址由元素在数组中的顺序决定（第 j 个元素 → D(4000+j*2)）；
+        /// 取配方分组的第 1 组，向 PLC 一次批量写入编号数组（ModbusTcpNet.Write("4000", array)）——元素按顺序落在 4000 起连续寄存器，不写配方值；
         /// 全部写入成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落）、弹窗提醒发送成功，
         /// 并在日志/面板输出已发送编号与对应配方；
         /// 任一写入失败则不清空任何输入框（保留现场供重试），错误信息写入 Status 面板列表（listbox）
@@ -298,25 +295,14 @@ namespace UiTopMachine.ViewModels
                 var indexes = firstGroup.DrawerIndexes;
                 _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个，逐抽屉独立地址）…");
 
-                // 按元素在数组中的顺序写独立地址（步进 2）：第 j 个元素 → D(4000+j*2)
-                var failed = new List<(int Index, string Error)>();
-                for (var position = 0; position < indexes.Count; position++)
-                {
-                    var index = indexes[position];
-                    var address = $"D{TrayNumberBaseAddress + position * TrayNumberAddressStride}";
-                    var result = await _plcService.WriteRegisterAsync(address, (short)index);
-                    if (!result.Success)
-                    {
-                        failed.Add((index, result.ErrorMessage ?? "未知错误"));
-                    }
-                }
-
-                if (failed.Count > 0)
+                // 一次批量写入编号数组：ModbusTcpNet.Write("4000", array)，元素按顺序落 4000 起连续寄存器
+                var values = indexes.Select(i => (short)i).ToArray();
+                var result = await _plcService.WriteRegistersAsync(TrayNumberWriteAddress, values);
+                if (!result.Success)
                 {
                     // 失败：错误信息显示在 Status 面板列表（listbox），输入框全部保留供重试
-                    var detail = string.Join("；", failed.Select(f => $"抽屉 {f.Index}（{f.Error}）"));
-                    PublishPanelEntry(LogLevel.Error, $"发送：配方「{recipe}」下发失败——{detail}");
-                    _logService.Error($"配方「{recipe}」抽屉编号下发失败：{detail}");
+                    PublishPanelEntry(LogLevel.Error, $"发送：配方「{recipe}」下发失败——{result.ErrorMessage}");
+                    _logService.Error($"配方「{recipe}」抽屉编号下发失败：{result.ErrorMessage}");
                     return;
                 }
 

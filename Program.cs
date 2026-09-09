@@ -118,13 +118,14 @@ namespace UiTopMachine
                     solutionPath: solutionPath,
                     procedureName: "流程1", // 流程名：方案文件容器内实证（VisionTesting.sol 的 VmServer.xml 与 Test.sol 一致，probe 实测见 v1.24）
                     logService: sp.GetRequiredService<ILogService>()));
-            // PLC 传输层（InovanceTcpNet 走 Modbus TCP 502 站号 1，长连接；可切标准 ModbusTcpNet；IP 当前为本地调试 127.0.0.1，真机改 192.168.1.88）
-            services.AddSingleton<IPlcTransport>(new HslModbusTransport("127.0.0.1", 502, 1, useInovance: true));
-            // PLC 通讯服务（后台自动连接 + 心跳：心跳与抽屉物料合一——周期读 M1000×19，读成功即通讯正常并驱动抽屉，连续 3 次读失败判心跳丢失并重连）
+            // PLC 传输层（标准 ModbusTcpNet，读写均用纯数字地址；长连接。IP 当前为本地调试 127.0.0.1，真机改 192.168.1.88）
+            services.AddSingleton<IPlcTransport>(new HslModbusTransport("127.0.0.1", 502, 1, useInovance: false));
+            // PLC 通讯服务（后台自动连接 + 心跳：心跳与抽屉物料合一——周期读 1000×19，读成功即通讯正常并驱动抽屉，连续 3 次读失败判心跳丢失并重连）
             services.AddSingleton<IPlcCommunicationService>(sp =>
                 new PlcCommunicationService(
                     sp.GetRequiredService<IPlcTransport>(),
-                    target: "127.0.0.1:502 站号1"));
+                    target: "127.0.0.1:502 站号1",
+                    materialAddress: "1000"));
             // 设备对接状态面板发布器（MainViewModel 单例实现；图像页等通过接口发布状态，避免依赖具体 VM）
             services.AddSingleton<IPanelStatusPublisher>(sp => sp.GetRequiredService<MainViewModel>());
 

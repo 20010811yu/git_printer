@@ -11,11 +11,11 @@ using Xunit;
 namespace UiTopMachine.Tests
 {
     /// <summary>
-    /// 发送命令（发送第一组配方）测试（v1.31c）：
-    /// 点击发送 → 取配方分组第 1 组，按元素顺序写入独立地址（地址步进 2：第 j 个元素 → D(4000+j*2)，
-    /// 即抽屉 1→D4000、抽屉 3→D4004，不含配方值）；全部成功后清空对应抽屉配方输入框（状态灯按
+    /// 发送命令（发送第一组配方）测试（v1.31e，标准 ModbusTcpNet）：
+    /// 点击发送 → 取配方分组第 1 组，一次批量写入编号数组（ModbusTcpNet.Write("4000", array)），
+    /// 元素按顺序落 4000 起连续寄存器，不含配方值；全部成功后清空对应抽屉配方输入框（状态灯按
     /// 三态规则自动回落）、弹窗提醒发送成功并输出编号与配方日志；
-    /// 任一失败则错误信息写入 Status 面板列表（listbox），输入框全部保留供重试；
+    /// 写入失败则错误信息写入 Status 面板列表（listbox），输入框全部保留供重试；
     /// 无分组时不写 PLC 仅告警
     /// </summary>
     public class MainViewModelSendFirstGroupTests : IDisposable
@@ -53,7 +53,7 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
-        public async Task 发送_逐抽屉写独立地址_清空对应输入框_弹窗提醒成功()
+        public async Task 发送_批量写入编号数组_清空对应输入框_弹窗提醒成功()
         {
             var (vm, log, plc) = Create();
 
@@ -67,8 +67,10 @@ namespace UiTopMachine.Tests
 
             await vm.SendCommand.ExecuteAsync(null);
 
-            // 按数组顺序写独立地址（步进 2）：第 1 个元素（抽屉 1）→D4000=1，第 2 个元素（抽屉 3）→D4002=3
-            Assert.Equal(new[] { ("D4000", (short)1), ("D4002", (short)3) }, plc.RegisterWrites);
+            // 一次批量写入：地址 "4000"（ModbusTcpNet 纯数字），值数组 [1, 3]（不含配方值）
+            var write = Assert.Single(plc.BatchWrites);
+            Assert.Equal("4000", write.Address);
+            Assert.Equal(new short[] { 1, 3 }, write.Values);
 
             // 成功后清空对应抽屉配方；第二组（B）不受影响
             Assert.Equal(string.Empty, vm.Drawers.First(d => d.Index == 1).Recipe);
@@ -96,7 +98,7 @@ namespace UiTopMachine.Tests
 
             await vm.SendCommand.ExecuteAsync(null);
 
-            Assert.Empty(plc.RegisterWrites);
+            Assert.Empty(plc.BatchWrites);
             Assert.False(raised);
             Assert.Contains(log.Entries, e => e.Level == "Warn" && e.Message.Contains("未发送"));
         }
@@ -105,21 +107,18 @@ namespace UiTopMachine.Tests
         public async Task 写入失败_错误信息进面板列表_保留输入框现场()
         {
             var (vm, log, plc) = Create();
-            // 抽屉 3 是数组第 2 个元素（D4002），模拟该地址写入失败，抽屉 1（D4000）成功
-            plc.RegisterWriteHandler = (address, _) => address == "D4002"
-                ? Result<bool>.Fail("PLC 未连接")
-                : Result<bool>.OK(true);
+            // 模拟批量写入失败（PLC 通讯异常）
+            plc.BatchWriteResult = Result<bool>.Fail("PLC 未连接");
 
             vm.Drawers.First(d => d.Index == 1).Recipe = "A";
             vm.Drawers.First(d => d.Index == 3).Recipe = "A";
 
             await vm.SendCommand.ExecuteAsync(null);
 
-            // 错误信息显示在 Status 面板列表（listbox），含失败抽屉与原因
+            // 错误信息显示在 Status 面板列表（listbox），含失败原因
             var entry = Assert.Single(vm.Logs);
             Assert.Equal("错误", entry.LevelText);
             Assert.Contains("下发失败", entry.Message);
-            Assert.Contains("抽屉 3", entry.Message);
             Assert.Contains("PLC 未连接", entry.Message);
 
             // 失败不动任何输入框与分组，保留现场供重试
