@@ -11,9 +11,9 @@ using Xunit;
 namespace UiTopMachine.Tests
 {
     /// <summary>
-    /// 发送命令（发送第一组配方）测试（v1.31b）：
-    /// 点击发送 → 取配方分组第 1 组，逐抽屉写入编号到独立地址（抽屉 i → D(4000+i-1)，即
-    /// 抽屉 1→D4000、抽屉 3→D4002，不含配方值）；全部成功后清空对应抽屉配方输入框（状态灯按
+    /// 发送命令（发送第一组配方）测试（v1.31c）：
+    /// 点击发送 → 取配方分组第 1 组，逐抽屉写入编号到独立地址（地址步进 2：抽屉 i → D(4000+(i-1)*2)，
+    /// 即抽屉 1→D4000、抽屉 3→D4004，不含配方值）；全部成功后清空对应抽屉配方输入框（状态灯按
     /// 三态规则自动回落）、弹窗提醒发送成功并输出编号与配方日志；
     /// 任一失败则错误信息写入 Status 面板列表（listbox），输入框全部保留供重试；
     /// 无分组时不写 PLC 仅告警
@@ -67,8 +67,8 @@ namespace UiTopMachine.Tests
 
             await vm.SendCommand.ExecuteAsync(null);
 
-            // 逐抽屉独立地址：抽屉 1→D4000=1，抽屉 3→D4002=3（不含配方值），共 2 次写入
-            Assert.Equal(new[] { ("D4000", (short)1), ("D4002", (short)3) }, plc.RegisterWrites);
+            // 逐抽屉独立地址（步进 2）：抽屉 1→D4000=1，抽屉 3→D4004=3（不含配方值），共 2 次写入
+            Assert.Equal(new[] { ("D4000", (short)1), ("D4004", (short)3) }, plc.RegisterWrites);
 
             // 成功后清空对应抽屉配方；第二组（B）不受影响
             Assert.Equal(string.Empty, vm.Drawers.First(d => d.Index == 1).Recipe);
@@ -106,7 +106,7 @@ namespace UiTopMachine.Tests
         {
             var (vm, log, plc) = Create();
             // 抽屉 3 写入失败（模拟 PLC 通讯异常），抽屉 1 成功
-            plc.RegisterWriteHandler = (address, _) => address == "D4002"
+            plc.RegisterWriteHandler = (address, _) => address == "D4004"
                 ? Result<bool>.Fail("PLC 未连接")
                 : Result<bool>.OK(true);
 

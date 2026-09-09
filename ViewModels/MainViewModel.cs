@@ -32,10 +32,13 @@ namespace UiTopMachine.ViewModels
         private LogEntryViewModel? _latestLog;
 
         /// <summary>
-        /// 托盘编号写入的 PLC 起始地址基数（汇川软元件格式 D 区，用户确认 D4000 起）：
-        /// 每个抽屉单独占一个地址——抽屉 i 写入 D(4000+i-1)，即抽屉 1→D4000、抽屉 2→D4001……
+        /// 托盘编号写入的 PLC 地址区（汇川软元件格式 D 区，用户确认）：
+        /// 起始 D4000，地址步进 2——抽屉 i 写入 D(4000+(i-1)*2)，即抽屉 1→D4000、抽屉 2→D4002、抽屉 3→D4004…每个编号单独占一个地址
         /// </summary>
         private const int TrayNumberBaseAddress = 4000;
+
+        /// <summary>抽屉编号地址步进（用户确认每个编号占 2 个字地址，D4000/D4002/D4004 依次往下）</summary>
+        private const int TrayNumberAddressStride = 2;
 
         /// <summary>
         /// 用户提醒事件（发送成功弹窗等，View 订阅后 MessageBox 展示，VM 不碰 UI 控件）
@@ -294,11 +297,11 @@ namespace UiTopMachine.ViewModels
                 var indexes = firstGroup.DrawerIndexes;
                 _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个，逐抽屉独立地址）…");
 
-                // 逐抽屉写入独立地址：抽屉 i → D(4000+i-1)
+                // 逐抽屉写入独立地址（步进 2）：抽屉 i → D(4000+(i-1)*2)
                 var failed = new List<(int Index, string Error)>();
                 foreach (var index in indexes)
                 {
-                    var address = $"D{TrayNumberBaseAddress + index - 1}";
+                    var address = $"D{TrayNumberBaseAddress + (index - 1) * TrayNumberAddressStride}";
                     var result = await _plcService.WriteRegisterAsync(address, (short)index);
                     if (!result.Success)
                     {
