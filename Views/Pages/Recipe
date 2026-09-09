@@ -52,7 +52,7 @@ namespace UiTopMachine.Views.Pages
             {
                 Location = new Point(24, 14),
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 16f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 18f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(38, 50, 66)
             };
 
@@ -60,7 +60,7 @@ namespace UiTopMachine.Views.Pages
             {
                 Location = new Point(26, 52),
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 10f, FontStyle.Regular, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(120, 132, 148)
             };
 
@@ -99,7 +99,7 @@ namespace UiTopMachine.Views.Pages
                 MultiSelect = false,
                 SelectionMode = DataGridViewSelectionMode.CellSelect,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells,
-                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Point)
+                Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Point)
             };
             _grid.CurrentCellChanged += (_, _) =>
             {
@@ -155,7 +155,7 @@ namespace UiTopMachine.Views.Pages
             _grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(232, 240, 254);
             _grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(38, 50, 66);
             _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(210, 225, 250);
-            _grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold, GraphicsUnit.Point);
+            _grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold, GraphicsUnit.Point);
             _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
             _grid.ColumnHeadersHeight = 40;
             _grid.RowHeadersWidth = 44;

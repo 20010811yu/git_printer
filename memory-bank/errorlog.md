@@ -79,6 +79,7 @@
 | ERR-031 | v1.26 重构遗漏按钮命令绑定（图像页点击无响应、永无图） | View 按钮必须经 CommandManagerHelper.Bind 绑定命令；重构页面时逐按钮核对绑定；排障先看「操作是否真的触发了业务」（日志零痕迹=命令没执行，而非执行失败） |
 | ERR-032 | VmRenderControl 右键保存崩 OpenCvSharp 类型初始化 | VM 控件内置保存依赖 OpenCvSharp 原生库（OpenCvSharpExtern.dll 53MB x64，仅装机目录有）；显示类需求用应用层 GDI+（Image.Save）自实现，绕开第三方控件的原生依赖路径 |
 | ERR-032a | 保存对话框失控（一进图像页就弹另存为） | SaveFileDialog 严禁放进 CommandManagerHelper.Bind 的参数提供器——提供器在绑定与每次命令状态刷新时都会被调用；对话框一律走 VM→View 请求事件回填模式（同 InputRequestEventArgs），命令保持无参 |
+| ERR-033 | 无边框窗体（FormBorderStyle.None）不可拉伸 | 边缘拉伸 = 窗体留 Padding 外沿（8px）为自身表面 + WndProc 拦 WM_NCHITTEST 按位置返回 HTLEFT/HTRIGHT/HTTOP/HTBOTTOM 及四角命中码；LParam 屏幕坐标多显示器下为负必须按 16 位有符号截取；最大化状态不命中 |
 
 ---
 

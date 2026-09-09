@@ -33,7 +33,7 @@ namespace UiTopMachine.Views.Dialogs
             StartPosition = FormStartPosition.CenterParent;
             ClientSize = new Size(440, 170);
             BackColor = Color.White;
-            Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
+            Font = new Font("Microsoft YaHei UI", 11.5f, FontStyle.Regular, GraphicsUnit.Point);
 
             // ── 警示图标 + 提示文字 ──
             var iconLabel = new Label
@@ -41,7 +41,7 @@ namespace UiTopMachine.Views.Dialogs
                 Text = "⚠",
                 Location = new Point(24, 24),
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 18f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 20f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(250, 173, 20)
             };
 

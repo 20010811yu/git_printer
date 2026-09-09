@@ -79,7 +79,7 @@ namespace UiTopMachine.Views.Pages
             {
                 Location = new Point(24, 14),
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 20f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 22f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(38, 50, 66)
             };
 
@@ -87,7 +87,7 @@ namespace UiTopMachine.Views.Pages
             {
                 Location = new Point(26, 68),
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 10f, FontStyle.Regular, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(120, 132, 148)
             };
 

@@ -83,14 +83,14 @@ namespace UiTopMachine.Views.Pages
             _titleLabel = new Label
             {
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 20f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 22f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(38, 50, 66)
             };
 
             _solutionStatusLabel = new Label
             {
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(211, 47, 47)
             };
 
@@ -108,7 +108,7 @@ namespace UiTopMachine.Views.Pages
             _verdictLabel = new Label
             {
                 AutoSize = true,
-                Font = new Font("Arial", 16f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Arial", 18f, FontStyle.Bold, GraphicsUnit.Point),
                 BackColor = Color.Transparent
             };
             _renderControl.Controls.Add(_verdictLabel);

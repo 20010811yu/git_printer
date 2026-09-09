@@ -87,7 +87,7 @@ namespace UiTopMachine.Views.Pages
                 Dock = DockStyle.Top,
                 Height = 64,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Microsoft YaHei UI", 20f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 22f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(38, 50, 66)
             };
 
@@ -170,12 +170,12 @@ namespace UiTopMachine.Views.Pages
             // 配方输入框：Text 默认为空，固定行内水平居中（宽度 ≤ 行宽 - 16）
             cell.RecipeBox = new TextBox
             {
-                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(56, 70, 88),
                 BorderStyle = BorderStyle.FixedSingle,
                 TextAlign = HorizontalAlignment.Center,
                 Text = string.Empty,
-                Size = new Size(120, 30),
+                Size = new Size(120, 32),
                 Anchor = AnchorStyles.None
             };
 
@@ -183,10 +183,11 @@ namespace UiTopMachine.Views.Pages
             layout.Controls.Add(cell.RecipeBox, 0, 1);
             container.Controls.Add(layout);
 
-            // 输入框宽度跟随单元格伸缩（极窄时保底 48px），居中由 TLP Anchor.None 自动完成
+            // 输入框宽度跟随单元格伸缩（极窄时保底 48px），居中由 TLP Anchor.None 自动完成；
+            // 上限 300px（用户要求加宽，窗口拉伸时输入框随之变宽）
             container.Resize += (_, _) =>
             {
-                int w = Math.Max(48, Math.Min(220, layout.ClientSize.Width - 16));
+                int w = Math.Max(48, Math.Min(300, layout.ClientSize.Width - 12));
                 if (cell.RecipeBox.Width != w)
                 {
                     cell.RecipeBox.Width = w;

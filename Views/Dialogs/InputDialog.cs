@@ -38,7 +38,7 @@ namespace UiTopMachine.Views.Dialogs
             StartPosition = FormStartPosition.CenterParent;
             ClientSize = new Size(420, 170);
             BackColor = Color.White;
-            Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
+            Font = new Font("Microsoft YaHei UI", 11.5f, FontStyle.Regular, GraphicsUnit.Point);
 
             // ── 说明文字 ──
             var promptLabel = new Label
@@ -54,7 +54,7 @@ namespace UiTopMachine.Views.Dialogs
             {
                 Location = new Point(24, 54),
                 Size = new Size(372, 32),
-                Font = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Regular, GraphicsUnit.Point)
+                Font = new Font("Microsoft YaHei UI", 11.5f, FontStyle.Regular, GraphicsUnit.Point)
             };
 
             // ── 确定 / 取消按钮（AntdUI 与工具栏风格统一）──

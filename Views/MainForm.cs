@@ -22,6 +22,21 @@ namespace UiTopMachine.Views
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HT_CAPTION = 0x2;
 
+        // 无边框窗体边缘拉伸（ERR-033）：WM_NCHITTEST 命中测试返回八个方向命中码
+        private const int WM_NCHITTEST = 0x84;
+        private const int HTCLIENT = 1;
+        private const int HTLEFT = 10;
+        private const int HTRIGHT = 11;
+        private const int HTTOP = 12;
+        private const int HTTOPLEFT = 13;
+        private const int HTTOPRIGHT = 14;
+        private const int HTBOTTOM = 15;
+        private const int HTBOTTOMLEFT = 16;
+        private const int HTBOTTOMRIGHT = 17;
+
+        /// <summary>边缘可抓取宽度（px）</summary>
+        private const int ResizeGrip = 8;
+
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
 
@@ -126,7 +141,7 @@ namespace UiTopMachine.Views
                 Type = type,
                 Size = new Size(WindowButtonLayout.ButtonWidth, WindowButtonLayout.ButtonHeight),
                 Radius = 6,
-                Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold, GraphicsUnit.Point),
                 Cursor = Cursors.Hand
             };
             btn.Click += (_, _) => onClick();
@@ -165,6 +180,38 @@ namespace UiTopMachine.Views
         }
 
         /// <summary>
+        /// 无边框窗体边缘拉伸（ERR-033）：窗体 Padding 留出 6px 外沿为窗体自身表面，
+        /// 鼠标落在此环带时按位置返回方向命中码，系统即可按住拖拽调整窗口大小；
+        /// 最大化状态下不命中（保持原样）
+        /// </summary>
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST && WindowState == FormWindowState.Normal)
+            {
+                // LParam 屏幕坐标（多显示器下可为负，必须按 16 位有符号截取）
+                int x = (short)(m.LParam.ToInt64() & 0xFFFF);
+                int y = (short)((m.LParam.ToInt64() >> 16) & 0xFFFF);
+                var p = PointToClient(new Point(x, y));
+
+                bool left = p.X <= ResizeGrip;
+                bool right = p.X >= ClientSize.Width - ResizeGrip;
+                bool top = p.Y <= ResizeGrip;
+                bool bottom = p.Y >= ClientSize.Height - ResizeGrip;
+
+                if (top && left) { m.Result = (IntPtr)HTTOPLEFT; return; }
+                if (top && right) { m.Result = (IntPtr)HTTOPRIGHT; return; }
+                if (bottom && left) { m.Result = (IntPtr)HTBOTTOMLEFT; return; }
+                if (bottom && right) { m.Result = (IntPtr)HTBOTTOMRIGHT; return; }
+                if (left) { m.Result = (IntPtr)HTLEFT; return; }
+                if (right) { m.Result = (IntPtr)HTRIGHT; return; }
+                if (top) { m.Result = (IntPtr)HTTOP; return; }
+                if (bottom) { m.Result = (IntPtr)HTBOTTOM; return; }
+            }
+
+            base.WndProc(ref m);
+        }
+
+        /// <summary>
         /// 构建界面布局（AntdUI 风格：浅色现代、圆角、轻描边）
         /// </summary>
         private void InitializeUi()
@@ -179,7 +226,9 @@ namespace UiTopMachine.Views
             MinimumSize = new Size(1280, 800);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(244, 247, 250);
-            Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Point);
+            Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Point);
+            // 外沿 8px 留给窗体自身表面（配合 WndProc 边缘命中测试，实现无边框窗体拉伸，ERR-033）
+            Padding = new Padding(8);
 
             // ── 顶部栏（白底 + 分隔线；Logo 向上占满并向右延伸，同时承担窗口拖动）──
             _topBar = new Panel
@@ -267,7 +316,7 @@ namespace UiTopMachine.Views
             var statusTitle = new Label
             {
                 Text = "Status",
-                Font = new Font("Segoe UI", 18f, FontStyle.Bold | FontStyle.Italic, GraphicsUnit.Point),
+                Font = new Font("Segoe UI", 20f, FontStyle.Bold | FontStyle.Italic, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(38, 50, 66),
                 Location = new Point(20, 14),
                 AutoSize = true

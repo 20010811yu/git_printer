@@ -33,7 +33,7 @@ namespace UiTopMachine.Views.Controls
                      | ControlStyles.OptimizedDoubleBuffer
                      | ControlStyles.ResizeRedraw, true);
             BackColor = Color.White;
-            Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Pixel);
+            Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
         }
 
         /// <summary>
@@ -107,9 +107,9 @@ namespace UiTopMachine.Views.Controls
             var g = e.Graphics;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            using var timeFont = new Font("Consolas", 11f, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var msgFont = new Font("Microsoft YaHei UI", 11.5f, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var statusFont = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var timeFont = new Font("Consolas", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var msgFont = new Font("Microsoft YaHei UI", 13.5f, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var statusFont = new Font("Microsoft YaHei UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
             using var timeBrush = new SolidBrush(Color.FromArgb(150, 160, 172));
 
             // ── 顶部 PLC 连接状态行 ──
@@ -146,7 +146,7 @@ namespace UiTopMachine.Views.Controls
             if (_items.Count == 0)
             {
                 using var hintBrush = new SolidBrush(Color.FromArgb(170, 178, 189));
-                using var hintFont = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Pixel);
+                using var hintFont = new Font("Microsoft YaHei UI", 14f, FontStyle.Regular, GraphicsUnit.Pixel);
                 g.DrawString("暂无消息", hintFont, hintBrush, 10, StatusRowHeight + 8);
             }
         }

@@ -60,13 +60,13 @@ namespace UiTopMachine.Views.Pages
                 e.Graphics.DrawRectangle(pen, rect);
             };
 
-            var labelFont = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular, GraphicsUnit.Point);
-            var inputFont = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Point);
+            var labelFont = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Point);
+            var inputFont = new Font("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Point);
 
             _titleLabel = new Label
             {
                 AutoSize = true,
-                Font = new Font("Microsoft YaHei UI", 20f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Microsoft YaHei UI", 22f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(38, 50, 66)
             };
 
@@ -88,7 +88,7 @@ namespace UiTopMachine.Views.Pages
             _serialLabel = new Label
             {
                 AutoSize = true,
-                Font = new Font("Consolas", 22f, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font("Consolas", 24f, FontStyle.Bold, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(22, 119, 255)
             };
 

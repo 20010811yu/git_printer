@@ -52,7 +52,7 @@ namespace UiTopMachine.Views.Controls
         /// </summary>
         private void ApplyStyle()
         {
-            Font = new Font("Microsoft YaHei UI", _isSelected ? 14f : 13f,
+            Font = new Font("Microsoft YaHei UI", _isSelected ? 15f : 14f,
                             _isSelected ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
             ForeColor = _isSelected ? Color.FromArgb(45, 125, 210) : Color.FromArgb(96, 108, 124);
         }
