@@ -33,11 +33,12 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// 托盘编号写入的 PLC 地址区（汇川软元件格式 D 区，用户确认）：
-        /// 起始 D4000，地址步进 2——抽屉 i 写入 D(4000+(i-1)*2)，即抽屉 1→D4000、抽屉 2→D4002、抽屉 3→D4004…每个编号单独占一个地址
+        /// 由元素在数组中的顺序决定地址——第 j 个元素（0 基）写入 D(4000+j*2)，
+        /// 即首元素→D4000、第二个→D4002、第三个→D4004…依次往下，每个编号单独占一个地址
         /// </summary>
         private const int TrayNumberBaseAddress = 4000;
 
-        /// <summary>抽屉编号地址步进（用户确认每个编号占 2 个字地址，D4000/D4002/D4004 依次往下）</summary>
+        /// <summary>数组元素地址步进（用户确认每元素占 2 个字地址，D4000/D4002/D4004 依次往下）</summary>
         private const int TrayNumberAddressStride = 2;
 
         /// <summary>
@@ -276,7 +277,7 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// 发送第一组配方（异步，不阻塞 UI）：
-        /// 取配方分组的第 1 组，向 PLC 逐抽屉写入编号——每个抽屉单独占一个地址（抽屉 i → D(4000+i-1)）；
+        /// 取配方分组的第 1 组，向 PLC 逐元素写入编号——地址由元素在数组中的顺序决定（第 j 个元素 → D(4000+j*2)）；
         /// 全部写入成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落）、弹窗提醒发送成功，
         /// 并在日志/面板输出已发送编号与对应配方；
         /// 任一写入失败则不清空任何输入框（保留现场供重试），错误信息写入 Status 面板列表（listbox）
@@ -297,11 +298,12 @@ namespace UiTopMachine.ViewModels
                 var indexes = firstGroup.DrawerIndexes;
                 _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个，逐抽屉独立地址）…");
 
-                // 逐抽屉写入独立地址（步进 2）：抽屉 i → D(4000+(i-1)*2)
+                // 按元素在数组中的顺序写独立地址（步进 2）：第 j 个元素 → D(4000+j*2)
                 var failed = new List<(int Index, string Error)>();
-                foreach (var index in indexes)
+                for (var position = 0; position < indexes.Count; position++)
                 {
-                    var address = $"D{TrayNumberBaseAddress + (index - 1) * TrayNumberAddressStride}";
+                    var index = indexes[position];
+                    var address = $"D{TrayNumberBaseAddress + position * TrayNumberAddressStride}";
                     var result = await _plcService.WriteRegisterAsync(address, (short)index);
                     if (!result.Success)
                     {
