@@ -27,6 +27,11 @@ namespace UiTopMachine.Communications.Plc
         Task WriteShortAsync(string address, short value);
 
         /// <summary>
+        /// 从起始地址批量写入保持寄存器（16 位有符号整数数组，失败抛出异常）
+        /// </summary>
+        Task WriteShortsAsync(string address, short[] values);
+
+        /// <summary>
         /// 关闭与 PLC 的连接（可重复调用，不抛异常）
         /// </summary>
         Task CloseAsync();

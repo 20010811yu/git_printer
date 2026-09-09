@@ -81,6 +81,23 @@ namespace UiTopMachine.Tests
             return Task.CompletedTask;
         }
 
+        /// <summary>批量写入记录（地址, 值序列）</summary>
+        public List<(string Address, short[] Values)> BatchWrites { get; } = new();
+
+        public Task WriteShortsAsync(string address, short[] values)
+        {
+            lock (_lock)
+            {
+                BatchWrites.Add((address, (short[])values.Clone()));
+                foreach (var v in values)
+                {
+                    Writes.Add((address, v));
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+
         public Task<bool[]> ReadBoolsAsync(string address, ushort length)
         {
             lock (_lock)

@@ -46,7 +46,7 @@
 - **验证结果**：独立冒烟程序实证：ImageSource 全链路渲染 3s 无崩溃；主程序集成后 191/191 测试全绿
 - **教训**：① 跨运行时 SDK 的「控件」与「引擎」要分开评估——纯托管控件可跨运行时复用，引擎不行；② 原生层崩溃无任何托管痕迹，冒烟验证必须用独立进程跑完整链路（本例无声退出直接证明不可行）；③ `AssemblyResolve` 兜底 GAC 解析是 net10.0 复用 GAC 程序集的通用手法
 
-### 🟢 已解决条目摘要（26 条，完整过程见归档第七节）
+### 🟢 已解决条目摘要（27 条，完整过程见归档第七节）
 
 | 编号 | 标题 | 一句话教训 |
 |------|------|-----------|
@@ -80,6 +80,7 @@
 | ERR-032 | VmRenderControl 右键保存崩 OpenCvSharp 类型初始化 | VM 控件内置保存依赖 OpenCvSharp 原生库（OpenCvSharpExtern.dll 53MB x64，仅装机目录有）；显示类需求用应用层 GDI+（Image.Save）自实现，绕开第三方控件的原生依赖路径 |
 | ERR-032a | 保存对话框失控（一进图像页就弹另存为） | SaveFileDialog 严禁放进 CommandManagerHelper.Bind 的参数提供器——提供器在绑定与每次命令状态刷新时都会被调用；对话框一律走 VM→View 请求事件回填模式（同 InputRequestEventArgs），命令保持无参 |
 | ERR-033 | 无边框窗体（FormBorderStyle.None）不可拉伸 | 边缘拉伸 = 窗体留 Padding 外沿（8px）为自身表面 + WndProc 拦 WM_NCHITTEST 按位置返回 HTLEFT/HTRIGHT/HTTOP/HTBOTTOM 及四角命中码；LParam 屏幕坐标多显示器下为负必须按 16 位有符号截取；最大化状态不命中 |
+| ERR-034 | SolutionProtector 测试断言全局 %TEMP% 空被历史残留污染误报失败 | 断言共享全局目录（%TEMP% 通配扫描）的测试会被历史运行残留误伤——清理残留即恢复；此类断言宜改用测试独占子目录，全局扫描仅作诊断 |
 
 ---
 

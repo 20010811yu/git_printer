@@ -4,7 +4,11 @@
 
 ## 当前工作焦点
 
-**VM 方案文件加密防外泄（v1.30）✅ 已完成** —— 用户要求把项目中的 `.sol` 方案文件替换为 dll 格式（经确认目标是「保护方案不外泄」）。实现：① 新增 `Common/VmBridge/SolutionProtector.cs`（AES-256-CBC + PBKDF2-SHA256 十万次迭代，魔数头 `VMENC1`，主程序与加密工具 link 同一份源码防漂移）；② `VisionMasterBridgeInspectionService` 加载时按魔数识别加密方案 → 解密到临时目录 `.sol` 交桥接进程 → 清理（关闭/失败/停止）时删除明文；③ 新增 `tools/SolutionEncryptor` 控制台工具（`encrypt <明文> <输出> [口令]`，加密后回读校验）；④ 真实方案已加密替换：`D:\Printer\VisionTesting.dll`（VMENC1），明文备份 `D:\Printer\VisionTesting.sol.bak`（建议移离现场保存）；Program.cs 路径 `D:\Printer\VisionTesting.dll` 不变。**注**：原 `.dll` 实为 `.sol` 改扩展名（ZIP 容器明文）；未加密文件加载行为不变（魔数不匹配走明文路径）。202/202 测试全绿（+6 加密壳用例）。
+**发送按钮接入真实 PLC 通道（v1.31）✅ 已完成** —— 用户要求点击发送后向 PLC 发送第一组配方的抽屉编号数组（不含配方值）。实现：① 传输层 `IPlcTransport`/`HslModbusTransport` 新增 `WriteShortsAsync`（Hsl `WriteAsync(address, short[])` 批量写）；② `IPlcCommunicationService`/`PlcCommunicationService` 新增 `WriteRegistersAsync(address, short[])`（未连接拒绝 + IO 信号量串行 + 异常转 `Result`）；③ `MainViewModel.SendAllRecipesAsync` 重写：取 `RecipeGroups` 第 1 组 → 批量写入 `D4000` 起连续寄存器（用户确认地址）→ 成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落、分组同步移除该组）→ 日志输出已发送编号与对应配方；写入失败保留现场不清空。④ +4 守护用例（写入地址/编号序列、无分组告警、失败保留、IsBusy 复位），206/206 全绿。**注**：真机联调时需按 PLC 侧实际接收协议核对 D4000 起的布局（当前直接写编号序列）。
+
+### 上一焦点（v1.30，2026-09-09）
+
+**VM 方案文件加密防外泄 ✅** —— SolutionProtector（AES-256 + PBKDF2，VMENC1 壳）+ 桥接加载时解密到临时明文用完即删 + SolutionEncryptor 工具；真实方案已加密替换 `D:\Printer\VisionTesting.dll`。202/202 全绿。
 
 ### 上一焦点（v1.29，2026-09-09）
 
@@ -22,8 +26,8 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-09 | 发送按钮接真实 PLC（v1.31：批量写寄存器 + 发第一组编号 + 清配方；+4 用例） | ✅ 206/206 PASS |
 | 2026-09-09 | VM 方案加密防外泄（v1.30：SolutionProtector + 桥接解密加载 + SolutionEncryptor 工具；+6 用例；真实方案已加密替换） | ✅ 202/202 PASS |
-| 2026-09-09 | 界面整体调整（v1.29：输入框加宽+窗口可拉伸+全局字体放大；纯 View 改动） | ✅ 196/196 PASS |
 | 2026-09-09 | 保存对话框失控修复（v1.28b，ERR-032a；+1 守护用例） | ✅ 196/196 PASS |
 
 ## 当前处理中的错误
@@ -37,14 +41,14 @@
 | ERR-011 | PowerShell `mkdir` 多参数不可用 | 🟡 规避中 |
 | ERR-030 | net10.0 直引 VM 引擎原生崩溃（混合架构规避） | 🟡 规避中 |
 
-> 其余历史错误（已解决的 26 条）均已 🟢 压缩为摘要，详见 errorlog.md；完整过程见 [archive](archive/history-2026-09.md) 第七节。
+> 其余历史错误（已解决的 27 条）均已 🟢 压缩为摘要，详见 errorlog.md；完整过程见 [archive](archive/history-2026-09.md) 第七节。
 
 ## 下一步
 
-1. **真机联调**（PLC 真机 192.168.1.88 + VisionMaster 真机出图联调；图像页 v1.26 新显示层待真机确认）
+1. **真机联调**（PLC 真机 192.168.1.88 + VisionMaster 真机出图联调；图像页 v1.26 新显示层待真机确认；**v1.31 发送通道 D4000 布局待 PLC 侧协议核对**）
 2. 打印/图像页接入真实服务剩余项（IPrintService 已完成；图像 VisionMaster 桥接已完成——剩余为现场参数调优）
 3. 配方管理页增强：抽屉列表显示配方名/状态列、批量下发
-4. ~~用真实 PLC 通信实现替换 `MockDrawerService`~~ 大部分已落地（v1.10~v1.12）；剩余 = 配方下发等写方向的真实 PLC 版
+4. ~~用真实 PLC 通信实现替换 `MockDrawerService`~~ 大部分已落地（v1.10~v1.12、v1.31 发送方向）；剩余按需补齐
 
 ## 重要模式与偏好
 

@@ -102,5 +102,10 @@ namespace UiTopMachine.Services.Interfaces
         /// 写入保持寄存器（16 位有符号整数）
         /// </summary>
         Task<Result<bool>> WriteRegisterAsync(string address, short value);
+
+        /// <summary>
+        /// 从起始地址批量写入保持寄存器（16 位有符号整数数组，如托盘/抽屉编号序列）
+        /// </summary>
+        Task<Result<bool>> WriteRegistersAsync(string address, short[] values);
     }
 }

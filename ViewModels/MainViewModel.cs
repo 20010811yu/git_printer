@@ -31,6 +31,12 @@ namespace UiTopMachine.ViewModels
         private LogEntryViewModel? _latestLog;
 
         /// <summary>
+        /// 托盘编号批量写入的 PLC 起始地址（汇川软元件格式 D 区，用户确认 D4000），
+        /// 从该地址起连续写入第 1 组配方的抽屉编号序列
+        /// </summary>
+        private const string TrayNumberWriteAddress = "D4000";
+
+        /// <summary>
         /// 页面标题
         /// </summary>
         public string PageTitle
@@ -260,35 +266,47 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 发送全部配方（异步，不阻塞 UI）
+        /// 发送第一组配方（异步，不阻塞 UI）：
+        /// 取配方分组的第 1 组，向 PLC（D4000 起连续寄存器）批量写入该组抽屉编号序列（不含配方值）；
+        /// 写入成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落），
+        /// 并输出已发送编号与对应配方。写入失败不动输入框，保留现场供重试
         /// </summary>
         private async Task SendAllRecipesAsync()
         {
             IsBusy = true;
             try
             {
-                _logService.Info("开始下发全部配方…");
-
-                var tasks = Drawers
-                    .Where(d => !string.IsNullOrWhiteSpace(d.Recipe))
-                    .Select(d => _drawerService.SendRecipeAsync(d.Index, d.Recipe));
-
-                var results = await Task.WhenAll(tasks);
-                var okCount = results.Count(r => r.Success);
-
-                if (okCount == results.Length)
+                var firstGroup = RecipeGroups.FirstOrDefault();
+                if (firstGroup is null || firstGroup.DrawerIndexes.Count == 0)
                 {
-                    _logService.Success($"全部配方下发完成（{okCount}/{results.Length}）");
+                    _logService.Warn("当前没有已填写配方的抽屉，未发送");
+                    return;
                 }
-                else
+
+                var recipe = firstGroup.RecipeName;
+                var indexes = firstGroup.DrawerIndexes;
+                _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个）到 PLC {TrayNumberWriteAddress}…");
+
+                var values = indexes.Select(i => (short)i).ToArray();
+                var result = await _plcService.WriteRegistersAsync(TrayNumberWriteAddress, values);
+                if (!result.Success)
                 {
-                    _logService.Warn($"配方下发完成，存在失败（成功 {okCount}/{results.Length}）");
+                    _logService.Error($"抽屉编号下发失败：{result.ErrorMessage}");
+                    return;
                 }
+
+                // 写入成功 → 清空对应抽屉配方（状态灯随三态规则自动刷新，分组同步移除该组）
+                foreach (var drawer in Drawers.Where(d => indexes.Contains(d.Index)))
+                {
+                    drawer.Recipe = string.Empty;
+                }
+
+                _logService.Success($"已发送抽屉编号 [{string.Join(", ", indexes)}]，配方「{recipe}」");
             }
             catch (Exception ex)
             {
                 // 捕获业务异常，设置错误提示（不弹窗，记录日志）
-                _logService.Error($"下发配方异常：{ex.Message}");
+                _logService.Error($"下发抽屉编号异常：{ex.Message}");
             }
             finally
             {

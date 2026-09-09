@@ -83,6 +83,21 @@ namespace UiTopMachine.Communications.Plc
         }
 
         /// <inheritdoc />
+        public async Task WriteShortsAsync(string address, short[] values)
+        {
+            if (values is null || values.Length == 0)
+            {
+                return; // 空数组无需通讯，视为成功
+            }
+
+            var result = await _plc.WriteAsync(address, values);
+            if (!result.IsSuccess)
+            {
+                throw new InvalidOperationException($"PLC 批量写入寄存器 {address}（{values.Length} 个）失败：{result.Message}");
+            }
+        }
+
+        /// <inheritdoc />
         public Task CloseAsync()
         {
             try

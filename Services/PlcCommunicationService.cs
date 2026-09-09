@@ -206,6 +206,35 @@ namespace UiTopMachine.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task<Result<bool>> WriteRegistersAsync(string address, short[] values)
+        {
+            if (values is null || values.Length == 0)
+            {
+                return Result<bool>.Fail("批量写入内容为空，取消写入");
+            }
+
+            if (State != PlcConnectionState.Connected)
+            {
+                return Result<bool>.Fail("PLC 未连接，无法批量写入寄存器");
+            }
+
+            await _ioSemaphore.WaitAsync();
+            try
+            {
+                await _transport.WriteShortsAsync(address, values);
+                return Result<bool>.OK(true);
+            }
+            catch (Exception ex)
+            {
+                return Result<bool>.Fail($"批量写入寄存器 {address}（{values.Length} 个）失败：{ex.Message}");
+            }
+            finally
+            {
+                _ioSemaphore.Release();
+            }
+        }
+
         /// <summary>
         /// 自动连接主循环（仿参考 ConnectToPLCAsync）：未连接则尝试连接，
         /// 失败记事件并延时重试；连接成功进入连接保持段（管理心跳启停），心跳丢失则断开重连
