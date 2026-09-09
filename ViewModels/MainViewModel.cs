@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -20,6 +21,9 @@ namespace UiTopMachine.ViewModels
         private readonly ILogService _logService;
         private readonly IPlcCommunicationService _plcService;
 
+        /// <summary>配方文件服务：发送时加载配方表，按编号匹配行提取参数下发 PLC D3000 区</summary>
+        private readonly IRecipeFileService _recipeFileService;
+
         /// <summary>
         /// 构造时捕获的 UI 线程同步上下文：后台线程事件必须用它调度回 UI 线程。
         /// ⚠️ 不能在后台事件里现取 SynchronizationContext.Current（后台线程为 null，
@@ -38,6 +42,15 @@ namespace UiTopMachine.ViewModels
         /// 即编号 j 位于 4000+2j，PLC 侧 D(4000+2j) 显示该编号（不写配方值）
         /// </summary>
         private const string TrayNumberWriteAddress = "4000";
+
+        /// <summary>
+        /// 配方参数写入的 PLC 起始地址（标准 ModbusTcpNet，纯数字地址，用户确认 3000）：
+        /// 发送时按第一组配方名匹配配方表「编号」列，把该行除编号外的所有列值依次写入 3000 起连续寄存器
+        /// </summary>
+        private const string RecipeParameterWriteAddress = "3000";
+
+        /// <summary>配方表编号列候选名（与配方管理页一致：真实表头为「编号」，新建空白配方为「配方编号」）</summary>
+        private static readonly string[] RecipeIdColumnCandidates = { "配方编号", "编号" };
 
         /// <summary>
         /// 用户提醒事件（发送成功弹窗等，View 订阅后 MessageBox 展示，VM 不碰 UI 控件）
@@ -143,11 +156,13 @@ namespace UiTopMachine.ViewModels
         /// <summary>
         /// 构造：依赖注入服务
         /// </summary>
-        public MainViewModel(IDrawerService drawerService, ILogService logService, IPlcCommunicationService plcService)
+        public MainViewModel(IDrawerService drawerService, ILogService logService, IPlcCommunicationService plcService,
+            IRecipeFileService recipeFileService)
         {
             _drawerService = drawerService ?? throw new ArgumentNullException(nameof(drawerService));
             _logService = logService ?? throw new ArgumentNullException(nameof(logService));
             _plcService = plcService ?? throw new ArgumentNullException(nameof(plcService));
+            _recipeFileService = recipeFileService ?? throw new ArgumentNullException(nameof(recipeFileService));
 
             SendCommand = new AsyncRelayCommand(_ => SendAllRecipesAsync(), _ => !IsBusy);
             ExitCommand = new RelayCommand(_ => ExitApplication());
@@ -309,8 +324,18 @@ namespace UiTopMachine.ViewModels
                 if (!result.Success)
                 {
                     // 失败：错误信息显示在 Status 面板列表（listbox），输入框全部保留供重试
-                    PublishPanelEntry(LogLevel.Error, $"发送：配方「{recipe}」下发失败——{result.ErrorMessage}");
+                    PublishPanelEntry(LogLevel.Error, $"发送：配方「{recipe}」编号下发失败——{result.ErrorMessage}");
                     _logService.Error($"配方「{recipe}」抽屉编号下发失败：{result.ErrorMessage}");
+                    return;
+                }
+
+                // 同时向 3000 区发送该配方对应的参数：按配方名匹配配方表编号列，
+                // 该行除编号外的所有列值依次写入 3000 起连续寄存器（非数字按 0 发送）
+                var parameterResult = await SendRecipeParametersAsync(recipe);
+                if (!parameterResult.Success)
+                {
+                    PublishPanelEntry(LogLevel.Error, $"发送：配方「{recipe}」参数下发失败——{parameterResult.ErrorMessage}");
+                    _logService.Error($"配方「{recipe}」参数下发失败：{parameterResult.ErrorMessage}");
                     return;
                 }
 
@@ -320,24 +345,69 @@ namespace UiTopMachine.ViewModels
                     drawer.Recipe = string.Empty;
                 }
 
-                var message = $"已发送抽屉编号 [{string.Join(", ", indexes)}]，配方「{recipe}」";
+                var message = $"已发送抽屉编号 [{string.Join(", ", indexes)}]，配方「{recipe}」（参数已同步下发 3000 区）";
                 _logService.Success(message);
                 MessageRequested?.Invoke(this, new MessageRequestEventArgs
                 {
                     Title = "发送成功",
-                    Message = $"配方「{recipe}」抽屉编号发送成功（{indexes.Count} 个）"
+                    Message = $"配方「{recipe}」抽屉编号与参数发送成功（编号 {indexes.Count} 个）"
                 });
             }
             catch (Exception ex)
             {
                 // 捕获业务异常，错误信息写入面板列表（listbox），不弹窗
-                PublishPanelEntry(LogLevel.Error, $"发送：下发抽屉编号异常——{ex.Message}");
-                _logService.Error($"下发抽屉编号异常：{ex.Message}");
+                PublishPanelEntry(LogLevel.Error, $"发送：下发异常——{ex.Message}");
+                _logService.Error($"下发异常：{ex.Message}");
             }
             finally
             {
                 IsBusy = false;
             }
+        }
+
+        /// <summary>
+        /// 向 PLC 3000 区发送配方参数：
+        /// 加载配方表 → 按「编号」列匹配配方名（Trim 后比较）→ 该行除编号外的所有列值
+        /// 依次解析为 16 位整数（非数字按 0）写入 3000 起连续寄存器；
+        /// 找不到匹配行视为失败（不静默跳过），结果统一 Result 返回
+        /// </summary>
+        private async Task<Result<bool>> SendRecipeParametersAsync(string recipeName)
+        {
+            var load = await _recipeFileService.LoadAsync();
+            if (!load.Success || load.Data is null)
+            {
+                return Result<bool>.Fail($"配方表加载失败：{load.ErrorMessage}");
+            }
+
+            var table = load.Data;
+            var idColumn = table.Columns
+                .Cast<DataColumn>()
+                .FirstOrDefault(c => RecipeIdColumnCandidates.Contains(c.ColumnName.Trim(), StringComparer.OrdinalIgnoreCase));
+            if (idColumn is null)
+            {
+                return Result<bool>.Fail("配方表中未找到编号列（候选：配方编号/编号）");
+            }
+
+            var row = table.AsEnumerable()
+                .FirstOrDefault(r => string.Equals(r[idColumn].ToString().Trim(), recipeName.Trim(), StringComparison.Ordinal));
+            if (row is null)
+            {
+                return Result<bool>.Fail($"配方表中未找到编号为「{recipeName}」的行");
+            }
+
+            // 除编号列外的所有列按表列顺序提取：int.TryParse 失败（名称/备注等非数字）按 0 发送
+            var values = table.Columns.Cast<DataColumn>()
+                .Where(c => !Equals(c, idColumn))
+                .Select(c => int.TryParse(row[c]?.ToString()?.Trim(), out var v) ? v : 0)
+                .Select(v => (short)Math.Max(short.MinValue, Math.Min(short.MaxValue, v)))
+                .ToArray();
+
+            if (values.Length == 0)
+            {
+                return Result<bool>.Fail("配方行除编号外没有可发送的参数列");
+            }
+
+            return await _plcService.WriteRegistersAsync(RecipeParameterWriteAddress, values);
         }
 
         /// <summary>

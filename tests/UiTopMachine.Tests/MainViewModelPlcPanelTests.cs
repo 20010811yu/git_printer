@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -97,6 +98,32 @@ namespace UiTopMachine.Tests
     }
 
     /// <summary>
+    /// 测试桩：IRecipeFileService —— 内存 DataTable，供发送参数用例构造配方表
+    /// </summary>
+    public class StubRecipeFileService : IRecipeFileService
+    {
+        /// <summary>LoadAsync 返回的配方表（测试直接构造）</summary>
+        public DataTable Table { get; set; } = new DataTable("配方");
+
+        public string FilePath { get; set; } = string.Empty;
+
+        public string FolderPath { get; set; } = string.Empty;
+
+        public Task<Result<DataTable>> LoadAsync() => Task.FromResult(Result<DataTable>.OK(Table));
+
+        public Task<Result<DataTable>> LoadAsync(string filePath) => LoadAsync();
+
+        public Task<Result<bool>> SaveAsync(DataTable table) => Task.FromResult(Result<bool>.OK(true));
+
+        public Task<Result<bool>> SaveAsync(DataTable table, string filePath) => Task.FromResult(Result<bool>.OK(true));
+
+        public Task<Result<string>> CreateBlankAsync(IEnumerable<string> headers, int blankRowCount = 10) =>
+            Task.FromResult(Result<string>.OK(string.Empty));
+
+        public Result<bool> OpenFolder() => Result<bool>.OK(true);
+    }
+
+    /// <summary>
     /// 即时 SynchronizationContext：Post/Send 在当前线程同步执行（测试无 WinForms 消息泵，替代 WindowsFormsSynchronizationContext）
     /// </summary>
     public class ImmediateSynchronizationContext : SynchronizationContext
@@ -129,7 +156,7 @@ namespace UiTopMachine.Tests
         {
             var log = new StubLogService();
             var plc = new StubPlcCommunicationService();
-            var vm = new MainViewModel(new StubDrawerService(), log, plc);
+            var vm = new MainViewModel(new StubDrawerService(), log, plc, new StubRecipeFileService());
             return (vm, log, plc);
         }
 
@@ -254,7 +281,7 @@ namespace UiTopMachine.Tests
         {
             var log = new StubLogService();
             var plc = new StubPlcCommunicationService();
-            var vm = new MainViewModel(new StubDrawerService(), log, plc);
+            var vm = new MainViewModel(new StubDrawerService(), log, plc, new StubRecipeFileService());
 
             // 模拟生产场景：PLC 事件从后台线程触发（后台线程 SynchronizationContext.Current 为 null）。
             // 回归守护：VM 必须用构造时捕获的上下文调度，而不是在事件线程现取（现取会新建无消息泵的
@@ -287,7 +314,7 @@ namespace UiTopMachine.Tests
                     Recipe = i <= 2 ? "R-001" : string.Empty
                 }).ToList()
             };
-            var vm = new MainViewModel(drawerService, log, plc);
+            var vm = new MainViewModel(drawerService, log, plc, new StubRecipeFileService());
             await vm.InitializeAsync();
 
             // PLC 推送：下标 1=抽屉1 有料；下标 5=抽屉5 有料；下标 0 不使用；其余无料

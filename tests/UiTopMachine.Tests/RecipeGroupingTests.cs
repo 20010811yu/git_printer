@@ -23,7 +23,7 @@ namespace UiTopMachine.Tests
                     .Select(i => new DrawerModel { Index = i, HasMaterial = true, Recipe = string.Empty })
                     .ToList()
             };
-            var vm = new MainViewModel(drawerService, new StubLogService(), new StubPlcCommunicationService());
+            var vm = new MainViewModel(drawerService, new StubLogService(), new StubPlcCommunicationService(), new StubRecipeFileService());
             return vm;
         }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Data;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,11 +35,23 @@ namespace UiTopMachine.Tests
             SynchronizationContext.SetSynchronizationContext(_originalContext);
         }
 
-        /// <summary>构造 VM：18 抽屉全部有料（真值与生产一致），配方在初始化后由测试写入以触发分组</summary>
-        private static (MainViewModel Vm, StubLogService Log, StubPlcCommunicationService Plc) Create()
+        /// <summary>构造 VM：18 抽屉全部有料（真值与生产一致），配方在初始化后由测试写入以触发分组；配方表含 A/B 两行</summary>
+        private static (MainViewModel Vm, StubLogService Log, StubPlcCommunicationService Plc, StubRecipeFileService Recipe) Create()
         {
             var log = new StubLogService();
             var plc = new StubPlcCommunicationService();
+
+            // 配方表：编号列 + 参数列（含非数字列，按 0 发送）
+            var table = new DataTable("配方");
+            table.Columns.Add("编号");
+            table.Columns.Add("配方名称");
+            table.Columns.Add("参数1");
+            table.Columns.Add("参数2");
+            table.Columns.Add("备注");
+            table.Rows.Add("A", "名称A", "10", "20", "备注A");
+            table.Rows.Add("B", "名称B", "11", "21", "备注B");
+            var recipeService = new StubRecipeFileService { Table = table };
+
             var drawerService = new StubDrawerService
             {
                 SeedDrawers = Enumerable.Range(1, 18).Select(i => new DrawerModel
@@ -48,15 +61,15 @@ namespace UiTopMachine.Tests
                     Recipe = string.Empty
                 }).ToList()
             };
-            var vm = new MainViewModel(drawerService, log, plc);
+            var vm = new MainViewModel(drawerService, log, plc, recipeService);
             vm.InitializeAsync().GetAwaiter().GetResult();
-            return (vm, log, plc);
+            return (vm, log, plc, recipeService);
         }
 
         [Fact]
         public async Task 发送_批量写入编号数组_清空对应输入框_弹窗提醒成功()
         {
-            var (vm, log, plc) = Create();
+            var (vm, log, plc, recipe) = Create();
 
             // 抽屉 1/3 填配方 A，抽屉 2 填配方 B → 第一组 = A 组（编号 1、3，按填入顺序）
             vm.Drawers.First(d => d.Index == 1).Recipe = "A";
@@ -70,9 +83,14 @@ namespace UiTopMachine.Tests
 
             // 一次批量写入：地址 "4000"（ModbusTcpNet 纯数字），编号按 2 字对齐（落低字、高字补 0），
             // 数组 [1, 0, 3, 0] → PLC 侧 D4000=1、D4002=3（DINT 显示），不含配方值
-            var write = Assert.Single(plc.BatchWrites);
+            var write = Assert.Single(plc.BatchWrites.Where(w => w.Address == "4000"));
             Assert.Equal("4000", write.Address);
             Assert.Equal(new short[] { 1, 0, 3, 0 }, write.Values);
+
+            // 同时批量写入配方参数：编号 "A" 行除编号外的列值依次写 3000 起连续寄存器，
+            // 非数字列（名称/备注）按 0 → [0, 10, 20, 0]
+            var parameterWrite = Assert.Single(plc.BatchWrites.Where(w => w.Address == "3000"));
+            Assert.Equal(new short[] { 0, 10, 20, 0 }, parameterWrite.Values);
 
             // 成功后清空对应抽屉配方；第二组（B）不受影响
             Assert.Equal(string.Empty, vm.Drawers.First(d => d.Index == 1).Recipe);
@@ -94,7 +112,7 @@ namespace UiTopMachine.Tests
         [Fact]
         public async Task 无已填写配方_发送不写PLC不弹窗_仅告警()
         {
-            var (vm, log, plc) = Create();
+            var (vm, log, plc, recipe) = Create();
             var raised = false;
             vm.MessageRequested += (_, _) => raised = true;
 
@@ -108,7 +126,7 @@ namespace UiTopMachine.Tests
         [Fact]
         public async Task 写入失败_错误信息进面板列表_保留输入框现场()
         {
-            var (vm, log, plc) = Create();
+            var (vm, log, plc, recipe) = Create();
             // 模拟批量写入失败（PLC 通讯异常）
             plc.BatchWriteResult = Result<bool>.Fail("PLC 未连接");
 
@@ -131,9 +149,29 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
+        public async Task 配方表无匹配编号行_参数不发送_错误进面板保留现场()
+        {
+            var (vm, log, plc, recipe) = Create();
+            recipe.Table.Rows.Clear(); // 清空配方表 → 编号 "A" 无匹配行
+            recipe.Table.Rows.Add("X", "名称X", "99", "0", "无");
+
+            vm.Drawers.First(d => d.Index == 1).Recipe = "A";
+
+            await vm.SendCommand.ExecuteAsync(null);
+
+            // 4000 区编号已写，3000 区参数未写；错误进面板列表，输入框保留
+            Assert.Single(plc.BatchWrites.Where(w => w.Address == "4000"));
+            Assert.Empty(plc.BatchWrites.Where(w => w.Address == "3000"));
+            var entry = Assert.Single(vm.Logs);
+            Assert.Equal("错误", entry.LevelText);
+            Assert.Contains("参数下发失败", entry.Message);
+            Assert.Equal("A", vm.Drawers.First(d => d.Index == 1).Recipe);
+        }
+
+        [Fact]
         public async Task 发送完成_IsBusy复位_命令可再次执行()
         {
-            var (vm, _, plc) = Create();
+            var (vm, _, plc, _) = Create();
             vm.Drawers.First(d => d.Index == 1).Recipe = "A";
 
             await vm.SendCommand.ExecuteAsync(null);
