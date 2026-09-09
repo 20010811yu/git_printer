@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using UiTopMachine.Common;
 using UiTopMachine.Models;
 using UiTopMachine.Services;
 using UiTopMachine.Services.Interfaces;
@@ -275,6 +276,68 @@ namespace UiTopMachine.Tests
             await Task.Delay(1300);
 
             Assert.Same(imageAtRest, vm.CurrentImage);
+        }
+
+        // ══════════════ 保存图片（ERR-032） ══════════════
+
+        /// <summary>订阅 VM 的 MessageRequested 并收集全部弹窗请求供断言</summary>
+        private static List<MessageRequestEventArgs> CaptureMessages(ImagePageViewModel vm)
+        {
+            var messages = new List<MessageRequestEventArgs>();
+            vm.MessageRequested += (_, request) => messages.Add(request);
+            return messages;
+        }
+
+        [Fact]
+        public async Task ERR032_保存图片_有图传路径_文件落盘并提示保存成功()
+        {
+            var vm = new ImagePageViewModel(_log, new StaticInspectionService(StaticInspectionService.TaskDelayMs.None), _panel);
+            await vm.CaptureOnceCommand.ExecuteAsync(null);
+            var messages = CaptureMessages(vm);
+
+            var dir = Path.Combine(Path.GetTempPath(), "uitop_err032_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var path = Path.Combine(dir, "save.png");
+                await vm.SaveImageCommand.ExecuteAsync(path);
+
+                Assert.True(File.Exists(path)); // 文件落盘
+                using var loaded = new System.Drawing.Bitmap(path); // 内容可加载
+                Assert.True(loaded.Width > 0);
+                Assert.Contains(messages, m => m.Title == "保存成功" && m.Message.Contains(path)); // 弹窗告知成功（含路径）
+            }
+            finally
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task ERR032_保存图片_取消对话框_null路径_不落盘不弹窗()
+        {
+            var vm = new ImagePageViewModel(_log, new StaticInspectionService(StaticInspectionService.TaskDelayMs.None), _panel);
+            await vm.CaptureOnceCommand.ExecuteAsync(null);
+            var messages = CaptureMessages(vm);
+
+            await vm.SaveImageCommand.ExecuteAsync(null); // 用户取消保存对话框
+
+            Assert.Empty(messages); // 纯取消不弹任何提示
+            Assert.DoesNotContain(_log.Entries, e => e.Message.Contains("保存"));
+        }
+
+        [Fact]
+        public async Task ERR032_保存图片_无图_提示无图可保存且不落盘()
+        {
+            var vm = new ImagePageViewModel(_log, new NoFrameInspectionService(), _panel);
+            await vm.CaptureOnceCommand.ExecuteAsync(null); // 无新帧 → 无图
+            var messages = CaptureMessages(vm);
+
+            var path = Path.Combine(Path.GetTempPath(), "uitop_err032_never_" + Guid.NewGuid().ToString("N") + ".png");
+            await vm.SaveImageCommand.ExecuteAsync(path);
+
+            Assert.False(File.Exists(path));
+            Assert.Contains(messages, m => m.Message.Contains("无图片可保存"));
         }
     }
 }

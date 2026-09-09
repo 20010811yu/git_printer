@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using UiTopMachine.Common;
 using UiTopMachine.Common.Commands;
 using UiTopMachine.Models;
 using UiTopMachine.Services.Interfaces;
@@ -36,6 +37,7 @@ namespace UiTopMachine.ViewModels
 
         // ══════════════ 状态字段 ══════════════
         private bool _isBusy;
+        private bool _isSaving;
         private bool _isContinuousRunning;
         private Image? _currentImage;
         private string _currentVerdict = "—";
@@ -67,25 +69,50 @@ namespace UiTopMachine.ViewModels
 
         private string ProcedureDisplay => $"{_inspectionService.ProcedureName} 流程";
 
-        /// <summary>连续检测运行中</summary>
-        public bool IsContinuousRunning
+    /// <summary>连续检测运行中</summary>
+    public bool IsContinuousRunning
+    {
+        get => _isContinuousRunning;
+        private set
         {
-            get => _isContinuousRunning;
-            private set
+            if (SetProperty(ref _isContinuousRunning, value))
             {
-                if (SetProperty(ref _isContinuousRunning, value))
-                {
-                    StartContinuousCommand.RaiseCanExecuteChanged();
-                    StopContinuousCommand.RaiseCanExecuteChanged();
-                }
+                StartContinuousCommand.RaiseCanExecuteChanged();
+                StopContinuousCommand.RaiseCanExecuteChanged();
             }
         }
+    }
+
+    /// <summary>保存图片进行中（防重复点击）</summary>
+    public bool IsSaving
+    {
+        get => _isSaving;
+        private set
+        {
+            if (SetProperty(ref _isSaving, value))
+            {
+                SaveImageCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 消息提示请求（ERR-032）：保存成功/失败、无图可保存等需要用户立即感知的信息，
+    /// 经 View 弹窗展示（VM 零 UI 依赖，同 RecipePage 模式）
+    /// </summary>
+    public event EventHandler<MessageRequestEventArgs>? MessageRequested;
 
         /// <summary>当前结果图（ERR-028：所有权移交 View——View 轮询替换引用时负责释放旧图，VM 不再 Dispose）</summary>
         public Image? CurrentImage
         {
             get => _currentImage;
-            private set => SetProperty(ref _currentImage, value);
+            private set
+            {
+                if (SetProperty(ref _currentImage, value))
+                {
+                    SaveImageCommand.RaiseCanExecuteChanged(); // 有图/无图切换联动保存按钮可用性
+                }
+            }
         }
 
         /// <summary>当前检测结论文本（OK/NG，随结果图着色由 View 处理）</summary>
@@ -103,8 +130,11 @@ namespace UiTopMachine.ViewModels
         /// <summary>开始连续检测（对应参考 _vmInteraction 定时轮询采集）</summary>
         public AsyncRelayCommand StartContinuousCommand { get; }
 
-        /// <summary>停止连续检测</summary>
-        public AsyncRelayCommand StopContinuousCommand { get; }
+    /// <summary>停止连续检测</summary>
+    public AsyncRelayCommand StopContinuousCommand { get; }
+
+    /// <summary>保存当前结果图（参数 = 保存路径；null = 用户取消对话框）</summary>
+    public AsyncRelayCommand SaveImageCommand { get; }
 
         // ══════════════ 构造 / 业务方法 ══════════════
 
@@ -123,6 +153,7 @@ namespace UiTopMachine.ViewModels
             CaptureOnceCommand = new AsyncRelayCommand(_ => CaptureOnceAsync(), _ => !IsBusy && IsSolutionLoaded && !IsContinuousRunning);
             StartContinuousCommand = new AsyncRelayCommand(_ => StartContinuousAsync(), _ => IsSolutionLoaded && !IsContinuousRunning);
             StopContinuousCommand = new AsyncRelayCommand(_ => StopContinuousAsync(), _ => IsContinuousRunning);
+            SaveImageCommand = new AsyncRelayCommand(p => SaveImageAsync(p as string), _ => CurrentImage is not null && !IsSaving);
 
             // 方案加载成功事件（后台线程）→ 刷新状态
             _inspectionService.SolutionLoaded += (_, _) =>
@@ -157,6 +188,48 @@ namespace UiTopMachine.ViewModels
                 _uiContext.Post(_ => action(), null);
             }
         }
+
+        /// <summary>
+        /// 保存当前结果图（ERR-032）：参数为保存路径，null 视为用户取消对话框静默返回；
+        /// 无图时弹窗提示。保存用克隆图在后台落盘——连续检测轮播时 View 会替换并释放旧图
+        /// （ERR-028 图像所有权移交 View），直接持有原图保存存在 ObjectDisposedException 风险
+        /// </summary>
+        private async Task SaveImageAsync(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return; // 用户取消保存对话框
+            }
+
+            if (CurrentImage is not Bitmap source)
+            {
+                Notify("提示", "当前无图片可保存，请先执行检测");
+                return;
+            }
+
+            IsSaving = true;
+            try
+            {
+                using var clone = (Bitmap)source.Clone();
+                await Task.Run(() => clone.Save(path, System.Drawing.Imaging.ImageFormat.Png));
+
+                _logService.Info($"结果图已保存：{path}");
+                Notify("保存成功", $"图片保存成功：{path}");
+            }
+            catch (Exception ex)
+            {
+                _logService.Error($"结果图保存失败：{ex.Message}");
+                Notify("保存失败", $"图片保存失败：{ex.Message}");
+            }
+            finally
+            {
+                IsSaving = false;
+            }
+        }
+
+        /// <summary>向 View 发起消息弹窗请求（纯数据，零 UI 依赖）</summary>
+        private void Notify(string title, string message)
+            => MessageRequested?.Invoke(this, new MessageRequestEventArgs { Title = title, Message = message });
 
         /// <summary>
         /// 页面初始化：自动加载检测方案（仿参考 Form1_Shown 的自动加载）

@@ -77,6 +77,7 @@
 | ERR-028 | 流程成功但输出图间歇为空（无新帧误报） | 「成功但无结果」≠「失败」——低速图像源无新帧是常态按跳过处理；间歇性问题先看子进程诊断日志 |
 | ERR-029 | 图像页 INPC 绑定静默失效（黑屏） | WinForms 绑定失效无报错，逐层实证不猜测；显示类需求可用 UI 定时器轮询兜底（对线程/编组/绑定免疫） |
 | ERR-031 | v1.26 重构遗漏按钮命令绑定（图像页点击无响应、永无图） | View 按钮必须经 CommandManagerHelper.Bind 绑定命令；重构页面时逐按钮核对绑定；排障先看「操作是否真的触发了业务」（日志零痕迹=命令没执行，而非执行失败） |
+| ERR-032 | VmRenderControl 右键保存崩 OpenCvSharp 类型初始化 | VM 控件内置保存依赖 OpenCvSharp 原生库（OpenCvSharpExtern.dll 53MB x64，仅装机目录有）；显示类需求用应用层 GDI+（Image.Save）自实现，绕开第三方控件的原生依赖路径 |
 
 ---
 
@@ -110,6 +111,7 @@
 24. **本环境 dotnet 增量构建不可靠** → 报成功但产物可能是陈旧源码；验证产物必须 `dotnet clean` 后重建，并用 PowerShell 读产物字节搜新符号确认（方法名 ASCII / 字符串字面量 UTF-16）；net48 无 `Math.Clamp`（ERR-029）。**`dotnet clean` 也可能失效（报"均是最新的"不清理）——最可靠是直接删除 bin/obj 目录再构建**；符号检查用 **ASCII/UTF-8** 读字节（类型/方法名在 #UTF-8 堆），**UTF-16 只对字符串字面量（#US 堆）有效**（ERR-030 复现实证）
 25. **跨运行时 SDK 控件与引擎必须分开评估** → 纯托管控件（如 VMControls）可被 net10.0 加载复用，引擎（C++/CLI 混合程序集链）不行——直调引擎在原生层无声崩溃，托管侧无异常可捕；混合架构 = 引擎留桥接进程 + 控件进主程序显示；控件自身的 GAC 静态依赖（VM.PlatformSDKCS）经 `AppDomain.AssemblyResolve` 从 GAC 物理路径补加载（ERR-030）
 26. **View 按钮必须绑定命令** → 页面按钮一律 `CommandManagerHelper.Bind(button, vm命令)` 并逐按钮核对（v1.26 重构曾整体遗漏）；绑定缺失的症状 = 点击无反应且日志零痕迹（命令没执行而非执行失败）；守护手法 = 测试断言未加载方案时按钮 Enabled=false（绑定时按 CanExecute 立即同步控件态，缺绑定则默认可点）（ERR-031）
+27. **第三方控件内置功能的原生依赖** → VmRenderControl 右键保存等内置路径依赖 OpenCvSharp 原生库（未随 net10.0 主程序分发，类型初始化必崩）；同类需求优先应用层自实现（GDI+ `Image.Save`），并在 View 尽力禁用控件右键菜单（`ContextMenuStrip = null`）；保存时机注意 ERR-028 所有权语义——先 Clone 再后台落盘，防轮播释放原图（ERR-032）
 
 ## 沉淀出口
 

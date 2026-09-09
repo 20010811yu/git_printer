@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using UiTopMachine.Common.Commands;
 using UiTopMachine.ViewModels;
@@ -26,6 +27,7 @@ namespace UiTopMachine.Views.Pages
         private AntdUI.Button _captureOnceButton = null!;
         private AntdUI.Button _startContinuousButton = null!;
         private AntdUI.Button _stopContinuousButton = null!;
+        private AntdUI.Button _saveImageButton = null!;
         private System.Windows.Forms.Timer _uiPollTimer = null!;
         private Image? _lastShownImage;
 
@@ -98,6 +100,9 @@ namespace UiTopMachine.Views.Pages
                 BackColor = Color.FromArgb(28, 30, 34),
                 Dock = DockStyle.None
             };
+            // 尽力禁用控件自带右键菜单（其保存路径依赖 OpenCvSharp 原生库，未随程序分发必崩，ERR-032）；
+            // 控件内部自建菜单若不受此控制，以页面「保存图片」按钮为准
+            _renderControl.ContextMenuStrip = null;
 
             // 检测结论角标（叠加在图像区上方）
             _verdictLabel = new Label
@@ -133,12 +138,22 @@ namespace UiTopMachine.Views.Pages
                 Radius = 8
             };
 
+            // ── 保存图片（ERR-032：应用层 GDI+ 保存，绕开控件右键菜单的 OpenCvSharp 原生依赖）──
+            _saveImageButton = new AntdUI.Button
+            {
+                Text = "保存图片",
+                Type = AntdUI.TTypeMini.Primary,
+                Size = new Size(150, 46),
+                Radius = 8
+            };
+
             card.Controls.Add(_titleLabel);
             card.Controls.Add(_solutionStatusLabel);
             card.Controls.Add(_renderControl);
             card.Controls.Add(_captureOnceButton);
             card.Controls.Add(_startContinuousButton);
             card.Controls.Add(_stopContinuousButton);
+            card.Controls.Add(_saveImageButton);
             Controls.Add(card);
 
             card.Resize += (_, _) => LayoutControls(card);
@@ -169,6 +184,7 @@ namespace UiTopMachine.Views.Pages
             _captureOnceButton.Location = new Point(rightX, buttonTop);
             _startContinuousButton.Location = new Point(rightX, buttonTop + 70);
             _stopContinuousButton.Location = new Point(rightX, buttonTop + 140);
+            _saveImageButton.Location = new Point(rightX, buttonTop + 210);
         }
 
         /// <summary>
@@ -219,6 +235,37 @@ namespace UiTopMachine.Views.Pages
             CommandManagerHelper.Bind(_captureOnceButton, _viewModel.CaptureOnceCommand);
             CommandManagerHelper.Bind(_startContinuousButton, _viewModel.StartContinuousCommand);
             CommandManagerHelper.Bind(_stopContinuousButton, _viewModel.StopContinuousCommand);
+
+            // 保存图片（ERR-032）：点击时弹保存对话框取路径作为命令参数，取消传 null（VM 静默返回）
+            CommandManagerHelper.Bind(_saveImageButton, _viewModel.SaveImageCommand, () =>
+            {
+                const string defaultDir = @"D:\Printer\Data\Images";
+                Directory.CreateDirectory(defaultDir);
+
+                var dialog = new SaveFileDialog
+                {
+                    InitialDirectory = defaultDir,
+                    FileName = $"IMG_{DateTime.Now:yyyyMMdd_HHmmss}.png",
+                    Filter = "PNG 图片 (*.png)|*.png"
+                };
+
+                return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
+            });
+
+            // 保存成功/失败/无图提示弹窗（VM→View 消息请求模式，后台线程经 BeginInvoke 封送）
+            _viewModel.MessageRequested += (_, request) =>
+            {
+                var show = new Action(() => MessageBox.Show(this, request.Message, request.Title,
+                    MessageBoxButtons.OK, MessageBoxIcon.Information));
+                if (InvokeRequired)
+                {
+                    BeginInvoke(show);
+                }
+                else
+                {
+                    show();
+                }
+            };
         }
     }
 }
