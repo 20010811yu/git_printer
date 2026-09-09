@@ -70,24 +70,19 @@ namespace UiTopMachine.Tests
 
         public Task<Result<short>> ReadRegisterAsync(string address) => Task.FromResult(Result<short>.OK(0));
 
-        public Task<Result<bool>> WriteRegisterAsync(string address, short value) => Task.FromResult(Result<bool>.OK(true));
-
-        /// <summary>批量写入调用记录（地址 + 值序列），供发送命令用例断言</summary>
-        public List<(string Address, short[] Values)> BatchWrites { get; } = new();
-
-        /// <summary>批量写入返回结果（默认成功，可改为失败模拟通讯异常）</summary>
-        public Result<bool> BatchWriteResult { get; set; }
-
-        public StubPlcCommunicationService()
+        public Task<Result<bool>> WriteRegisterAsync(string address, short value)
         {
-            BatchWriteResult = Result<bool>.OK(true);
+            RegisterWrites.Add((address, value));
+            return Task.FromResult(RegisterWriteHandler?.Invoke(address, value) ?? Result<bool>.OK(true));
         }
 
-        public Task<Result<bool>> WriteRegistersAsync(string address, short[] values)
-        {
-            BatchWrites.Add((address, (short[])values.Clone()));
-            return Task.FromResult(BatchWriteResult);
-        }
+        /// <summary>单寄存器写入记录（地址 + 值），供发送命令用例断言逐抽屉独立地址</summary>
+        public List<(string Address, short Value)> RegisterWrites { get; } = new();
+
+        /// <summary>单寄存器写入处理器（可编程返回，默认成功；null=全部成功）</summary>
+        public Func<string, short, Result<bool>>? RegisterWriteHandler { get; set; }
+
+        public Task<Result<bool>> WriteRegistersAsync(string address, short[] values) => Task.FromResult(Result<bool>.OK(true));
 
         /// <summary>模拟 PLC 状态变化（同步触发事件，事件回调内的 UI 调度由测试线程的即时 SynchronizationContext 执行）</summary>
         public void Raise(PlcConnectionState state, string message)

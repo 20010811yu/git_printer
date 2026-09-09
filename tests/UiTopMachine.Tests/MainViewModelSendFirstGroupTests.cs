@@ -2,17 +2,21 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using UiTopMachine.Common;
 using UiTopMachine.Models;
+using UiTopMachine.Services.Interfaces;
 using UiTopMachine.ViewModels;
 using Xunit;
 
 namespace UiTopMachine.Tests
 {
     /// <summary>
-    /// 发送命令（发送第一组配方）测试（v1.31）：
-    /// 点击发送 → 取配方分组第 1 组，批量写入抽屉编号序列到 PLC D4000（不含配方值）；
-    /// 写入成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落）并输出编号与配方日志；
-    /// 写入失败不清空输入框；无分组时不写 PLC 仅告警
+    /// 发送命令（发送第一组配方）测试（v1.31b）：
+    /// 点击发送 → 取配方分组第 1 组，逐抽屉写入编号到独立地址（抽屉 i → D(4000+i-1)，即
+    /// 抽屉 1→D4000、抽屉 3→D4002，不含配方值）；全部成功后清空对应抽屉配方输入框（状态灯按
+    /// 三态规则自动回落）、弹窗提醒发送成功并输出编号与配方日志；
+    /// 任一失败则错误信息写入 Status 面板列表（listbox），输入框全部保留供重试；
+    /// 无分组时不写 PLC 仅告警
     /// </summary>
     public class MainViewModelSendFirstGroupTests : IDisposable
     {
@@ -49,7 +53,7 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
-        public async Task 发送_批量写入第一组编号到D4000_清空对应输入框并输出日志()
+        public async Task 发送_逐抽屉写独立地址_清空对应输入框_弹窗提醒成功()
         {
             var (vm, log, plc) = Create();
 
@@ -58,12 +62,13 @@ namespace UiTopMachine.Tests
             vm.Drawers.First(d => d.Index == 3).Recipe = "A";
             vm.Drawers.First(d => d.Index == 2).Recipe = "B";
 
+            MessageRequestEventArgs? request = null;
+            vm.MessageRequested += (_, r) => request = r;
+
             await vm.SendCommand.ExecuteAsync(null);
 
-            // 批量写入：地址 D4000，值为编号序列 [1, 3]（不含配方值），且只写了一次
-            var write = Assert.Single(plc.BatchWrites);
-            Assert.Equal("D4000", write.Address);
-            Assert.Equal(new short[] { 1, 3 }, write.Values);
+            // 逐抽屉独立地址：抽屉 1→D4000=1，抽屉 3→D4002=3（不含配方值），共 2 次写入
+            Assert.Equal(new[] { ("D4000", (short)1), ("D4002", (short)3) }, plc.RegisterWrites);
 
             // 成功后清空对应抽屉配方；第二组（B）不受影响
             Assert.Equal(string.Empty, vm.Drawers.First(d => d.Index == 1).Recipe);
@@ -74,34 +79,50 @@ namespace UiTopMachine.Tests
             var group = Assert.Single(vm.RecipeGroups);
             Assert.Equal("B", group.RecipeName);
 
-            // 日志输出已发送编号与对应配方
+            // 弹窗提醒发送成功 + 日志输出编号与配方
+            Assert.NotNull(request);
+            Assert.Contains("发送成功", request!.Title);
+            Assert.Contains("A", request.Message);
             Assert.Contains(log.Entries, e => e.Level == "Success"
                 && e.Message.Contains("1, 3") && e.Message.Contains("A"));
         }
 
         [Fact]
-        public async Task 无已填写配方_发送不写PLC_仅告警()
+        public async Task 无已填写配方_发送不写PLC不弹窗_仅告警()
         {
             var (vm, log, plc) = Create();
+            var raised = false;
+            vm.MessageRequested += (_, _) => raised = true;
 
             await vm.SendCommand.ExecuteAsync(null);
 
-            Assert.Empty(plc.BatchWrites);
+            Assert.Empty(plc.RegisterWrites);
+            Assert.False(raised);
             Assert.Contains(log.Entries, e => e.Level == "Warn" && e.Message.Contains("未发送"));
         }
 
         [Fact]
-        public async Task PLC写入失败_保留输入框现场_错误日志()
+        public async Task 写入失败_错误信息进面板列表_保留输入框现场()
         {
             var (vm, log, plc) = Create();
-            plc.BatchWriteResult = UiTopMachine.Services.Interfaces.Result<bool>.Fail("PLC 未连接");
+            // 抽屉 3 写入失败（模拟 PLC 通讯异常），抽屉 1 成功
+            plc.RegisterWriteHandler = (address, _) => address == "D4002"
+                ? Result<bool>.Fail("PLC 未连接")
+                : Result<bool>.OK(true);
+
             vm.Drawers.First(d => d.Index == 1).Recipe = "A";
             vm.Drawers.First(d => d.Index == 3).Recipe = "A";
 
             await vm.SendCommand.ExecuteAsync(null);
 
-            Assert.Single(plc.BatchWrites);
-            // 失败不动输入框与分组，保留现场供重试
+            // 错误信息显示在 Status 面板列表（listbox），含失败抽屉与原因
+            var entry = Assert.Single(vm.Logs);
+            Assert.Equal("错误", entry.LevelText);
+            Assert.Contains("下发失败", entry.Message);
+            Assert.Contains("抽屉 3", entry.Message);
+            Assert.Contains("PLC 未连接", entry.Message);
+
+            // 失败不动任何输入框与分组，保留现场供重试
             Assert.Equal("A", vm.Drawers.First(d => d.Index == 1).Recipe);
             Assert.Equal("A", vm.Drawers.First(d => d.Index == 3).Recipe);
             Assert.Equal(2, vm.RecipeGroups[0].DrawerIndexes.Count);

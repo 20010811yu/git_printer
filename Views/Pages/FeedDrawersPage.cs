@@ -212,6 +212,21 @@ namespace UiTopMachine.Views.Pages
             // 发送按钮绑定命令（点击转发 + Enabled 联动）
             CommandManagerHelper.Bind(_sendButton, _viewModel.SendCommand);
 
+            // 发送结果提醒（VM → View 请求事件，此处弹窗展示，零业务逻辑）
+            _viewModel.MessageRequested += (_, request) =>
+            {
+                if (InvokeRequired)
+                {
+                    BeginInvoke(new Action(() => MessageBox.Show(this, request.Message, request.Title,
+                        MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                }
+                else
+                {
+                    MessageBox.Show(this, request.Message, request.Title,
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            };
+
             // 抽屉集合加载后逐项绑定（集合在 InitializeAsync 填充）
             _viewModel.Drawers.CollectionChanged += OnDrawersCollectionChanged;
         }

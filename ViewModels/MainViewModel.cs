@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using UiTopMachine.Common;
 using UiTopMachine.Common.Commands;
 using UiTopMachine.Models;
 using UiTopMachine.Services.Interfaces;
@@ -31,10 +32,15 @@ namespace UiTopMachine.ViewModels
         private LogEntryViewModel? _latestLog;
 
         /// <summary>
-        /// 托盘编号批量写入的 PLC 起始地址（汇川软元件格式 D 区，用户确认 D4000），
-        /// 从该地址起连续写入第 1 组配方的抽屉编号序列
+        /// 托盘编号写入的 PLC 起始地址基数（汇川软元件格式 D 区，用户确认 D4000 起）：
+        /// 每个抽屉单独占一个地址——抽屉 i 写入 D(4000+i-1)，即抽屉 1→D4000、抽屉 2→D4001……
         /// </summary>
-        private const string TrayNumberWriteAddress = "D4000";
+        private const int TrayNumberBaseAddress = 4000;
+
+        /// <summary>
+        /// 用户提醒事件（发送成功弹窗等，View 订阅后 MessageBox 展示，VM 不碰 UI 控件）
+        /// </summary>
+        public event EventHandler<MessageRequestEventArgs>? MessageRequested;
 
         /// <summary>
         /// 页面标题
@@ -267,9 +273,10 @@ namespace UiTopMachine.ViewModels
 
         /// <summary>
         /// 发送第一组配方（异步，不阻塞 UI）：
-        /// 取配方分组的第 1 组，向 PLC（D4000 起连续寄存器）批量写入该组抽屉编号序列（不含配方值）；
-        /// 写入成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落），
-        /// 并输出已发送编号与对应配方。写入失败不动输入框，保留现场供重试
+        /// 取配方分组的第 1 组，向 PLC 逐抽屉写入编号——每个抽屉单独占一个地址（抽屉 i → D(4000+i-1)）；
+        /// 全部写入成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落）、弹窗提醒发送成功，
+        /// 并在日志/面板输出已发送编号与对应配方；
+        /// 任一写入失败则不清空任何输入框（保留现场供重试），错误信息写入 Status 面板列表（listbox）
         /// </summary>
         private async Task SendAllRecipesAsync()
         {
@@ -285,27 +292,47 @@ namespace UiTopMachine.ViewModels
 
                 var recipe = firstGroup.RecipeName;
                 var indexes = firstGroup.DrawerIndexes;
-                _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个）到 PLC {TrayNumberWriteAddress}…");
+                _logService.Info($"开始下发第 1 组配方「{recipe}」的抽屉编号（{indexes.Count} 个，逐抽屉独立地址）…");
 
-                var values = indexes.Select(i => (short)i).ToArray();
-                var result = await _plcService.WriteRegistersAsync(TrayNumberWriteAddress, values);
-                if (!result.Success)
+                // 逐抽屉写入独立地址：抽屉 i → D(4000+i-1)
+                var failed = new List<(int Index, string Error)>();
+                foreach (var index in indexes)
                 {
-                    _logService.Error($"抽屉编号下发失败：{result.ErrorMessage}");
+                    var address = $"D{TrayNumberBaseAddress + index - 1}";
+                    var result = await _plcService.WriteRegisterAsync(address, (short)index);
+                    if (!result.Success)
+                    {
+                        failed.Add((index, result.ErrorMessage ?? "未知错误"));
+                    }
+                }
+
+                if (failed.Count > 0)
+                {
+                    // 失败：错误信息显示在 Status 面板列表（listbox），输入框全部保留供重试
+                    var detail = string.Join("；", failed.Select(f => $"抽屉 {f.Index}（{f.Error}）"));
+                    PublishPanelEntry(LogLevel.Error, $"发送：配方「{recipe}」下发失败——{detail}");
+                    _logService.Error($"配方「{recipe}」抽屉编号下发失败：{detail}");
                     return;
                 }
 
-                // 写入成功 → 清空对应抽屉配方（状态灯随三态规则自动刷新，分组同步移除该组）
+                // 全部成功 → 清空对应抽屉配方（状态灯随三态规则自动刷新，分组同步移除该组）
                 foreach (var drawer in Drawers.Where(d => indexes.Contains(d.Index)))
                 {
                     drawer.Recipe = string.Empty;
                 }
 
-                _logService.Success($"已发送抽屉编号 [{string.Join(", ", indexes)}]，配方「{recipe}」");
+                var message = $"已发送抽屉编号 [{string.Join(", ", indexes)}]，配方「{recipe}」";
+                _logService.Success(message);
+                MessageRequested?.Invoke(this, new MessageRequestEventArgs
+                {
+                    Title = "发送成功",
+                    Message = $"配方「{recipe}」抽屉编号发送成功（{indexes.Count} 个）"
+                });
             }
             catch (Exception ex)
             {
-                // 捕获业务异常，设置错误提示（不弹窗，记录日志）
+                // 捕获业务异常，错误信息写入面板列表（listbox），不弹窗
+                PublishPanelEntry(LogLevel.Error, $"发送：下发抽屉编号异常——{ex.Message}");
                 _logService.Error($"下发抽屉编号异常：{ex.Message}");
             }
             finally

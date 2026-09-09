@@ -4,7 +4,7 @@
 
 ## 当前工作焦点
 
-**发送按钮接入真实 PLC 通道（v1.31）✅ 已完成** —— 用户要求点击发送后向 PLC 发送第一组配方的抽屉编号数组（不含配方值）。实现：① 传输层 `IPlcTransport`/`HslModbusTransport` 新增 `WriteShortsAsync`（Hsl `WriteAsync(address, short[])` 批量写）；② `IPlcCommunicationService`/`PlcCommunicationService` 新增 `WriteRegistersAsync(address, short[])`（未连接拒绝 + IO 信号量串行 + 异常转 `Result`）；③ `MainViewModel.SendAllRecipesAsync` 重写：取 `RecipeGroups` 第 1 组 → 批量写入 `D4000` 起连续寄存器（用户确认地址）→ 成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落、分组同步移除该组）→ 日志输出已发送编号与对应配方；写入失败保留现场不清空。④ +4 守护用例（写入地址/编号序列、无分组告警、失败保留、IsBusy 复位），206/206 全绿。**注**：真机联调时需按 PLC 侧实际接收协议核对 D4000 起的布局（当前直接写编号序列）。
+**发送按钮接入真实 PLC 通道（v1.31/31b）✅ 已完成** —— 用户要求点击发送后向 PLC 发送第一组配方的抽屉编号（不含配方值），v1.31b 按用户澄清改为**逐抽屉独立地址**：抽屉 i → D(4000+i-1)（抽屉 1→D4000、抽屉 2→D4001…）。实现：① `IPlcCommunicationService`/`PlcCommunicationService` 新增 `WriteRegisterAsync` 已有 + 传输层 `WriteShortsAsync` 批量写（备用）；② `MainViewModel.SendAllRecipesAsync` 重写：取 `RecipeGroups` 第 1 组 → 逐抽屉写独立地址 → 全部成功后清空对应抽屉配方输入框（状态灯按三态规则自动回落、分组同步移除该组）+ `MessageRequested` 事件弹窗提醒「发送成功」（View 在 FeedDrawersPage 订阅弹 MessageBox）+ 日志输出编号与配方；任一失败则**错误信息写入 Status 面板列表（listbox）**（`PublishPanelEntry(Error)`），输入框全部保留供重试。③ +4 守护用例（独立地址写入、无分组告警、失败进列表、IsBusy 复位），206/206 全绿。
 
 ### 上一焦点（v1.30，2026-09-09）
 
@@ -26,7 +26,7 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
-| 2026-09-09 | 发送按钮接真实 PLC（v1.31：批量写寄存器 + 发第一组编号 + 清配方；+4 用例） | ✅ 206/206 PASS |
+| 2026-09-09 | 发送按钮接真实 PLC（v1.31/31b：逐抽屉独立地址 D(4000+i-1) 写编号 + 成功弹窗 + 失败进列表；+4 用例） | ✅ 206/206 PASS |
 | 2026-09-09 | VM 方案加密防外泄（v1.30：SolutionProtector + 桥接解密加载 + SolutionEncryptor 工具；+6 用例；真实方案已加密替换） | ✅ 202/202 PASS |
 | 2026-09-09 | 保存对话框失控修复（v1.28b，ERR-032a；+1 守护用例） | ✅ 196/196 PASS |
 
