@@ -46,6 +46,6 @@
   - ✅ PLC 抽屉物料接入（v1.12）：连续读取 M1000 起 19 个 bool（下标 1~18 对应抽屉，true=有料），变化推送驱动抽屉状态灯；PLC 为物料唯一真值源（Mock 随机监控停用）
    - ✅ 窗口控制按钮布局抽取（v1.23b）：`Views/WindowButtonLayout.cs` 纯函数布局 + MainForm Resize 重算（禁用 Anchor）+ WindowButtonLayoutTests 10 守护用例
    - ✅ VisionMaster 真实方案加载（v1.24）：图像页接入海康 VisionMaster 4.4.0——桥接进程方案（tools/VmVisionBridge net48 承载 SDK + 命名管道 + 共享帧协议），Test.sol 真实加载 + 流程运行 + PNG 结果图回传全链路实证；图像页 Mock 模拟退出历史舞台（保留可切回）
-   - ✅ VM 方案路径切换 VisionTesting.sol（v1.25）：生产方案 `D:\Printer\VisionTesting.sol`（Program.cs DI 单点维护，路径由 Service 配置提供、ViewModel 不感知；接口 `LoadSolutionAsync(string? = null)` 默认参数化）
+   - ✅ VM 方案路径切换 VisionTesting.sol（v1.25）：生产方案路径 Program.cs DI 单点维护（v1.30 起为加密文件 `D:\Printer\VisionTesting.dll`，VMENC1 壳，加载时自动解密到临时目录），路径由 Service 配置提供、ViewModel 不感知；接口 `LoadSolutionAsync(string? = null)` 默认参数化
    - ⏳ 待办：IDrawerService 真实 PLC 版替换 Mock（配方下发等）
   

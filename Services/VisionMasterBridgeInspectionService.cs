@@ -48,6 +48,8 @@ namespace UiTopMachine.Services
 
         private Process? _bridgeProcess;
         private NamedPipeClientStream? _pipe;
+        /// <summary>加密方案解密出的临时明文 .sol（加载成功后保留至清理，用完即删）</summary>
+        private string? _tempSolutionPath;
         private bool _solutionLoaded;
         private int _sequence;
         private bool _disposed;
@@ -138,11 +140,28 @@ namespace UiTopMachine.Services
                     return Result<bool>.Fail($"方案文件不存在：{path}");
                 }
 
+                // 加密方案（防外泄）：识别魔数后解密到临时明文 .sol 供桥接进程加载，
+                // 明文随 CleanupBridgeNoLock（关闭/失败/停止）删除，磁盘不留明文
+                var loadPath = path;
+                if (SolutionProtector.IsEncrypted(path))
+                {
+                    try
+                    {
+                        _tempSolutionPath = SolutionProtector.DecryptToTempFile(path);
+                        loadPath = _tempSolutionPath;
+                    }
+                    catch (Exception ex)
+                    {
+                        DeleteTempSolutionNoLock();
+                        return Result<bool>.Fail($"加密方案解密失败：{ex.Message}");
+                    }
+                }
+
                 try
                 {
                     EnsureBridgeReadyNoLock();
                     var response = SendCommand(VmBridgeProtocol.Command.Load,
-                        VmBridgeProtocol.EncodeRequestText(path), LoadTimeoutMs);
+                        VmBridgeProtocol.EncodeRequestText(loadPath), LoadTimeoutMs);
                     if (!response.Ok)
                     {
                         // Load 业务失败（含加密狗授权失败 ERR-027）：SDK 授权初始化每进程仅一次，
@@ -391,6 +410,33 @@ namespace UiTopMachine.Services
                 _bridgeProcess.Dispose();
                 _bridgeProcess = null;
             }
+
+            DeleteTempSolutionNoLock();
+        }
+
+        /// <summary>
+        /// 删除加密方案解密出的临时明文文件（尽力而为，文件被占用时下次清理再删）
+        /// </summary>
+        private void DeleteTempSolutionNoLock()
+        {
+            if (_tempSolutionPath == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(_tempSolutionPath))
+                {
+                    File.Delete(_tempSolutionPath);
+                }
+            }
+            catch
+            {
+                // 明文临时文件删除失败不阻断主流程（重启后临时目录仍会新建带 Guid 的文件）
+            }
+
+            _tempSolutionPath = null;
         }
     }
 }

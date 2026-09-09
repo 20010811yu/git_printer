@@ -4,17 +4,17 @@
 
 ## 当前工作焦点
 
-**界面整体调整（v1.29）✅ 已完成** —— 用户三项要求：① 进料抽屉配方输入框加宽（宽度上限 220→300px、字体 11→12f）；② 主窗口可拉伸——无边框窗体新增 `WndProc` WM_NCHITTEST 边缘命中（窗体留 8px Padding 外沿，八方向命中码，最大化不生效，ERR-033）；③ 全局字体放大 +1~2pt（窗体基字 11→12f，四页标题 20→22f，打印/图像/抽屉正文与 Tab/日志面板/弹窗同步上调）。196/196 测试全绿。注：检测功能已随加密狗恢复实测正常（真机轮询运行）。
+**VM 方案文件加密防外泄（v1.30）✅ 已完成** —— 用户要求把项目中的 `.sol` 方案文件替换为 dll 格式（经确认目标是「保护方案不外泄」）。实现：① 新增 `Common/VmBridge/SolutionProtector.cs`（AES-256-CBC + PBKDF2-SHA256 十万次迭代，魔数头 `VMENC1`，主程序与加密工具 link 同一份源码防漂移）；② `VisionMasterBridgeInspectionService` 加载时按魔数识别加密方案 → 解密到临时目录 `.sol` 交桥接进程 → 清理（关闭/失败/停止）时删除明文；③ 新增 `tools/SolutionEncryptor` 控制台工具（`encrypt <明文> <输出> [口令]`，加密后回读校验）；④ 真实方案已加密替换：`D:\Printer\VisionTesting.dll`（VMENC1），明文备份 `D:\Printer\VisionTesting.sol.bak`（建议移离现场保存）；Program.cs 路径 `D:\Printer\VisionTesting.dll` 不变。**注**：原 `.dll` 实为 `.sol` 改扩展名（ZIP 容器明文）；未加密文件加载行为不变（魔数不匹配走明文路径）。202/202 测试全绿（+6 加密壳用例）。
+
+### 上一焦点（v1.29，2026-09-09）
+
+**界面整体调整 ✅** —— ① 进料抽屉配方输入框加宽（220→300px、字体 12f）；② 无边框窗口可拉伸（`WndProc` WM_NCHITTEST 八方向边缘命中，8px Padding 外沿，ERR-033）；③ 全局字体放大 +1~2pt。196/196 测试全绿。
 
 ### 上一焦点（v1.28/28b，2026-09-09）
 
 **图像页「保存图片」应用层实现 + 保存对话框失控修复（ERR-032/32a）✅** —— 右键菜单保存崩 OpenCvSharp（原生库未分发）→ GDI+ 自实现 SaveImageCommand（Clone 后台落盘）+ 成功/失败/无图弹窗；SaveFileDialog 误放 Bind 参数提供器致进页即弹 → 改 `SavePathRequestEventArgs` 请求回填模式 + 命令无参化。详 [errorlog.md](errorlog.md) ERR-032/32a。
 
-### 上一焦点（v1.27，2026-09-08）
-
-**图像页按钮绑定修复（ERR-031）✅** —— v1.26 重构遗漏三个检测按钮 `CommandManagerHelper.Bind` 绑定，点击无响应永无图；补回绑定 + View 绑定守护用例。真机单次/连续检测出图实证。详 [errorlog.md](errorlog.md) ERR-031。
-
-> 更早焦点（v1.26 及之前 v0.x~v1.25 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
+> 更早焦点（v1.27 及之前 v0.x~v1.26 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
 ## 测试记录
 
@@ -22,9 +22,9 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-09 | VM 方案加密防外泄（v1.30：SolutionProtector + 桥接解密加载 + SolutionEncryptor 工具；+6 用例；真实方案已加密替换） | ✅ 202/202 PASS |
 | 2026-09-09 | 界面整体调整（v1.29：输入框加宽+窗口可拉伸+全局字体放大；纯 View 改动） | ✅ 196/196 PASS |
 | 2026-09-09 | 保存对话框失控修复（v1.28b，ERR-032a；+1 守护用例） | ✅ 196/196 PASS |
-| 2026-09-09 | 图像页保存图片应用层实现（v1.28，ERR-032；+3 用例；真机对话框实测） | ✅ 195/195 PASS |
 
 ## 当前处理中的错误
 
