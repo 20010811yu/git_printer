@@ -102,6 +102,12 @@ namespace UiTopMachine.ViewModels
     /// </summary>
     public event EventHandler<MessageRequestEventArgs>? MessageRequested;
 
+    /// <summary>
+    /// 保存路径请求（ERR-032a）：View 弹保存对话框后回填 Confirmed/FullPath；
+    /// 对话框绝不放进命令参数提供器——提供器在绑定与命令状态刷新时都会被调用，弹窗会失控
+    /// </summary>
+    public event EventHandler<SavePathRequestEventArgs>? SavePathRequested;
+
         /// <summary>当前结果图（ERR-028：所有权移交 View——View 轮询替换引用时负责释放旧图，VM 不再 Dispose）</summary>
         public Image? CurrentImage
         {
@@ -133,7 +139,7 @@ namespace UiTopMachine.ViewModels
     /// <summary>停止连续检测</summary>
     public AsyncRelayCommand StopContinuousCommand { get; }
 
-    /// <summary>保存当前结果图（参数 = 保存路径；null = 用户取消对话框）</summary>
+    /// <summary>保存当前结果图（无参：路径经 SavePathRequested 事件向 View 请求）</summary>
     public AsyncRelayCommand SaveImageCommand { get; }
 
         // ══════════════ 构造 / 业务方法 ══════════════
@@ -153,7 +159,7 @@ namespace UiTopMachine.ViewModels
             CaptureOnceCommand = new AsyncRelayCommand(_ => CaptureOnceAsync(), _ => !IsBusy && IsSolutionLoaded && !IsContinuousRunning);
             StartContinuousCommand = new AsyncRelayCommand(_ => StartContinuousAsync(), _ => IsSolutionLoaded && !IsContinuousRunning);
             StopContinuousCommand = new AsyncRelayCommand(_ => StopContinuousAsync(), _ => IsContinuousRunning);
-            SaveImageCommand = new AsyncRelayCommand(p => SaveImageAsync(p as string), _ => CurrentImage is not null && !IsSaving);
+            SaveImageCommand = new AsyncRelayCommand(_ => SaveImageAsync(), _ => CurrentImage is not null && !IsSaving);
 
             // 方案加载成功事件（后台线程）→ 刷新状态
             _inspectionService.SolutionLoaded += (_, _) =>
@@ -190,27 +196,35 @@ namespace UiTopMachine.ViewModels
         }
 
         /// <summary>
-        /// 保存当前结果图（ERR-032）：参数为保存路径，null 视为用户取消对话框静默返回；
+        /// 保存当前结果图（ERR-032）：路径经 SavePathRequested 事件向 View 请求，用户取消静默返回；
         /// 无图时弹窗提示。保存用克隆图在后台落盘——连续检测轮播时 View 会替换并释放旧图
         /// （ERR-028 图像所有权移交 View），直接持有原图保存存在 ObjectDisposedException 风险
         /// </summary>
-        private async Task SaveImageAsync(string? path)
+        private async Task SaveImageAsync()
         {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return; // 用户取消保存对话框
-            }
-
-            if (CurrentImage is not Bitmap source)
+            if (CurrentImage is null)
             {
                 Notify("提示", "当前无图片可保存，请先执行检测");
                 return;
             }
 
+            var request = new SavePathRequestEventArgs
+            {
+                Title = "保存结果图片",
+                InitialDirectory = @"D:\Printer\Data\Images",
+                FileName = $"IMG_{DateTime.Now:yyyyMMdd_HHmmss}.png"
+            };
+            SavePathRequested?.Invoke(this, request);
+            if (!request.Confirmed || string.IsNullOrWhiteSpace(request.FullPath))
+            {
+                return; // 用户取消保存对话框
+            }
+
             IsSaving = true;
             try
             {
-                using var clone = (Bitmap)source.Clone();
+                using var clone = (Bitmap)CurrentImage.Clone();
+                var path = request.FullPath;
                 await Task.Run(() => clone.Save(path, System.Drawing.Imaging.ImageFormat.Png));
 
                 _logService.Info($"结果图已保存：{path}");

@@ -236,21 +236,46 @@ namespace UiTopMachine.Views.Pages
             CommandManagerHelper.Bind(_startContinuousButton, _viewModel.StartContinuousCommand);
             CommandManagerHelper.Bind(_stopContinuousButton, _viewModel.StopContinuousCommand);
 
-            // 保存图片（ERR-032）：点击时弹保存对话框取路径作为命令参数，取消传 null（VM 静默返回）
-            CommandManagerHelper.Bind(_saveImageButton, _viewModel.SaveImageCommand, () =>
+            // 保存图片（ERR-032）：无参绑定——对话框绝不能放进参数提供器，
+            // 提供器在绑定与每次命令状态刷新时都会被调用（ERR-032a 弹窗失控根因）
+            CommandManagerHelper.Bind(_saveImageButton, _viewModel.SaveImageCommand);
+
+            // 保存路径请求：View 弹保存对话框并回填 Confirmed/FullPath（用户取消原样返回）
+            _viewModel.SavePathRequested += (_, request) =>
             {
-                const string defaultDir = @"D:\Printer\Data\Images";
-                Directory.CreateDirectory(defaultDir);
-
-                var dialog = new SaveFileDialog
+                var pick = new Action(() =>
                 {
-                    InitialDirectory = defaultDir,
-                    FileName = $"IMG_{DateTime.Now:yyyyMMdd_HHmmss}.png",
-                    Filter = "PNG 图片 (*.png)|*.png"
-                };
+                    try
+                    {
+                        Directory.CreateDirectory(request.InitialDirectory);
+                    }
+                    catch
+                    {
+                        // 目录创建失败交由对话框默认路径兜底
+                    }
 
-                return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
-            });
+                    using var dialog = new SaveFileDialog
+                    {
+                        InitialDirectory = request.InitialDirectory,
+                        FileName = request.FileName,
+                        Filter = "PNG 图片 (*.png)|*.png"
+                    };
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                    {
+                        request.Confirmed = true;
+                        request.FullPath = dialog.FileName;
+                    }
+                });
+
+                if (InvokeRequired)
+                {
+                    BeginInvoke(pick);
+                }
+                else
+                {
+                    pick();
+                }
+            };
 
             // 保存成功/失败/无图提示弹窗（VM→View 消息请求模式，后台线程经 BeginInvoke 封送）
             _viewModel.MessageRequested += (_, request) =>

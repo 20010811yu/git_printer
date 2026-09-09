@@ -4,17 +4,17 @@
 
 ## 当前工作焦点
 
-**图像页「保存图片」应用层实现（ERR-032，v1.28）✅ 已完成** —— 用户在 VmRenderControl 右键保存图片崩 `OpenCvSharp.Internal.NativeMethods` 类型初始化：控件内置保存路径依赖 OpenCvSharp 原生库（OpenCvSharpExtern.dll 53MB x64，仅装机目录有、未随主程序分发）。方案 = 应用层 GDI+ 自实现（零 OpenCvSharp）：VM 新增 `SaveImageCommand`（参数=路径，取消静默返回；**Clone 后台落盘**防轮播释放原图）+ `IsSaving` + `MessageRequested` 弹窗事件（**保存成功弹窗含完整路径**/失败/无图提示）；View 新增「保存图片」按钮（SaveFileDialog 默认 `D:\Printer\Data\Images\IMG_yyyyMMdd_HHmmss.png` 自动建目录）+ 弹窗订阅（BeginInvoke 封送）+ 尽力禁用控件右键菜单。真机已实测保存对话框正确弹出；195/195 测试全绿（+3 ERR-032 用例）。
+**图像页保存对话框失控修复（ERR-032a，v1.28b）✅ 已完成** —— 用户报告「点导航栏图像就保存照片」：SaveFileDialog 被写进 `CommandManagerHelper.Bind` 的参数提供器，而提供器在绑定瞬间与每次命令状态刷新都会被调用。修复：新增 `SavePathRequestEventArgs`（回填模式），`SaveImageCommand` 改无参，路径经 `SavePathRequested` 事件由 View 弹对话框回填；+1 守护用例（命令刷新不触发路径请求）。196/196 全绿。**注**：真机当前检测报 `IMVS_EC_ENCRYPT_DONGLE_OUTDATE`（加密狗未检测到，硬件授权问题），保存成功弹窗的真机复验待加密狗恢复后进行（逻辑已由测试覆盖）。
+
+### 上一焦点（v1.28，2026-09-09）
+
+**图像页「保存图片」应用层实现（ERR-032）✅** —— 右键菜单保存崩 OpenCvSharp（原生库未分发）→ GDI+ 自实现：SaveImageCommand（Clone 后台落盘）+ IsSaving + MessageRequested 成功/失败/无图弹窗 + 保存按钮（默认 `D:\Printer\Data\Images`）。详 [errorlog.md](errorlog.md) ERR-032。
 
 ### 上一焦点（v1.27，2026-09-08）
 
-**图像页按钮绑定修复（ERR-031）✅** —— v1.26 重构遗漏三个检测按钮 `CommandManagerHelper.Bind` 绑定，点击无响应永无图；补回绑定 + View 绑定守护用例（测试进程内复制 GAC AssemblyResolve）。真机单次/连续检测出图实证。详 [errorlog.md](errorlog.md) ERR-031。
+**图像页按钮绑定修复（ERR-031）✅** —— v1.26 重构遗漏三个检测按钮 `CommandManagerHelper.Bind` 绑定，点击无响应永无图；补回绑定 + View 绑定守护用例。真机单次/连续检测出图实证。详 [errorlog.md](errorlog.md) ERR-031。
 
-### 上一焦点（v1.26，2026-09-08）
-
-**图像页 v1.26 重构（ERR-030）✅** —— 删加载按钮+启动自动加载+删统计+VmRenderControl 混合显示（引擎留桥接进程、控件进主程序、GAC 依赖 AssemblyResolve 兜底）。详 [errorlog.md](errorlog.md) ERR-030。
-
-> 更早焦点（v1.25c 及之前 v0.x~v1.25 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
+> 更早焦点（v1.26 及之前 v0.x~v1.25 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
 ## 测试记录
 
@@ -22,9 +22,9 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-09 | 保存对话框失控修复（v1.28b，ERR-032a；+1 守护用例） | ✅ 196/196 PASS |
 | 2026-09-09 | 图像页保存图片应用层实现（v1.28，ERR-032；+3 用例；真机对话框实测） | ✅ 195/195 PASS |
 | 2026-09-08 | 图像页按钮绑定修复（v1.27，ERR-031；+1 View 绑定守护用例；真机单次/连续检测出图实证） | ✅ 192/192 PASS |
-| 2026-09-08 | 图像页 v1.26（删按钮/启动自动加载/删统计/VmRenderControl 混合显示；测试桩改 Static/Shutdown 语义改引用稳定） | ✅ 191/191 PASS |
 
 ## 当前处理中的错误
 

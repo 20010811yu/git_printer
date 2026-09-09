@@ -278,7 +278,7 @@ namespace UiTopMachine.Tests
             Assert.Same(imageAtRest, vm.CurrentImage);
         }
 
-        // ══════════════ 保存图片（ERR-032） ══════════════
+        // ══════════════ 保存图片（ERR-032 / ERR-032a） ══════════════
 
         /// <summary>订阅 VM 的 MessageRequested 并收集全部弹窗请求供断言</summary>
         private static List<MessageRequestEventArgs> CaptureMessages(ImagePageViewModel vm)
@@ -288,8 +288,24 @@ namespace UiTopMachine.Tests
             return messages;
         }
 
+        /// <summary>
+        /// 模拟 View 回填保存路径（ERR-032a）：命令执行中触发 SavePathRequested 时，
+        /// confirmed=true 回填指定路径；否则不回填（模拟用户取消）
+        /// </summary>
+        private static void AutoConfirmSavePath(ImagePageViewModel vm, string? fullPath, bool confirmed = true)
+        {
+            vm.SavePathRequested += (_, request) =>
+            {
+                if (confirmed)
+                {
+                    request.Confirmed = true;
+                    request.FullPath = fullPath!;
+                }
+            };
+        }
+
         [Fact]
-        public async Task ERR032_保存图片_有图传路径_文件落盘并提示保存成功()
+        public async Task ERR032_保存图片_有图确认路径_文件落盘并提示保存成功()
         {
             var vm = new ImagePageViewModel(_log, new StaticInspectionService(StaticInspectionService.TaskDelayMs.None), _panel);
             await vm.CaptureOnceCommand.ExecuteAsync(null);
@@ -300,7 +316,8 @@ namespace UiTopMachine.Tests
             try
             {
                 var path = Path.Combine(dir, "save.png");
-                await vm.SaveImageCommand.ExecuteAsync(path);
+                AutoConfirmSavePath(vm, path);
+                await vm.SaveImageCommand.ExecuteAsync(null);
 
                 Assert.True(File.Exists(path)); // 文件落盘
                 using var loaded = new System.Drawing.Bitmap(path); // 内容可加载
@@ -314,13 +331,14 @@ namespace UiTopMachine.Tests
         }
 
         [Fact]
-        public async Task ERR032_保存图片_取消对话框_null路径_不落盘不弹窗()
+        public async Task ERR032_保存图片_用户取消_不落盘不弹窗()
         {
             var vm = new ImagePageViewModel(_log, new StaticInspectionService(StaticInspectionService.TaskDelayMs.None), _panel);
             await vm.CaptureOnceCommand.ExecuteAsync(null);
             var messages = CaptureMessages(vm);
+            AutoConfirmSavePath(vm, null, confirmed: false); // 模拟用户取消对话框
 
-            await vm.SaveImageCommand.ExecuteAsync(null); // 用户取消保存对话框
+            await vm.SaveImageCommand.ExecuteAsync(null);
 
             Assert.Empty(messages); // 纯取消不弹任何提示
             Assert.DoesNotContain(_log.Entries, e => e.Message.Contains("保存"));
@@ -333,11 +351,21 @@ namespace UiTopMachine.Tests
             await vm.CaptureOnceCommand.ExecuteAsync(null); // 无新帧 → 无图
             var messages = CaptureMessages(vm);
 
-            var path = Path.Combine(Path.GetTempPath(), "uitop_err032_never_" + Guid.NewGuid().ToString("N") + ".png");
-            await vm.SaveImageCommand.ExecuteAsync(path);
+            await vm.SaveImageCommand.ExecuteAsync(null);
 
-            Assert.False(File.Exists(path));
             Assert.Contains(messages, m => m.Message.Contains("无图片可保存"));
+        }
+
+        [Fact]
+        public async Task ERR032a_命令绑定与状态刷新不触发保存路径请求()
+        {
+            var vm = new ImagePageViewModel(_log, new StaticInspectionService(StaticInspectionService.TaskDelayMs.None), _panel);
+            var requests = 0;
+            vm.SavePathRequested += (_, _) => requests++;
+
+            // 属性/命令状态刷新（含检测出图联动 SaveImageCommand.RaiseCanExecuteChanged）不得触发路径请求
+            await vm.CaptureOnceCommand.ExecuteAsync(null);
+            Assert.Equal(0, requests); // 路径请求只在命令 Execute 时发起
         }
     }
 }
