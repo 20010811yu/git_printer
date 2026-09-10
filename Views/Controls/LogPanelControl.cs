@@ -14,14 +14,21 @@ namespace UiTopMachine.Views.Controls
     /// </summary>
     public class LogPanelControl : Control
     {
-        private const int StatusRowHeight = 30;
-        /// <summary>单行消息行高（px，换行后行高按内容实测增长）</summary>
-        private const int ItemHeight = 24;
+        /// <summary>顶部 PLC 状态行高（px，随状态字体放大：30→34）</summary>
+        private const int StatusRowHeight = 34;
+        /// <summary>单行消息最小行高（px，换行后行高按内容实测增长；随字体放大 24→28）</summary>
+        private const int ItemHeight = 28;
         /// <summary>行距（px，叠加在实测文本高度上，防行间粘连）</summary>
         private const int LineGap = 3;
-        /// <summary>消息区左缘（时间列之后）与右缘留白（px）</summary>
-        private const int MessageLeft = 78;
+        /// <summary>消息区左缘（时间列之后）与右缘留白（px，随字体放大 78→92）</summary>
+        private const int MessageLeft = 92;
         private const int MessageRight = 10;
+        /// <summary>PLC 状态行字号（px，v1.36 放大：14→16）</summary>
+        public const int StatusFontSizePx = 16;
+        /// <summary>消息字号（px，v1.36 放大：13.5→16）</summary>
+        public const double MessageFontSizePx = 16;
+        /// <summary>时间戳字号（px，v1.36 放大：13→15）</summary>
+        public const double TimeFontSizePx = 15;
         /// <summary>重建时最多装载的条目数（绘制按控件高度自然截断，窗口越高显示越多）</summary>
         private const int MaxItems = 32;
         private readonly List<LogEntryViewModel> _items = new();
@@ -40,7 +47,7 @@ namespace UiTopMachine.Views.Controls
                      | ControlStyles.OptimizedDoubleBuffer
                      | ControlStyles.ResizeRedraw, true);
             BackColor = Color.White;
-            Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
+            Font = new Font("Microsoft YaHei UI", (float)MessageFontSizePx, FontStyle.Regular, GraphicsUnit.Pixel);
         }
 
         /// <summary>
@@ -135,9 +142,9 @@ namespace UiTopMachine.Views.Controls
             var g = e.Graphics;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            using var timeFont = new Font("Consolas", 13f, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var msgFont = new Font("Microsoft YaHei UI", 13.5f, FontStyle.Regular, GraphicsUnit.Pixel);
-            using var statusFont = new Font("Microsoft YaHei UI", 14f, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var timeFont = new Font("Consolas", (float)TimeFontSizePx, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var msgFont = new Font("Microsoft YaHei UI", (float)MessageFontSizePx, FontStyle.Regular, GraphicsUnit.Pixel);
+            using var statusFont = new Font("Microsoft YaHei UI", (float)StatusFontSizePx, FontStyle.Bold, GraphicsUnit.Pixel);
             using var timeBrush = new SolidBrush(Color.FromArgb(150, 160, 172));
 
             // ── 顶部 PLC 连接状态行 ──
@@ -178,7 +185,7 @@ namespace UiTopMachine.Views.Controls
             if (_items.Count == 0)
             {
                 using var hintBrush = new SolidBrush(Color.FromArgb(170, 178, 189));
-                using var hintFont = new Font("Microsoft YaHei UI", 14f, FontStyle.Regular, GraphicsUnit.Pixel);
+                using var hintFont = new Font("Microsoft YaHei UI", (float)StatusFontSizePx, FontStyle.Regular, GraphicsUnit.Pixel);
                 g.DrawString("暂无消息", hintFont, hintBrush, 10, StatusRowHeight + 8);
             }
         }

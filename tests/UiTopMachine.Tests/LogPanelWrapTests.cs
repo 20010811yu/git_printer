@@ -52,5 +52,14 @@ namespace UiTopMachine.Tests
             Assert.True(narrow >= wide, "更窄的可用宽度不应测得更少行数");
             Assert.Equal(1, LogPanelControl.CountWrappedLines(_g, string.Empty, _font, 100));
         }
+
+        [Fact]
+        public void Status面板字体字号已放大()
+        {
+            // v1.36 用户要求放大 listbox（Status 面板）字体：消息/状态 16px、时间 15px（原 13.5/14/13）
+            Assert.Equal(16, LogPanelControl.MessageFontSizePx);
+            Assert.Equal(16, LogPanelControl.StatusFontSizePx);
+            Assert.Equal(15, LogPanelControl.TimeFontSizePx);
+        }
     }
 }
