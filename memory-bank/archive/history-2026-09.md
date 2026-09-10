@@ -725,3 +725,18 @@
 - **解决方式**：放弃三个失效属性的 INPC 绑定，View 端 500ms Windows.Forms.Timer 轮询同步（SyncDisplayFromViewModel）——定时器 Tick 固定 UI 线程，对线程/编组/绑定全部免疫；图像所有权移交 View（VM 不再 Dispose 旧图，View 替换引用时释放）；保留 AttachUiMarshaller；桥接 Run() → SyncRun()
 - **附带发现**：本环境 dotnet build 增量构建不可靠（编译陈旧源码、报成功但产物未更新）——验证产物必须 clean 构建 + 检查产物内新符号；net48 无 Math.Clamp（用 Min/Max）
 - **教训**：WinForms 绑定失效无任何报错，排障必须逐层实证（INPC 触发了吗？在哪个线程？绑定收到了吗？）而非反复猜测；显示类需求可用 UI 定时器轮询兜底——简单可靠对线程模型免疫；「参考程序怎么写就怎么对齐」往往比自创路径更快
+---
+
+## 附：activeContext 搬移内容（2026-09-10，v1.32 交付时按 §3.3 替换式写入归档）
+
+### 上一焦点（v1.30，2026-09-09）
+
+**VM 方案文件加密防外泄 ✅** —— SolutionProtector（AES-256 + PBKDF2，VMENC1 壳）+ 桥接加载时解密到临时明文用完即删 + SolutionEncryptor 工具；真实方案已加密替换 `D:\Printer\VisionTesting.dll`。202/202 全绿。
+
+### 上一焦点（v1.29，2026-09-09）
+
+**界面整体调整 ✅** —— ① 进料抽屉配方输入框加宽（220→300px、字体 12f）；② 无边框窗口可拉伸（`WndProc` WM_NCHITTEST 八方向边缘命中，8px Padding 外沿，ERR-033）；③ 全局字体放大 +1~2pt。196/196 测试全绿。
+
+### 上一焦点（v1.28/28b，2026-09-09）
+
+**图像页「保存图片」应用层实现 + 保存对话框失控修复（ERR-032/32a）✅** —— 右键菜单保存崩 OpenCvSharp（原生库未分发）→ GDI+ 自实现 SaveImageCommand（Clone 后台落盘）+ 成功/失败/无图弹窗；SaveFileDialog 误放 Bind 参数提供器致进页即弹 → 改 `SavePathRequestEventArgs` 请求回填模式 + 命令无参化。详 errorlog.md ERR-032/32a。

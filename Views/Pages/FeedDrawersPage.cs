@@ -23,6 +23,12 @@ namespace UiTopMachine.Views.Pages
         private const int Rows = 3;
         /// <summary>输入框行高（px，用户要求增高：46→58）</summary>
         public const int InputRowHeight = 58;
+        /// <summary>输入框初始宽度（px，AntdUI Input 圆角风格适当加宽：120→160）</summary>
+        public const int InputWidth = 160;
+        /// <summary>输入框最小宽度（px，极窄窗口保底）</summary>
+        public const int InputMinWidth = 60;
+        /// <summary>输入框最大宽度（px，窗口拉伸上限）</summary>
+        public const int InputMaxWidth = 320;
 
         // ══════════════ 布局控件 ══════════════
         private AntdUI.Button _sendButton = null!;
@@ -36,7 +42,7 @@ namespace UiTopMachine.Views.Pages
         private sealed class DrawerCell
         {
             public DrawerIndicatorControl Indicator = null!;
-            public TextBox RecipeBox = null!;
+            public AntdUI.Input RecipeBox = null!;
             public bool IsBound;
         }
 
@@ -167,15 +173,15 @@ namespace UiTopMachine.Views.Pages
                 Margin = new Padding(0)
             };
 
-            // 配方输入框：Text 默认为空，固定行内水平居中（宽度 ≤ 行宽 - 16）
-            cell.RecipeBox = new TextBox
+            // 配方输入框：AntdUI Input（圆角扁平风格），Text 默认为空，固定行内水平居中
+            cell.RecipeBox = new AntdUI.Input
             {
                 Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Regular, GraphicsUnit.Point),
                 ForeColor = Color.FromArgb(56, 70, 88),
-                BorderStyle = BorderStyle.FixedSingle,
                 TextAlign = HorizontalAlignment.Center,
+                Radius = 6,
                 Text = string.Empty,
-                Size = new Size(120, 32),
+                Size = new Size(InputWidth, 40),
                 Anchor = AnchorStyles.None
             };
 
@@ -183,11 +189,11 @@ namespace UiTopMachine.Views.Pages
             layout.Controls.Add(cell.RecipeBox, 0, 1);
             container.Controls.Add(layout);
 
-            // 输入框宽度跟随单元格伸缩（极窄时保底 48px），居中由 TLP Anchor.None 自动完成；
-            // 上限 300px（用户要求加宽，窗口拉伸时输入框随之变宽）
+            // 输入框宽度跟随单元格伸缩（极窄时保底 60px），居中由 TLP Anchor.None 自动完成；
+            // 上限 320px（窗口拉伸时输入框随之变宽）
             container.Resize += (_, _) =>
             {
-                int w = Math.Max(48, Math.Min(300, layout.ClientSize.Width - 12));
+                int w = Math.Max(InputMinWidth, Math.Min(InputMaxWidth, layout.ClientSize.Width - 12));
                 if (cell.RecipeBox.Width != w)
                 {
                     cell.RecipeBox.Width = w;
@@ -267,8 +273,9 @@ namespace UiTopMachine.Views.Pages
                 cell.Indicator.DataBindings.Add(nameof(DrawerIndicatorControl.Status), vm,
                     nameof(DrawerItemViewModel.Status), false, DataSourceUpdateMode.Never);
 
-                // 配方输入框：双向绑定（用户输入即时回写 VM，驱动状态灯变色）
-                cell.RecipeBox.DataBindings.Add(nameof(TextBox.Text), vm,
+                // 配方输入框：双向绑定（用户输入即时回写 VM，驱动状态灯变色；
+                // AntdUI.Input 的 SetText 会触发 OnTextChanged，WinForms 绑定可双向生效）
+                cell.RecipeBox.DataBindings.Add(nameof(AntdUI.Input.Text), vm,
                     nameof(DrawerItemViewModel.Recipe), true, DataSourceUpdateMode.OnPropertyChanged);
 
                 // 编辑权限：无料（灰）只读、有料（黄/绿）可编辑，随 PLC 物料推送联动

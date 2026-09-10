@@ -81,6 +81,8 @@
 | ERR-032a | 保存对话框失控（一进图像页就弹另存为） | SaveFileDialog 严禁放进 CommandManagerHelper.Bind 的参数提供器——提供器在绑定与每次命令状态刷新时都会被调用；对话框一律走 VM→View 请求事件回填模式（同 InputRequestEventArgs），命令保持无参 |
 | ERR-033 | 无边框窗体（FormBorderStyle.None）不可拉伸 | 边缘拉伸 = 窗体留 Padding 外沿（8px）为自身表面 + WndProc 拦 WM_NCHITTEST 按位置返回 HTLEFT/HTRIGHT/HTTOP/HTBOTTOM 及四角命中码；LParam 屏幕坐标多显示器下为负必须按 16 位有符号截取；最大化状态不命中 |
 | ERR-034 | SolutionProtector 测试断言全局 %TEMP% 空被历史残留污染误报失败 | 断言共享全局目录（%TEMP% 通配扫描）的测试会被历史运行残留误伤——清理残留即恢复；此类断言宜改用测试独占子目录，全局扫描仅作诊断 |
+| ERR-035 | SolutionProtector 全局 %TEMP% 断言被并行调度竞态误伤（新增测试类改变 xUnit 调度后确定性失败） | 断言全局目录的用例必须收进 `[CollectionDefinition(DisableParallelization = true)]` 串行执行——同全局资源的扫描断言与并行度强耦合，加测试即可引爆 |
+| ERR-036 | AntdUI.Input 换入后 View 绑定守护用例全红（控件未挂已显示窗体，绑定静默不激活） | WinForms 绑定（含 AntdUI.Input，其 SetText 会触发 OnTextChanged、双向可行）只在控件具备 BindingContext/句柄后激活——View 绑定测试必须建宿主 Form 并 Show 后再断言（同 ERR-029） |
 
 ---
 
@@ -115,6 +117,9 @@
 25. **跨运行时 SDK 控件与引擎必须分开评估** → 纯托管控件（如 VMControls）可被 net10.0 加载复用，引擎（C++/CLI 混合程序集链）不行——直调引擎在原生层无声崩溃，托管侧无异常可捕；混合架构 = 引擎留桥接进程 + 控件进主程序显示；控件自身的 GAC 静态依赖（VM.PlatformSDKCS）经 `AppDomain.AssemblyResolve` 从 GAC 物理路径补加载（ERR-030）
 26. **View 按钮必须绑定命令** → 页面按钮一律 `CommandManagerHelper.Bind(button, vm命令)` 并逐按钮核对（v1.26 重构曾整体遗漏）；绑定缺失的症状 = 点击无反应且日志零痕迹（命令没执行而非执行失败）；守护手法 = 测试断言未加载方案时按钮 Enabled=false（绑定时按 CanExecute 立即同步控件态，缺绑定则默认可点）（ERR-031）
 27. **第三方控件内置功能的原生依赖** → VmRenderControl 右键保存等内置路径依赖 OpenCvSharp 原生库（未随 net10.0 主程序分发，类型初始化必崩）；同类需求优先应用层自实现（GDI+ `Image.Save`），并在 View 尽力禁用控件右键菜单（`ContextMenuStrip = null`）；保存时机注意 ERR-028 所有权语义——先 Clone 再后台落盘，防轮播释放原图（ERR-032）
+28. **View 绑定类测试** → 控件必须挂到**已显示的宿主 Form**（`host.Controls.Add(page); host.Show();`）绑定才激活——无句柄时 DataBindings 静默失效（VM→UI、UI→VM 双向皆不动）；断言前先 Show 再触发数据变更（ERR-036，同源 ERR-029）
+29. **全局资源扫描类断言** → 断言「全局目录无残留」的用例必须放 `[CollectionDefinition(DisableParallelization = true)]` 集合串行执行，防止其他并行用例的存活文件误伤断言；此类用例对调度敏感，新增测试后必须全量复跑（ERR-035）
+30. **AntdUI.Input 替换原生 TextBox** → `Text`/`ReadOnly`/`TextAlign` 属性名一致可直接迁移；`SetText` 触发 `Control.OnTextChanged` 故 WinForms 双向绑定可行（IL 实证）；Input 为自绘无边框，无需 BorderStyle；宽度调整常量集中在 FeedDrawersPage（InputWidth/Min/Max）
 
 ## 沉淀出口
 

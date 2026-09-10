@@ -12,6 +12,15 @@ namespace UiTopMachine.Tests
     /// VM 方案加密壳测试（防方案外泄）：加密往返、魔数识别、口令校验失败、
     /// 桥接服务加载加密方案时的解密与临时明文清理（加密方案功能 v1.30）
     /// </summary>
+    /// <remarks>
+    /// 互斥集合（ERR-034 教训落地）：两个「临时明文已清理」用例断言全局 %TEMP% 无
+    /// UiTopMachine_vmsol_* 残留，并行运行时会读到对方用例存活的明文文件而误报失败——
+    /// xUnit 默认同类内用例并行，必须收进同一非并行 Collection 串行执行。
+    /// </remarks>
+    [CollectionDefinition("SolutionProtectorSequential", DisableParallelization = true)]
+    public class SolutionProtectorSequentialDefinition { }
+
+    [Collection("SolutionProtectorSequential")]
     public class SolutionProtectorTests : IDisposable
     {
         private readonly string _dir;

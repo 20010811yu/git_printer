@@ -4,19 +4,11 @@
 
 ## 当前工作焦点
 
-**发送按钮接入真实 PLC 通道（v1.31/31e）✅ 已完成** —— 用户要求点击发送后向 PLC 发送第一组配方的抽屉编号数组（不含配方值）。**协议已按用户指示切换为标准 ModbusTcpNet**（`useInovance: false`，纯数字地址，物料区同步改 `1000`×19），发送 = 一次批量写入 `Write("4000", array)`，PLC 侧 D4000 起已改 **16 位 INT 连续地址**（用户确认，v1.31h 去掉 DINT 2 字对齐），编号按顺序落 4000 起连续寄存器；**同时向 3000 区下发配方参数**（v1.31g）：注入 `IRecipeFileService`，按第一组配方名匹配配方表「编号」列（候选 编号/配方编号，Trim 比较），该行**除编号外所有列**依次写 3000 起连续寄存器（每参数占一个地址，非数字列按 0，超 short 范围截断），找不到匹配行/无编号列视为失败。流程：取第 1 组 → 写 4000 编号 → 写 3000 参数 → 全部成功后清空对应抽屉配方输入框（状态灯三态自动回落、分组移除该组）+ `MessageRequested` 弹窗「发送成功」（FeedDrawersPage 订阅）+ 日志输出编号与配方；任一失败则错误信息写入 Status 面板列表（listbox），输入框保留供重试。+4 守护用例（批量写地址/数组、无分组告警、失败进列表、IsBusy 复位），206/206 全绿。
+**进料抽屉页输入框换 AntdUI.Input + 宽度调整（v1.32）✅ 已完成** —— FeedDrawersPage 的 18 个配方输入框由原生 `TextBox` 换为 `AntdUI.Input`（圆角 Radius=6、居中、字体 12f），初始宽度 120→160px（`InputWidth`），自适应区间 60~320px（`InputMinWidth`/`InputMaxWidth`）。绑定链路不变（Recipe 双向 + IsInputReadOnly 只读）；实证 AntdUI.Input.SetText 会触发 OnTextChanged，WinForms 双向绑定可行，但绑定只在控件挂到**已显示窗体**后激活（无句柄即静默失效，测试须建宿主 Form 并 Show，同 ERR-029）。+3 守护用例（输入框类型与宽度区间 / 双向绑定 / 只读联动）；顺带修复 SolutionProtectorTests 全局 %TEMP% 断言被并行调度竞态误伤（ERR-035，DisableParallelization 集合串行化）。
 
-### 上一焦点（v1.30，2026-09-09）
+### 上一焦点（v1.31/31h，2026-09-09）
 
-**VM 方案文件加密防外泄 ✅** —— SolutionProtector（AES-256 + PBKDF2，VMENC1 壳）+ 桥接加载时解密到临时明文用完即删 + SolutionEncryptor 工具；真实方案已加密替换 `D:\Printer\VisionTesting.dll`。202/202 全绿。
-
-### 上一焦点（v1.29，2026-09-09）
-
-**界面整体调整 ✅** —— ① 进料抽屉配方输入框加宽（220→300px、字体 12f）；② 无边框窗口可拉伸（`WndProc` WM_NCHITTEST 八方向边缘命中，8px Padding 外沿，ERR-033）；③ 全局字体放大 +1~2pt。196/196 测试全绿。
-
-### 上一焦点（v1.28/28b，2026-09-09）
-
-**图像页「保存图片」应用层实现 + 保存对话框失控修复（ERR-032/32a）✅** —— 右键菜单保存崩 OpenCvSharp（原生库未分发）→ GDI+ 自实现 SaveImageCommand（Clone 后台落盘）+ 成功/失败/无图弹窗；SaveFileDialog 误放 Bind 参数提供器致进页即弹 → 改 `SavePathRequestEventArgs` 请求回填模式 + 命令无参化。详 [errorlog.md](errorlog.md) ERR-032/32a。
+**发送按钮接真实 PLC ✅** —— ModbusTcpNet + 一次批量写 4000 编号（16 位 INT 连续）+ 同时写 3000 配方参数 + 成功弹窗/失败进列表/清配方。207/207 全绿。详 progress.md。
 
 > 更早焦点（v1.27 及之前 v0.x~v1.26 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
@@ -26,9 +18,9 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-10 | 进料抽屉输入框换 AntdUI.Input + 宽度调整（v1.32：InputWidth=160/60~320 自适应；+3 View 绑定守护用例；ERR-035 SolutionProtector 竞态修复） | ✅ 210/210 PASS |
 | 2026-09-09 | 发送按钮接真实 PLC（v1.31/31g：ModbusTcpNet + 写 4000 编号(DINT 对齐) + 同时写 3000 配方参数(编号外全列连续落址) + 成功弹窗 + 失败进列表；+5 用例） | ✅ 207/207 PASS |
 | 2026-09-09 | VM 方案加密防外泄（v1.30：SolutionProtector + 桥接解密加载 + SolutionEncryptor 工具；+6 用例；真实方案已加密替换） | ✅ 202/202 PASS |
-| 2026-09-09 | 保存对话框失控修复（v1.28b，ERR-032a；+1 守护用例） | ✅ 196/196 PASS |
 
 ## 当前处理中的错误
 
