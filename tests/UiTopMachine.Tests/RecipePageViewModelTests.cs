@@ -28,7 +28,7 @@ namespace UiTopMachine.Tests
             Directory.CreateDirectory(_tempDir);
             _service = new RecipeFileService(Path.Combine(_tempDir, "Recipe.xlsx"));
             _log = new StubLogService();
-            _vm = new RecipePageViewModel(_service, _log);
+            _vm = new RecipePageViewModel(_service, _log, new StubPanelPublisher());
         }
 
         public void Dispose()

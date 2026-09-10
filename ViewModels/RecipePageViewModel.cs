@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using UiTopMachine.Common;
 using UiTopMachine.Common.Commands;
+using UiTopMachine.Models;
 using UiTopMachine.Services.Interfaces;
 
 namespace UiTopMachine.ViewModels
@@ -21,6 +22,7 @@ namespace UiTopMachine.ViewModels
         // ══════════════ 依赖 ══════════════
         private readonly IRecipeFileService _recipeFileService;
         private readonly ILogService _logService;
+        private readonly IPanelStatusPublisher _panelStatus;
 
         /// <summary>
         /// 保存互斥锁：自动保存与手动保存可能并发触发，
@@ -211,10 +213,12 @@ namespace UiTopMachine.ViewModels
         /// <summary>
         /// 构造：注入配方文件服务与日志服务（依赖由 DI 提供）
         /// </summary>
-        public RecipePageViewModel(IRecipeFileService recipeFileService, ILogService logService)
+        public RecipePageViewModel(IRecipeFileService recipeFileService, ILogService logService,
+            IPanelStatusPublisher panelStatus)
         {
             _recipeFileService = recipeFileService ?? throw new ArgumentNullException(nameof(recipeFileService));
             _logService = logService ?? throw new ArgumentNullException(nameof(logService));
+            _panelStatus = panelStatus ?? throw new ArgumentNullException(nameof(panelStatus));
 
             LoadCommand = new AsyncRelayCommand(
                 _ => LoadRecipeAsync(),
@@ -276,7 +280,14 @@ namespace UiTopMachine.ViewModels
                 }
                 else
                 {
-                    _logService.Error(result.ErrorMessage ?? "配方加载失败");
+                    var message = result.ErrorMessage ?? "配方加载失败";
+                    _logService.Error(message);
+
+                    // 文件被外部程序（Excel 等）占用：同步发布到 Status 面板（listbox）提醒用户
+                    if (message.Contains("占用"))
+                    {
+                        _panelStatus.PublishPanelEntry(LogLevel.Error, $"加载失败：{message}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -621,7 +632,14 @@ namespace UiTopMachine.ViewModels
                 }
                 else
                 {
-                    _logService.Error(result.ErrorMessage ?? "新建空白配方失败");
+                    var message = result.ErrorMessage ?? "新建空白配方失败";
+                    _logService.Error(message);
+
+                    // 文件被外部程序（Excel 等）占用：同步发布到 Status 面板（listbox）提醒用户
+                    if (message.Contains("占用"))
+                    {
+                        _panelStatus.PublishPanelEntry(LogLevel.Error, message);
+                    }
                 }
             }
             catch (Exception ex)
@@ -794,6 +812,12 @@ namespace UiTopMachine.ViewModels
                     else
                     {
                         _logService.Warn(message);
+                    }
+
+                    // 文件被外部程序（Excel 等）占用：除日志外同步发布到 Status 面板（listbox）提醒用户
+                    if (result.ErrorMessage?.Contains("占用") == true)
+                    {
+                        _panelStatus.PublishPanelEntry(LogLevel.Error, message);
                     }
                 }
             }

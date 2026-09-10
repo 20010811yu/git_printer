@@ -138,6 +138,12 @@ namespace UiTopMachine.Services
                     string? backup = null;
                     if (File.Exists(FilePath))
                     {
+                        // 使用前占用探测：原文件被锁定时拒绝轮转（Move 会失败），防半迁移状态
+                        if (IsFileOccupied(FilePath))
+                        {
+                            throw new IOException(OccupiedError);
+                        }
+
                         var dir = Path.GetDirectoryName(FilePath) ?? FolderPath;
                         var name = Path.GetFileNameWithoutExtension(FilePath);
                         string candidate;
@@ -195,6 +201,39 @@ namespace UiTopMachine.Services
 
         // ══════════════ 私有辅助 ══════════════
 
+        /// <summary>文件被占用时的统一提示文案（VM 按此标记把信息发布到 Status 面板）</summary>
+        public const string OccupiedError = "配方文件正被其他程序占用（可能已在 Excel 中打开），请关闭该文件后重试";
+
+        /// <summary>
+        /// 使用前探测文件是否被外部程序（Excel 等）占用：
+        /// 试以 FileShare.None 独占打开，IOException/UnauthorizedAccessException 即判定占用；
+        /// 文件不存在按未占用处理（沿用「不存在返回空表/正常新建」的既有逻辑）
+        /// </summary>
+        private static bool IsFileOccupied(string path)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                return false; // 独占打开成功 = 未被占用
+            }
+            catch (FileNotFoundException)
+            {
+                return false; // 不存在按未占用，后续按各自流程处理
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return false; // 目录不存在由 Directory.CreateDirectory 兜底
+            }
+            catch (IOException)
+            {
+                return true; // 共享冲突 = 被占用
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true; // 只读/权限锁定 = 视同占用，明确提示
+            }
+        }
+
         /// <summary>
         /// 加载核心逻辑：读取指定路径 Excel 第一张工作表到 DataTable
         /// （文件不存在时返回含默认表头的空表，首次运行友好）
@@ -211,6 +250,12 @@ namespace UiTopMachine.Services
                     if (!File.Exists(path))
                     {
                         return Result<DataTable>.OK(table);
+                    }
+
+                    // 使用前占用探测：文件被 Excel 等外部程序锁定时给出明确提示，而非晦涩的 IO 异常
+                    if (IsFileOccupied(path))
+                    {
+                        return Result<DataTable>.Fail(OccupiedError);
                     }
 
                     using var workbook = new XLWorkbook(path);
@@ -289,6 +334,12 @@ namespace UiTopMachine.Services
                     if (!string.IsNullOrEmpty(dir))
                     {
                         Directory.CreateDirectory(dir); // 确保目标目录存在
+                    }
+
+                    // 使用前占用探测：文件被 Excel 等锁定时拒绝写盘，防半写/写失败产生晦涩异常
+                    if (File.Exists(path) && IsFileOccupied(path))
+                    {
+                        return Result<bool>.Fail(OccupiedError);
                     }
 
                     using var workbook = new XLWorkbook();

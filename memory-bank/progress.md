@@ -6,6 +6,7 @@
 
 | 日期 | 版本 | 功能 | 关联 | 测试 |
 |------|------|------|------|------|
+| 2026-09-10 | v1.35 | 配方 xlsx 使用前占用探测（FileShare.None 试探，Save/Load/CreateBlank 三处）+ 被占用提示发布 Status 面板（VM 注入 IPanelStatusPublisher；+5 用例） | — | 211/211 |
 | 2026-09-10 | v1.34 | Status 面板（LogPanelControl）长消息自动换行 + 动态行高（CountWrappedLines 纯函数；+2 用例） | — | 206/206 |
 | 2026-09-10 | v1.33 | 移除 VM 方案加载加密：删 SolutionProtector 解密链路/加密工具/6 用例，方案改明文直载（路径不变 D:\Printer\VisionTesting.dll，.sol 内容扩展名不限） | — | 204/204 |
 | 2026-09-10 | v1.32 | 进料抽屉页配方输入框换 AntdUI.Input（圆角）+ 宽度调整（160 起，60~320 自适应；+3 View 绑定守护用例） | ERR-035/036 | 210/210 |

@@ -4,11 +4,11 @@
 
 ## 当前工作焦点
 
-**Status 面板长消息自动换行（v1.34）✅ 已完成** —— 用户所说的 listbox 实为自绘 `LogPanelControl`（原固定行高 24px 单行绘制，超长被裁）。消息流改 `RectangleF` 区域绘制自动折行（时间戳仅首行），行高按 `MeasureString` 实测动态增长；行数计算抽纯函数 `CountWrappedLines`（GenericTypographic 消除 MeasureString 留白 + 1px 容差防行数虚高）；`MaxVisible=16` 截断改为取 32 条备用 + 按控件高度自然截断（窗口越高显示越多）；顶部 PLC 状态行保持单行。+2 守护用例（长多行/短单行、窄宽度行数不减、空文本兜底）。206/206 全绿。
+**配方文件占用探测 + Status 面板提示（v1.35）✅ 已完成** —— 用户问询后落地：配方 xlsx 在使用前（保存 SaveAs 前/加载 XLWorkbook 前/新建轮转 File.Move 前）以 `FileShare.None` 试探性独占打开探测占用（FileNotFoundException/DirectoryNotFound 按未占用走原流程），被 Excel 等锁定时返回统一文案 `OccupiedError`（含「正被其他程序占用」）并拒绝操作（不产生半写/半迁移）。`RecipePageViewModel` 注入 `IPanelStatusPublisher`（MainViewModel 单例，DI 自动解析，内部自带 UI 线程调度），保存/加载/新建失败消息含「占用」时额外 `PublishPanelEntry(Error, …)` 发布到 Status 面板（listbox）；非占用失败维持仅记日志。流水号/日志/方案文件为程序自管文件未加检查。+5 守护用例（三个操作占用失败且文件不破坏/释放锁重试成功/VM 占用进面板+非占用不进面板）。211/211 全绿。
 
-### 上一焦点（v1.33，2026-09-10）
+### 上一焦点（v1.34，2026-09-10）
 
-**移除 VM 方案加载加密 ✅** —— 服务删解密链路直载明文（路径不变 `D:\Printer\VisionTesting.dll`，.sol 内容扩展名不限）；删 SolutionProtector/SolutionEncryptor/6 用例。204/204 全绿。
+**Status 面板长消息自动换行 ✅** —— LogPanelControl 消息流 RectangleF 自动折行 + 动态行高（CountWrappedLines 纯函数，GenericTypographic 防行数虚高）。206/206 全绿。
 
 > 更早焦点（v1.27 及之前 v0.x~v1.26 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
@@ -18,6 +18,7 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-10 | 配方文件占用探测 + Status 面板提示（v1.35：FileShare.None 试探 + OccupiedError 统一文案 + IPanelStatusPublisher 发布；+5 用例） | ✅ 211/211 PASS |
 | 2026-09-10 | Status 面板长消息自动换行（v1.34：RectangleF 折行 + 动态行高 + CountWrappedLines 纯函数；+2 用例） | ✅ 206/206 PASS |
 | 2026-09-10 | 移除 VM 方案加载加密（v1.33：删解密链路/加密工具/6 用例；方案路径不变，明文直载） | ✅ 204/204 PASS |
 | 2026-09-10 | 进料抽屉输入框换 AntdUI.Input + 宽度调整（v1.32：InputWidth=160/60~320 自适应；+3 View 绑定守护用例；ERR-035 SolutionProtector 竞态修复） | ✅ 210/210 PASS |
