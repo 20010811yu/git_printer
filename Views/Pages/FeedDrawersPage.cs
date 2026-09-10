@@ -22,7 +22,7 @@ namespace UiTopMachine.Views.Pages
         /// <summary>行数（强制 3 行）</summary>
         private const int Rows = 3;
         /// <summary>输入框行高（px，用户要求增高：46→58）</summary>
-        public const int InputRowHeight = 58;
+        public const int InputRowHeight = 50;
         /// <summary>输入框初始宽度（px，AntdUI Input 圆角风格适当加宽：120→160）</summary>
         public const int InputWidth = 160;
         /// <summary>输入框最小宽度（px，极窄窗口保底）</summary>

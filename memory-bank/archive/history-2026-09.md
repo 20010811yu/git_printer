@@ -740,3 +740,7 @@
 ### 上一焦点（v1.28/28b，2026-09-09）
 
 **图像页「保存图片」应用层实现 + 保存对话框失控修复（ERR-032/32a）✅** —— 右键菜单保存崩 OpenCvSharp（原生库未分发）→ GDI+ 自实现 SaveImageCommand（Clone 后台落盘）+ 成功/失败/无图弹窗；SaveFileDialog 误放 Bind 参数提供器致进页即弹 → 改 `SavePathRequestEventArgs` 请求回填模式 + 命令无参化。详 errorlog.md ERR-032/32a。
+
+### 上一焦点（v1.31/31h，2026-09-09）
+
+**发送按钮接真实 PLC ✅** —— ModbusTcpNet + 一次批量写 4000 编号（16 位 INT 连续）+ 同时写 3000 配方参数 + 成功弹窗/失败进列表/清配方。207/207 全绿。

@@ -4,11 +4,11 @@
 
 ## 当前工作焦点
 
-**进料抽屉页输入框换 AntdUI.Input + 宽度调整（v1.32）✅ 已完成** —— FeedDrawersPage 的 18 个配方输入框由原生 `TextBox` 换为 `AntdUI.Input`（圆角 Radius=6、居中、字体 12f），初始宽度 120→160px（`InputWidth`），自适应区间 60~320px（`InputMinWidth`/`InputMaxWidth`）。绑定链路不变（Recipe 双向 + IsInputReadOnly 只读）；实证 AntdUI.Input.SetText 会触发 OnTextChanged，WinForms 双向绑定可行，但绑定只在控件挂到**已显示窗体**后激活（无句柄即静默失效，测试须建宿主 Form 并 Show，同 ERR-029）。+3 守护用例（输入框类型与宽度区间 / 双向绑定 / 只读联动）；顺带修复 SolutionProtectorTests 全局 %TEMP% 断言被并行调度竞态误伤（ERR-035，DisableParallelization 集合串行化）。
+**移除 VM 方案加载加密（v1.33）✅ 已完成** —— 用户确认方案不再加密：服务删去 SolutionProtector 解密链路（IsEncrypted 识别→解密临时明文→用完即删），`LoadSolutionAsync` 直接把方案路径透传桥接进程；方案路径保持 `D:\Printer\VisionTesting.dll` 不变（**内容为明文 .sol，扩展名不限**，VisionMaster 加载不校验扩展名，磁盘文件已由用户换回明文 PK 头）。删除 SolutionProtector.cs、SolutionProtectorTests（6 用例）、tools/SolutionEncryptor 工具。用户曾提「Delete+Copy 到 .sol 再加载」方式，已分析否决：非原子易损坏、双文件易失同步、扩展名约定易误导——直连路径零拷贝更优。204/204 全绿（210 − 6 加密用例）。
 
-### 上一焦点（v1.31/31h，2026-09-09）
+### 上一焦点（v1.32，2026-09-10）
 
-**发送按钮接真实 PLC ✅** —— ModbusTcpNet + 一次批量写 4000 编号（16 位 INT 连续）+ 同时写 3000 配方参数 + 成功弹窗/失败进列表/清配方。207/207 全绿。详 progress.md。
+**进料抽屉输入框换 AntdUI.Input ✅** —— 18 个配方输入框换 AntdUI.Input（圆角，160px 起 60~320 自适应）；+3 View 绑定守护用例；ERR-035 SolutionProtector 竞态修复（该测试类已随加密移除删除）。210/210 全绿。
 
 > 更早焦点（v1.27 及之前 v0.x~v1.26 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
@@ -18,6 +18,7 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-10 | 移除 VM 方案加载加密（v1.33：删解密链路/加密工具/6 用例；方案路径不变，明文直载） | ✅ 204/204 PASS |
 | 2026-09-10 | 进料抽屉输入框换 AntdUI.Input + 宽度调整（v1.32：InputWidth=160/60~320 自适应；+3 View 绑定守护用例；ERR-035 SolutionProtector 竞态修复） | ✅ 210/210 PASS |
 | 2026-09-09 | 发送按钮接真实 PLC（v1.31/31g：ModbusTcpNet + 写 4000 编号(DINT 对齐) + 同时写 3000 配方参数(编号外全列连续落址) + 成功弹窗 + 失败进列表；+5 用例） | ✅ 207/207 PASS |
 | 2026-09-09 | VM 方案加密防外泄（v1.30：SolutionProtector + 桥接解密加载 + SolutionEncryptor 工具；+6 用例；真实方案已加密替换） | ✅ 202/202 PASS |

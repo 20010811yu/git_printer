@@ -105,8 +105,7 @@ namespace UiTopMachine
             // 主程序 net10.0 无法直接引用 VM SDK（.NET Framework 程序集），由 tools/VmVisionBridge（net48）
             // 承载 VmSolution SDK，本服务经命名管道收发命令与 PNG 结果图；
             // 桥接 exe 缺失/启动失败自动降级报错，Mock 实现（ImageInspectionService）保留可随时切回
-            // 加密方案文件（VMENC1 壳，防方案外泄 v1.30）：服务加载时自动解密到临时目录交桥接进程，明文用完即删；
-            // 由 tools/SolutionEncryptor 从明文 .sol 生成（encrypt <明文> <输出.dll>）
+            // 明文方案文件（.sol 内容，扩展名不限，VisionMaster 加载不校验扩展名；v1.33 起不再加密）
             var solutionPath = @"D:\Printer\VisionTesting.dll";
             // 桥接 exe 位于仓库 tools 目录（net48 独立构建）：从 bin\Debug\net10.0-windows\ 回溯 3 级到仓库根
             // （net10.0-windows → Debug → bin → GitRepo；此前误写 4 级解析到 D:\tools\ 致"桥接进程不存在"，ERR-026）

@@ -24,8 +24,7 @@
 ```powershell
 dotnet build UiTopMachine.csproj              # 主程序构建
 dotnet build tools/VmVisionBridge/VmVisionBridge.csproj   # 视觉桥接进程构建（v1.24）
-dotnet build tools/SolutionEncryptor/SolutionEncryptor.csproj  # VM 方案加密工具（v1.30）
-# 方案加密：SolutionEncryptor encrypt <明文.sol> <加密.dll> [口令]；VMENC1 壳，主程序加载时自动解密
+# 方案加载：明文 .sol 直载（v1.33 起不加密；v1.30 加密机制与 tools/SolutionEncryptor 已删除）
 .\bin\Debug\net10.0-windows\UiTopMachine.exe   # 运行
 ```
 
