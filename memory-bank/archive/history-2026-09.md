@@ -744,3 +744,7 @@
 ### 上一焦点（v1.31/31h，2026-09-09）
 
 **发送按钮接真实 PLC ✅** —— ModbusTcpNet + 一次批量写 4000 编号（16 位 INT 连续）+ 同时写 3000 配方参数 + 成功弹窗/失败进列表/清配方。207/207 全绿。
+
+### 上一焦点（v1.33，2026-09-10）
+
+**移除 VM 方案加载加密 ✅** —— 服务删 SolutionProtector 解密链路（识别/临时明文/清理），LoadSolutionAsync 直载明文；方案路径不变 `D:\Printer\VisionTesting.dll`（.sol 内容扩展名不限，VisionMaster 不校验）；删 SolutionProtector.cs/SolutionProtectorTests(6 用例)/tools/SolutionEncryptor。用户曾提 Delete+Copy 方式已分析否决（非原子/易失同步/扩展名误导）。204/204 全绿。

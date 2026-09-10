@@ -4,11 +4,11 @@
 
 ## 当前工作焦点
 
-**移除 VM 方案加载加密（v1.33）✅ 已完成** —— 用户确认方案不再加密：服务删去 SolutionProtector 解密链路（IsEncrypted 识别→解密临时明文→用完即删），`LoadSolutionAsync` 直接把方案路径透传桥接进程；方案路径保持 `D:\Printer\VisionTesting.dll` 不变（**内容为明文 .sol，扩展名不限**，VisionMaster 加载不校验扩展名，磁盘文件已由用户换回明文 PK 头）。删除 SolutionProtector.cs、SolutionProtectorTests（6 用例）、tools/SolutionEncryptor 工具。用户曾提「Delete+Copy 到 .sol 再加载」方式，已分析否决：非原子易损坏、双文件易失同步、扩展名约定易误导——直连路径零拷贝更优。204/204 全绿（210 − 6 加密用例）。
+**Status 面板长消息自动换行（v1.34）✅ 已完成** —— 用户所说的 listbox 实为自绘 `LogPanelControl`（原固定行高 24px 单行绘制，超长被裁）。消息流改 `RectangleF` 区域绘制自动折行（时间戳仅首行），行高按 `MeasureString` 实测动态增长；行数计算抽纯函数 `CountWrappedLines`（GenericTypographic 消除 MeasureString 留白 + 1px 容差防行数虚高）；`MaxVisible=16` 截断改为取 32 条备用 + 按控件高度自然截断（窗口越高显示越多）；顶部 PLC 状态行保持单行。+2 守护用例（长多行/短单行、窄宽度行数不减、空文本兜底）。206/206 全绿。
 
-### 上一焦点（v1.32，2026-09-10）
+### 上一焦点（v1.33，2026-09-10）
 
-**进料抽屉输入框换 AntdUI.Input ✅** —— 18 个配方输入框换 AntdUI.Input（圆角，160px 起 60~320 自适应）；+3 View 绑定守护用例；ERR-035 SolutionProtector 竞态修复（该测试类已随加密移除删除）。210/210 全绿。
+**移除 VM 方案加载加密 ✅** —— 服务删解密链路直载明文（路径不变 `D:\Printer\VisionTesting.dll`，.sol 内容扩展名不限）；删 SolutionProtector/SolutionEncryptor/6 用例。204/204 全绿。
 
 > 更早焦点（v1.27 及之前 v0.x~v1.26 全部历史）：见 [archive/history-2026-09.md](archive/history-2026-09.md) 第一节。
 
@@ -18,6 +18,7 @@
 
 | 日期 | 任务 | 结果 |
 |------|------|------|
+| 2026-09-10 | Status 面板长消息自动换行（v1.34：RectangleF 折行 + 动态行高 + CountWrappedLines 纯函数；+2 用例） | ✅ 206/206 PASS |
 | 2026-09-10 | 移除 VM 方案加载加密（v1.33：删解密链路/加密工具/6 用例；方案路径不变，明文直载） | ✅ 204/204 PASS |
 | 2026-09-10 | 进料抽屉输入框换 AntdUI.Input + 宽度调整（v1.32：InputWidth=160/60~320 自适应；+3 View 绑定守护用例；ERR-035 SolutionProtector 竞态修复） | ✅ 210/210 PASS |
 | 2026-09-09 | 发送按钮接真实 PLC（v1.31/31g：ModbusTcpNet + 写 4000 编号(DINT 对齐) + 同时写 3000 配方参数(编号外全列连续落址) + 成功弹窗 + 失败进列表；+5 用例） | ✅ 207/207 PASS |

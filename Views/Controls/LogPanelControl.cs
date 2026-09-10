@@ -15,8 +15,15 @@ namespace UiTopMachine.Views.Controls
     public class LogPanelControl : Control
     {
         private const int StatusRowHeight = 30;
+        /// <summary>单行消息行高（px，换行后行高按内容实测增长）</summary>
         private const int ItemHeight = 24;
-        private const int MaxVisible = 16;
+        /// <summary>行距（px，叠加在实测文本高度上，防行间粘连）</summary>
+        private const int LineGap = 3;
+        /// <summary>消息区左缘（时间列之后）与右缘留白（px）</summary>
+        private const int MessageLeft = 78;
+        private const int MessageRight = 10;
+        /// <summary>重建时最多装载的条目数（绘制按控件高度自然截断，窗口越高显示越多）</summary>
+        private const int MaxItems = 32;
         private readonly List<LogEntryViewModel> _items = new();
 
         private ObservableCollection<LogEntryViewModel>? _boundCollection;
@@ -78,7 +85,7 @@ namespace UiTopMachine.Views.Controls
         }
 
         /// <summary>
-        /// 重建渲染列表（取前 N 条）
+        /// 重建渲染列表（取前 N 条，绘制阶段按控件高度截断）
         /// </summary>
         private void Rebuild()
         {
@@ -88,7 +95,7 @@ namespace UiTopMachine.Views.Controls
                 foreach (var item in _boundCollection)
                 {
                     _items.Add(item);
-                    if (_items.Count >= MaxVisible)
+                    if (_items.Count >= MaxItems)
                     {
                         break;
                     }
@@ -96,6 +103,27 @@ namespace UiTopMachine.Views.Controls
             }
 
             Invalidate();
+        }
+
+        /// <summary>
+        /// 测量消息在指定宽度内的换行行数（纯静态，供绘制与测试共用；非法入参按 1 行兜底）。
+        /// 用 GenericTypographic 消除 MeasureString 默认留白，并对测量高度做 1px 容差防行数虚高
+        /// </summary>
+        public static int CountWrappedLines(Graphics g, string text, Font font, float width)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return 1;
+            }
+
+            using var format = new StringFormat(StringFormat.GenericTypographic);
+            var size = g.MeasureString(text, font, (int)Math.Max(1, width), format);
+            if (size.Height <= 0 || font.Height <= 0)
+            {
+                return 1;
+            }
+
+            return Math.Max(1, (int)Math.Ceiling((size.Height - 1f) / font.Height));
         }
 
         /// <summary>
@@ -127,19 +155,23 @@ namespace UiTopMachine.Views.Controls
                 g.DrawString($"PLC：{_plcStatusText}", statusFont, statusBrush, 26, 6);
             }
 
-            // ── 消息流 ──
+            // ── 消息流（超长消息自动换行：RectangleF 区域绘制 + 按内容实测动态行高）──
             float y = StatusRowHeight + 6;
+            float messageWidth = Math.Max(1, Width - MessageLeft - MessageRight);
             foreach (var item in _items)
             {
-                if (y + ItemHeight > Height)
+                int lines = CountWrappedLines(g, item.Message, msgFont, messageWidth);
+                float rowHeight = Math.Max(ItemHeight, lines * msgFont.Height + LineGap);
+                if (y + rowHeight > Height)
                 {
                     break;
                 }
 
                 g.DrawString(item.TimeText, timeFont, timeBrush, 10, y);
                 using var msgBrush = new SolidBrush(item.TextColor);
-                g.DrawString(item.Message, msgFont, msgBrush, 78, y - 1);
-                y += ItemHeight;
+                g.DrawString(item.Message, msgFont, msgBrush,
+                    new RectangleF(MessageLeft, y - 1, messageWidth, rowHeight + LineGap));
+                y += rowHeight;
             }
 
             // 空态提示
